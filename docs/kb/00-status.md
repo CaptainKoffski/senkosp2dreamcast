@@ -40,7 +40,7 @@ Charter + Phase 1 spec:
 - [ ] Repo scaffolding: .gitignore, CLAUDE.md, KB skeleton, playbook carried over
 - [ ] tooling.md — every tool verified + recorded (Flycast build, Ghidra, dat-extract)
 - [ ] senkosp.dat extracted from CHD, carve sanity-checked vs assessment
-- [ ] Boot verification: untouched game reaches attract in Flycast naomigd profile (screenshot in KB)
+- [x] Boot verification: untouched game reaches attract in Flycast naomigd profile (screenshot in KB)
 - [ ] Exit audit + fresh-agent test
 
 ## Key facts so far
@@ -56,6 +56,9 @@ Charter + Phase 1 spec:
 - Streaming is modest: 26.6 MiB per 600 s attract, steady 2.3 MB/min.
 - Guts flags to watch in Phase 3: `eeprom_bios`, `serial`, `rtc` (RTC is
   new vs Cleopatra — 3 MMIO refs).
+- Boot verification 2026-08-13: untouched romset reaches title + demo in the
+  reused fork build (`f014a410c`) on this machine —
+  `docs/kb/img/senkosp-{title,attract}.png`.
 
 ## Next step
 
