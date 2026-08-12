@@ -1,6 +1,6 @@
 # Project status
 
-**Updated:** 2026-08-13 (Phase 1 Foundation — in progress)
+**Updated:** 2026-08-13 (Phase 1 Foundation — DONE; gate green)
 
 ## What this is
 
@@ -28,7 +28,7 @@ Charter + Phase 1 spec:
 
 ## Phases
 
-1. **Foundation — IN PROGRESS** (repo, KB, tooling records, .dat, boot verification)
+1. **Foundation — DONE 2026-08-13** (repo, KB, tooling records, .dat, boot verification)
 2. Instrumented analysis (streaming/input/memory ground truth; the high-address DMA map)
 3. Reverse engineering (touchpoint addresses + patch plan; relocation strategy)
 4. Conversion (loader + shim + patch table → bootable GDI)
@@ -37,11 +37,11 @@ Charter + Phase 1 spec:
 
 ## Phase 1 checklist
 
-- [ ] Repo scaffolding: .gitignore, CLAUDE.md, KB skeleton, playbook carried over
-- [ ] tooling.md — every tool verified + recorded (Flycast build, Ghidra, dat-extract)
-- [ ] senkosp.dat extracted from CHD, carve sanity-checked vs assessment
+- [x] Repo scaffolding: .gitignore, CLAUDE.md, KB skeleton, playbook carried over
+- [x] tooling.md — every tool verified + recorded (Flycast build, Ghidra, dat-extract)
+- [x] senkosp.dat extracted from CHD, carve sanity-checked vs assessment
 - [x] Boot verification: untouched game reaches attract in Flycast naomigd profile (screenshot in KB)
-- [ ] Exit audit + fresh-agent test
+- [x] Exit audit + fresh-agent test
 
 ## Key facts so far
 
@@ -65,4 +65,10 @@ Charter + Phase 1 spec:
 
 ## Next step
 
-Finish Phase 1 per `docs/superpowers/plans/2026-08-13-phase1-foundation.md`.
+Phase 2 — instrumented analysis. Brainstorm + spec first (superpowers loop,
+per the playbook cadence): capture the cart-streaming map with DMA
+destinations (the >16 MB main-RAM placements are the port's central
+problem), RAM/VRAM/ARAM write-truth, and the input map, using the
+instrumented fork (`../flycast4naomi2dreamcast`, build recipe in
+`docs/kb/tooling.md`). The assessment sidecar + capture scripts in
+`../naomi2dreamcast/tools/assess/` are the starting harness.
