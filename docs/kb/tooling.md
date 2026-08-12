@@ -49,4 +49,28 @@ referenced, not duplicated — that file is part of this project's method.
 
 ### senkosp.dat
 
-(Filled by Task 3 — exact extraction commands + validation output.)
+Extraction (2026-08-13), from `../naomi2dreamcast/tools/dat-extract`:
+
+```
+cd ../naomi2dreamcast/tools/dat-extract
+./chd2dat.sh senkosp
+```
+
+Output:
+
+```
+OK  senkosp  <- 317-5123-com.pic   251342848 bytes -> /Users/captainkoffski/AntigravityProjects/naomi2dreamcast/tools/dat-extract/out/senkosp.dat
+```
+
+Copy into this repo + validate:
+
+```
+cd /Users/captainkoffski/AntigravityProjects/senkosp2dreamcast
+cp ../naomi2dreamcast/tools/dat-extract/out/senkosp.dat senkosp.dat
+head -c 16 senkosp.dat   # -> "NAOMI" magic, confirmed
+python3 ../cleopatra/scripts/parse_header.py senkosp.dat
+```
+
+Result: `senkosp.dat`, 251,342,848 bytes, gitignored (`*.dat` rule) — never
+committed. Full `parse_header.py` output recorded in `game.md` §"Parsed .dat
+header".

@@ -24,4 +24,26 @@ Identity facts sourced from `../naomi2dreamcast/assessments/senkosp.md`
 
 ## Parsed .dat header
 
-(Filled by Phase 1 Task 3 from `parse_header.py` output.)
+`python3 ../cleopatra/scripts/parse_header.py senkosp.dat` (2026-08-13):
+
+```
+- **File:** `senkosp.dat` (251,342,848 bytes)
+- **Magic:** `NAOMI`
+- **Publisher:** G.REV,LTD.
+- **Title (Japan):** SENKO NO RONDE SP
+- **Title (USA):** SENKO NO RONDE SP
+- **Title (Export):** SENKO NO RONDE SP
+- **Title (Korea):** SENKO NO RONDE SP
+- **Title (Australia):** SENKO NO RONDE SP
+- **Title (Reserved1):** SAMPLE GAME RESERVED 1
+- **Title (Reserved2):** SAMPLE GAME RESERVED 2
+- **Title (Reserved3):** SAMPLE GAME RESERVED 3
+- **Main load entries:**
+  - ROM 0x00000000 -> RAM 0x8c020000, 0x171ff8 bytes
+- **Test load entries:**
+  - ROM 0x00171ff8 -> RAM 0x8c020000, 0x4dc40 bytes
+- **Entrypoint (main):** 0x8c021000
+- **Entrypoint (test):** 0x8c021000
+```
+
+Matches assessment guts: base `0x8c020000`, entry `0x8c021000` ✓
