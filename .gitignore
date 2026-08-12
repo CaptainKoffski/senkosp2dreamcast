@@ -1,1 +1,9 @@
 /roms/
+/bios/
+/tools/
+*.dat
+*.chd
+*.gdi
+*.iso
+.DS_Store
+._*
