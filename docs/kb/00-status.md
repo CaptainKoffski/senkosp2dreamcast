@@ -58,7 +58,10 @@ Charter + Phase 1 spec:
   new vs Cleopatra — 3 MMIO refs).
 - Boot verification 2026-08-13: untouched romset reaches title + demo in the
   reused fork build (`f014a410c`) on this machine —
-  `docs/kb/img/senkosp-{title,attract}.png`.
+  `docs/kb/img/senkosp-{title,attract}.png` (title grab is the
+  title-sequence press-start/staff-credit frame, not the SP logo card — the
+  ~2 s logo window fell between samples; demo frame is the dispositive gate
+  evidence).
 
 ## Next step
 
