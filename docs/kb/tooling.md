@@ -74,3 +74,30 @@ python3 ../cleopatra/scripts/parse_header.py senkosp.dat
 Result: `senkosp.dat`, 251,342,848 bytes, gitignored (`*.dat` rule) — never
 committed. Full `parse_header.py` output recorded in `game.md` §"Parsed .dat
 header".
+
+### Phase 2 capture harness
+
+- **One leg = one run:** `scripts/capture_leg.sh <leg-name>` →
+  `captures/<leg-name>.log` (gitignored; primary data — the script refuses
+  to overwrite an existing leg). Instrumentation is env-gated
+  (`FLYCAST_CARTLOG`, `core/hw/naomi/cartlog.cpp`); same build as Phase 1,
+  fork frozen at `f014a410c`.
+- **Parse/merge:** `python3 scripts/parse_cartlog.py captures/*.log
+  [--csv docs/kb/cart-streaming-map.csv] [--attract-leg attract]
+  [--input-report] [--hw-report]` — exits nonzero on any failed CHECK.
+  Self-check: `cd scripts && python3 test_parse_cartlog.py` → `ok`.
+- **Launch/stop pattern (macOS has no `timeout(1)`):** background the leg,
+  wait out the duration, then kill by process match —
+  `scripts/capture_leg.sh <leg-name> & sleep <secs>; pkill -9 -f
+  "flycast-src.*Flycast"`. `capture_leg.sh` execs into Flycast, so the
+  `pkill` is what ends the run; a killed run mid-profile-scan is a valid
+  log (profiles are emitted every ~10 s).
+- **Attract leg (2026-08-19):** `scripts/capture_leg.sh attract & sleep
+  660; pkill -9 -f "flycast-src.*Flycast"` — 660 s unattended, 39 MB /
+  1,081,979 lines / 69 MAINPROFILE samples (~690 s covered). `CHECK
+  attract_anchor: PASS` — attract high-water `0x1fe7520` (33,453,344)
+  reproduces the assessment anchor exactly; all other CHECKs PASS,
+  `exit=0`.
+- Profile scans (32 MB main + 16 MB VRAM + 8 MB ARAM byte-diffs) fire every
+  ~600 vblanks (~10 s, `core/hw/naomi/naomi.cpp` cartlog_sample) — a brief
+  periodic stutter during play is the instrument, not the game.
