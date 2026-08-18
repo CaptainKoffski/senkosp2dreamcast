@@ -7,3 +7,4 @@
 *.iso
 .DS_Store
 ._*
+/captures/
