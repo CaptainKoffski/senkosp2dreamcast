@@ -45,7 +45,7 @@ added, and the log format is already parsed by
 - `SERIALPOKE` (`naomi.cpp:120`) and the game-code HW-poke log `HW[rw]`
   (`core/hw/mem/addrspace.cpp:136`). The HW log's PC filter
   (`0x0c020000–0x0c200000` physical) covers senkosp unchanged: carve base
-  `0x8c020000` + code 1,515,512 B ends at `0x0c1920f8`.
+  `0x8c020000` + code 1,515,512 B ends at `0x0c191ff8`.
 
 Logging is off unless `FLYCAST_CARTLOG=<path>` is set
 (`core/hw/naomi/cartlog.cpp`), so the same build serves plain play and
