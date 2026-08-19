@@ -36,21 +36,44 @@ Neutral JVS word baseline: `0000` (P1 digital word, all controls released).
 | Coin | A | n/a¹ | not in the 16-bit word — bit 19, `NAOMI_COIN_KEY = 1 << 19` (`maple_devs.h:98`), **source-derived**, not measured — see "Coin / Test" below |
 | Test | T | n/a¹ | not in the 16-bit word — bit 18, `NAOMI_TEST_KEY = 1 << 18` (`maple_devs.h:97`), **source-derived**, not measured — see "Coin / Test" below |
 
+¹ `MIERESP sub=15` never fires during any button hold in either leg — see
+"Why no MIE sub=15 byte.bit" below for the line-range evidence.
+
 ## OverDrive wire
 
-The user rebound OverDrive's key (D) to arcade Button 6, which Flycast's
-per-game control DB labels "Overdrive" for senkosp
-(`naomi_roms_input.h:475`, the `INPUT_5_BUTTONS` 5th-slot argument). That
-slot's *source* is `NAOMI_BTN5_KEY` (Button 6, `0x0010`), but senkosp's own
-descriptor entry is `{ NAOMI_BTN5_KEY, "OVER DRIVE", NAOMI_BTN4_KEY }` — the
-third field is a JVS-bit remap target, applied in
-`jvs_io_board::init_mappings()` / `read_digital_in()`
-(`maple_jvs.cpp:343-369`, `231-270`). So the bit actually placed on the wire
-is `NAOMI_BTN4_KEY` (Button 5, `0x0020`), not Button 6. The captured word
-confirms this directly: the OverDrive hold shows `0x0020`, exactly matching
-the source-level prediction made in stage A (`task-4-report.md`, "OverDrive
-alias") before this key was rebound — same final wire, reached by a
-different route.
+Per the stage-A config snapshot (frozen verbatim in `task-4-report.md`:
+`SDL_Keyboard_arcade.cfg:14`, `bind2 = 7:btn_y`, read before the capture),
+the D key was bound to `btn_y` — `DC_BTN_Y`. Flycast's own binding-UI table
+labels `DC_BTN_Y` "Button 5", not "Button 6" (`DC_BTN_Z` is "Button 6";
+`../flycast4naomi2dreamcast/core/ui/settings_controls.cpp:261-262`).
+`naomi_button_mapping[9]` (`maple_jvs.cpp:51`) maps `DC_BTN_Y` straight to
+`NAOMI_BTN4_KEY` — natively, no remap involved. That matches the measured
+result exactly: the OverDrive hold flips `0x0020` (`NAOMI_BTN4_KEY`), which
+is exactly what `DC_BTN_Y`'s own unremapped path produces.
+
+The `NAOMI_BTN5_KEY → NAOMI_BTN4_KEY` target remap in senkosp's own
+descriptor (`{ NAOMI_BTN5_KEY, "OVER DRIVE", NAOMI_BTN4_KEY }`,
+`naomi_roms_input.h:475`, applied in `jvs_io_board::init_mappings()` /
+`read_digital_in()`, `maple_jvs.cpp:343-369` / `231-270`) is real, but it
+explains a *different*, unused path: it's why the unbound `DC_BTN_Z`
+("Button 6" — the slot Flycast's per-game DB actually labels "Overdrive")
+would *also* land on `0x0020` if it were ever pressed, not why D's own press
+reaches that bit. D reaches `0x0020` on its own, via `DC_BTN_Y`, no remap
+needed.
+
+Note on a source conflict: the user's own recollection during the capture
+session was that D had been rebound "to button 6 marked Overdrive" in the
+settings UI — disagreeing with both the stage-A cfg snapshot above and the
+measured bit. A fresh read of the live `SDL_Keyboard_arcade.cfg` today
+(2026-08-19, after capture) shows a third state again —
+`bind3 = 7:btn_z` (D → `btn_z` / `DC_BTN_Z`) — confirming the file has been
+edited again since the capture and is not a stable citation source for what
+was bound *during* it. This doc follows the two things that are fixed and
+checkable for the capture itself — the stage-A snapshot and the measured
+word bit — which agree with each other (`DC_BTN_Y`, "Button 5", `0x0020`,
+no remap). The discrepancy with the user's recollection and with the
+current live file is recorded here, not resolved; resolving it would need a
+fresh, dated capture against the *current* binding.
 
 ## Why no MIE sub=15 byte.bit
 
@@ -58,17 +81,17 @@ different route.
 maple `MDC_JVSCommand` (`0x86`) DMA with sub-command `0x15`. In
 `input.log`: 826 occurrences total, matching 826 `MAPLEPC cmd=86 sub=15`
 entries one-for-one, clustering in two narrow windows (log lines
-~1,462–13,782 at boot/attract-entry, and ~109,079–119,099 at and after the
-Test-menu re-handshake) with **zero** occurring in lines 72,307–102,688 —
+1,463–13,783 at boot/attract-entry, and 109,080–119,099 at and after the
+Test-menu re-handshake) with **zero** occurring in lines 72,308–102,689 —
 the entire span covering all ten button holds measured in that leg. In
 `service-retest.log`: same shape — 376 occurrences, all within lines
-1,462–13,782 (the fresh boot handshake after relaunch), **zero** across the
-four Service press windows (lines 91,441–102,949). `JVSREPORT`
+1,463–13,783 (the fresh boot handshake after relaunch), **zero** across the
+four Service press windows (lines 91,442–102,950). `JVSREPORT`
 (`maple_jvs.cpp:2241`), by contrast, is unconditional inside the
 digital-read handler and fires throughout both legs (4,149 and 4,469 lines
 respectively), which is why it — not the raw MIE dump — is the only usable
 signal here. Confirmed by direct line-range counts against both capture
-files, not inferred.
+files (1-indexed, matching `grep -n`), not inferred.
 
 ## Service retest
 
@@ -77,10 +100,10 @@ no other inputs. All 4 are clean single-bit holds:
 
 | Press | Word transition |
 |---|---|
-| 1 | `0000→4000→0000` (log lines 91,441 / 92,673) |
-| 2 | `0000→4000→0000` (log lines 94,241 / 96,061) |
-| 3 | `0000→4000→0000` (log lines 97,741 / 99,477) |
-| 4 | `0000→4000→0000` (log lines 101,045 / 102,949) |
+| 1 | `0000→4000→0000` (log lines 91,442 / 92,674) |
+| 2 | `0000→4000→0000` (log lines 94,242 / 96,062) |
+| 3 | `0000→4000→0000` (log lines 97,742 / 99,478) |
+| 4 | `0000→4000→0000` (log lines 101,046 / 102,950) |
 
 `0x4000` = `NAOMI_SERVICE_KEY` (`maple_devs.h:78`) exactly — confirms
 verdict (a): Service reads normally on the attract screen. The zero-bit
@@ -110,8 +133,8 @@ fixes:
   confirmation: the test menu opened on press (operator-observed),
   independently corroborated by a full JVS bus re-handshake logged right
   after the press (ID-string re-request etc., `input.log` lines
-  ~109,079–109,183, structurally identical to the boot-time handshake at
-  lines ~1,462–1,782) — proof the input reached the system and changed game
+  109,080–109,184, structurally identical to the boot-time handshake at
+  lines 1,463–1,567) — proof the input reached the system and changed game
   mode, even without a byte.bit or word-bit value to show for it.
 
 ## Sanity
