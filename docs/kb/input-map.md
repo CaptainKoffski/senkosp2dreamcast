@@ -41,39 +41,45 @@ Neutral JVS word baseline: `0000` (P1 digital word, all controls released).
 
 ## OverDrive wire
 
-Per the stage-A config snapshot (frozen verbatim in `task-4-report.md`:
-`SDL_Keyboard_arcade.cfg:14`, `bind2 = 7:btn_y`, read before the capture),
-the D key was bound to `btn_y` — `DC_BTN_Y`. Flycast's own binding-UI table
-labels `DC_BTN_Y` "Button 5", not "Button 6" (`DC_BTN_Z` is "Button 6";
-`../flycast4naomi2dreamcast/core/ui/settings_controls.cpp:261-262`).
-`naomi_button_mapping[9]` (`maple_jvs.cpp:51`) maps `DC_BTN_Y` straight to
-`NAOMI_BTN4_KEY` — natively, no remap involved. That matches the measured
-result exactly: the OverDrive hold flips `0x0020` (`NAOMI_BTN4_KEY`), which
-is exactly what `DC_BTN_Y`'s own unremapped path produces.
+Capture-time binding: D → `DC_BTN_Z` ("Button 6" per Flycast's own
+binding-UI table — `DC_BTN_C`/`DC_BTN_Y`/`DC_BTN_Z` = "Button 3"/"Button
+5"/"Button 6", `../flycast4naomi2dreamcast/core/ui/settings_controls.cpp:259,261,262`).
+Three independent sources agree on this, not just one:
 
-The `NAOMI_BTN5_KEY → NAOMI_BTN4_KEY` target remap in senkosp's own
-descriptor (`{ NAOMI_BTN5_KEY, "OVER DRIVE", NAOMI_BTN4_KEY }`,
-`naomi_roms_input.h:475`, applied in `jvs_io_board::init_mappings()` /
-`read_digital_in()`, `maple_jvs.cpp:343-369` / `231-270`) is real, but it
-explains a *different*, unused path: it's why the unbound `DC_BTN_Z`
-("Button 6" — the slot Flycast's per-game DB actually labels "Overdrive")
-would *also* land on `0x0020` if it were ever pressed, not why D's own press
-reaches that bit. D reaches `0x0020` on its own, via `DC_BTN_Y`, no remap
-needed.
+1. User's in-session report: they remapped D "from button 5 (no marks) to
+   buttons 6 (It is marked in the emulator as Overdrive)" and tested it
+   in-game, before the capture.
+2. Live cfg, re-read by the controller after the capture:
+   `bind3 = 7:btn_z` (`SDL_Keyboard_arcade.cfg`) — D (scancode 7) →
+   `btn_z` → `DC_BTN_Z`. Not post-capture drift: this is the same state the
+   user's remap produced, corroborated by (1) and (3).
+3. Per-game DB label: `DC_BTN_Z` → `naomi_button_mapping[8]`
+   (`maple_jvs.cpp:50`, verified: `NAOMI_BTN5_KEY, // DC_BTN_Z`) →
+   `NAOMI_BTN5_KEY`, and senkosp's own descriptor names that slot
+   "OVER DRIVE" (`naomi_roms_input.h:475`) — exactly the label Flycast's
+   per-game control screen would show for that row, matching what the user
+   reported seeing.
 
-Note on a source conflict: the user's own recollection during the capture
-session was that D had been rebound "to button 6 marked Overdrive" in the
-settings UI — disagreeing with both the stage-A cfg snapshot above and the
-measured bit. A fresh read of the live `SDL_Keyboard_arcade.cfg` today
-(2026-08-19, after capture) shows a third state again —
-`bind3 = 7:btn_z` (D → `btn_z` / `DC_BTN_Z`) — confirming the file has been
-edited again since the capture and is not a stable citation source for what
-was bound *during* it. This doc follows the two things that are fixed and
-checkable for the capture itself — the stage-A snapshot and the measured
-word bit — which agree with each other (`DC_BTN_Y`, "Button 5", `0x0020`,
-no remap). The discrepancy with the user's recollection and with the
-current live file is recorded here, not resolved; resolving it would need a
-fresh, dated capture against the *current* binding.
+The round-1 fix's stage-A snapshot (`SDL_Keyboard_arcade.cfg:14`,
+`bind2 = 7:btn_y`, D → `DC_BTN_Y`, "Button 5") predates the user's remap —
+it was read before they touched the bindings — so it isn't in conflict with
+the above, it's simply superseded for capture-time purposes.
+
+Actual path for the measured `0x0020`: `DC_BTN_Z` →
+`naomi_button_mapping[8]` (`maple_jvs.cpp:50`) → `NAOMI_BTN5_KEY` →
+senkosp's own descriptor remap (`{ NAOMI_BTN5_KEY, "OVER DRIVE",
+NAOMI_BTN4_KEY }`, `naomi_roms_input.h:475`, applied in
+`jvs_io_board::init_mappings()` / `read_digital_in()`,
+`maple_jvs.cpp:343-369` / `231-270`) → final wire `NAOMI_BTN4_KEY`
+(`0x0020`).
+
+Why the bit alone could never settle this: `DC_BTN_Y`'s own path
+(`naomi_button_mapping[9]`, `maple_jvs.cpp:51`) reaches `NAOMI_BTN4_KEY`
+natively too, with no remap — so `0x0020` is consistent with D being bound
+to either `DC_BTN_Z` (remapped) or `DC_BTN_Y` (native). The measured bit
+can't discriminate between the two paths by itself; the user's testimony,
+the live cfg, and the per-game label all point to `DC_BTN_Z`, and all three
+agree with each other, which is what settles it.
 
 ## Why no MIE sub=15 byte.bit
 
