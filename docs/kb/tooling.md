@@ -146,3 +146,51 @@ header".
   - Both canary logs deleted after recording (`rm captures/canary-*.log`) —
     canary logs are the only deletable log class; all other `captures/*.log`
     are primary data.
+
+### Phase 3: flat-.dat boot control test (2026-08-20)
+
+- **Leg:** `scripts/capture_leg.sh phase3/datboot "$PWD/senkosp.dat" & sleep
+  120; pkill -9 -f "flycast-src.*Flycast"` — dynarec ON (default; the
+  wrapper's `FLYCAST_ENTRYPC` export is a no-op here since BIOSEXEC only
+  fires under the interpreter, §Phase 3 BIOSEXEC entry gate above). Log:
+  `captures/phase3/datboot.log` — leg name `phase3/datboot` per controller
+  ruling (Phase 3 legs live under `captures/phase3/` so the Phase 2 glob
+  `captures/*.log` never matches them; `capture_leg.sh`'s `mkdir -p
+  "$(dirname "$log")"` from Task 6 creates the nested dir). One attempt,
+  ran the full 120 s clean (no transient-crash retry needed).
+- **Health:** 181,754 log lines (~1,515 lines/s — same order of magnitude
+  as the Phase 2 attract leg's 1,081,979 lines / 660 s ≈ 1,639 lines/s, and
+  Task 6's canary-entry 105,480 lines / 90 s ≈ 1,172 lines/s; not
+  truncated/corrupted). Zero error/crash/panic/abort strings. Other
+  instrument classes present throughout — MDODMA 67,908, PVRW 54,720,
+  TAREG/TAEND 12,584 each, C2D 12,249, MIERESP/MAPLEPC/JVSREPORT, SOFWR,
+  WATERMARK, IMLWR, VRAMREGS/VRAMPROFILE — confirming a live run, not
+  silently dead.
+- **CARTDMA count:** `grep -c CARTDMA captures/phase3/datboot.log` = **158**
+  (79 pure `CARTDMA` transfers + 79 paired `CARTDMAPC` pc/sp lines) —
+  nonzero.
+- **First-tuple comparison vs the known-good zip boot** (`captures/
+  attract.log`, Phase 2): `diff <(grep "^CARTDMA" captures/phase3/
+  datboot.log | head -65) <(grep "^CARTDMA" captures/attract.log | head
+  -65)` → **empty diff, byte-identical** — the first 65 combined
+  `CARTDMA`+`CARTDMAPC` lines (33 CARTDMA tuples with their paired pc/sp)
+  match exactly, same src/dest/len/pc/sp sequence (well past the brief's
+  "first 50" / "more than 5" ask). Divergence starts at combined line 66:
+  `attract.log` (660 s run) contains extra streaming bursts absent at the
+  equivalent position in the shorter 120 s `datboot.log` run — expected
+  real-time scheduling variance between two runs of different length, not
+  a content mismatch. Confirms further: the tail of `datboot.log`'s own
+  158-line CARTDMA stream (its last 5 lines) matches byte-for-byte against
+  `attract.log`'s lines at the same relative position, i.e. both runs are
+  streaming the identical asset sequence.
+- **Visual confirmation:** `screencapture -x .../datboot-visual.png` fired
+  ~75 s into the window → `stderr: could not create image from display`
+  (screen locked / no active display session; operator asleep, per task
+  instructions). **Visual: pending operator confirmation — machine
+  locked.** Verdict rests on the CARTDMA tuple comparison alone, per the
+  task's operator-asleep ruling — not treated as a FAIL signal.
+- **Verdict: `.dat` boots identically: YES** — nonzero CARTDMA count +
+  byte-identical first-tuple sequence (33 tuples / 65 combined lines) vs
+  the known-good zip boot. Per the task's Interfaces block, this is the
+  dry-run vehicle decision: Tasks 11–12 patch and run `senkosp-reloc.dat`
+  directly; no `FLYCAST_PATCHSET` load-time patch-hook fallback needed.
