@@ -5,7 +5,7 @@
 Roster (from character-select screen, enumerated in-game 2026-08-19):
 - [x] Mika Mikli (Rounder: Ventuno II) — leg char-mika
 - [x] Baek Changpo (Rounder: Citronette) — leg char-baek
-- [ ] Cuilan (Rounder: Orangette) — leg char-cuilan
+- [x] Cuilan (Rounder: Orangette) — leg char-cuilan
 - [ ] Fabian the Fastman (Rounder: Graphride) — leg char-fabian
 - [ ] Sakurako Sanjo (Rounder: Triad) — leg char-sakurako
 - [ ] Lili Levinas (Rounder: Brinsta) — leg char-lili
