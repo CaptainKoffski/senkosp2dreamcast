@@ -9,7 +9,7 @@ Roster (from character-select screen, enumerated in-game 2026-08-19):
 - [x] Fabian the Fastman (Rounder: Graphride) — leg char-fabian
 - [x] Sakurako Sanjo (Rounder: Triad) — leg char-sakurako
 - [x] Lili Levinas (Rounder: Brinsta) — leg char-lili
-- [ ] Ernula (Rounder: Castrato) — leg char-ernula
+- [x] Ernula (Rounder: Castrato) — leg char-ernula
 - [ ] Karel Werfel (Rounder: Azureus) — leg char-karel
 
 ## Mode/option coverage
