@@ -3,7 +3,7 @@
 ## Coverage checklist (gate)
 
 Roster (from character-select screen, enumerated in-game 2026-08-19):
-- [ ] Mika Mikli (Rounder: Ventuno II) — leg char-mika
+- [x] Mika Mikli (Rounder: Ventuno II) — leg char-mika
 - [ ] Baek Changpo (Rounder: Citronette) — leg char-baek
 - [ ] Cuilan (Rounder: Orangette) — leg char-cuilan
 - [ ] Fabian the Fastman (Rounder: Graphride) — leg char-fabian
@@ -12,9 +12,15 @@ Roster (from character-select screen, enumerated in-game 2026-08-19):
 - [ ] Ernula (Rounder: Castrato) — leg char-ernula
 - [ ] Karel Werfel (Rounder: Azureus) — leg char-karel
 
-## Stages
+## Mode/option coverage
 
-(Rows added as seen in legs; a stage is ticked when seen in any leg.)
+Game has no stage select; per-credit choices are character, cartridge (loadout), novice yes/no, and mode. Arenas/opponents covered implicitly across character ladder (user report, 2026-08-19):
+- [x] Beginner mode (char-mika: one win + one loss)
+- [x] Score attack mode (char-mika: one run, loss)
+- [x] Game over + continue screen (char-mika: multiple)
+- [ ] Novice mode (leg novice — pending)
+
+Note: Cartridge loadouts varied across legs; no enumerated list in-game to gate on.
 
 ## Standing rows
 
