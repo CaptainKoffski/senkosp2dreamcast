@@ -7,7 +7,7 @@ Roster (from character-select screen, enumerated in-game 2026-08-19):
 - [x] Baek Changpo (Rounder: Citronette) — leg char-baek (beginner run with novice=yes)
 - [x] Cuilan (Rounder: Orangette) — leg char-cuilan
 - [x] Fabian the Fastman (Rounder: Graphride) — leg char-fabian
-- [ ] Sakurako Sanjo (Rounder: Triad) — leg char-sakurako
+- [x] Sakurako Sanjo (Rounder: Triad) — leg char-sakurako
 - [ ] Lili Levinas (Rounder: Brinsta) — leg char-lili
 - [ ] Ernula (Rounder: Castrato) — leg char-ernula
 - [ ] Karel Werfel (Rounder: Azureus) — leg char-karel
@@ -19,6 +19,7 @@ Game has no stage select; per-credit choices are character, cartridge (loadout),
 - [x] Score attack mode (char-mika: one run, loss)
 - [x] Game over + continue screen (char-mika: full continue → game-over sequence, continue timer waited out fully)
 - [x] Novice mode (covered inside leg char-baek — novice=yes on beginner credit, 2026-08-19)
+- [x] Draw / timer-out round (char-sakurako: timer-out on beginner first round)
 
 Note: Cartridge (battle-style) loadouts and outfits varied across legs; both have no enumerated lists in-game to gate on. Outfits are cosmetic variants, not exhaustively covered (known non-gated variation).
 
@@ -27,6 +28,7 @@ Note: Cartridge (battle-style) loadouts and outfits varied across legs; both hav
 - [x] Novice-mode run (covered inside leg char-baek — novice=yes on the beginner credit, 2026-08-19; other legs ran novice=no, so both variants are captured)
 - [ ] Test-menu leg (Task 6)
 - [x] Input leg (Task 4)
+- [ ] 2P stage sweep (leg 2p-stages)
 
 ---
 
