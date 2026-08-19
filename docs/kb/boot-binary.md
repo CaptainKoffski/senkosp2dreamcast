@@ -225,7 +225,15 @@ range `0x0`–`0x1fffff` (`inBios()`: `(v & 0x1fffffff) < 0x200000`):
 - **(b) Pool constants** — every defined 32-bit word in the listing whose
   value looks like a BIOS-range virtual address: P1 cached
   (`0x80000000`–`0x801fffff`) or P2 uncached (`0xa0000000`–`0xa01fffff`),
-  excluding the exact `0x80000000`/`0xa0000000` masks.
+  excluding the exact `0x80000000`/`0xa0000000` masks. That exclusion
+  (`ScanBiosTargets.java:40`, `p != 0`) is a residual hole: this image
+  contains two thunks (`0x8c0660f0` → `jmp @r3`, `0x8c066100` → `jmp @r2`,
+  same block as hit #3 below, both dispatching through the struct at
+  `0x8c1bf42c`) that compute their jump target as `0xa0000000 + <a runtime
+  struct field>` — the excluded pool literal `0xa0000000` plus a value
+  neither scan half can resolve, so if that field is ever `< 0x200000` this
+  is a BIOS-code call invisible to both halves. Task 9's dynamic
+  `no_bios_exec` check is the expected backstop if it ever fires.
 
 ### Result: 5 candidates (not NONE)
 
