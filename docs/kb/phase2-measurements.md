@@ -4,7 +4,7 @@
 
 Roster (from character-select screen, enumerated in-game 2026-08-19):
 - [x] Mika Mikli (Rounder: Ventuno II) — leg char-mika
-- [ ] Baek Changpo (Rounder: Citronette) — leg char-baek
+- [x] Baek Changpo (Rounder: Citronette) — leg char-baek
 - [ ] Cuilan (Rounder: Orangette) — leg char-cuilan
 - [ ] Fabian the Fastman (Rounder: Graphride) — leg char-fabian
 - [ ] Sakurako Sanjo (Rounder: Triad) — leg char-sakurako
@@ -20,7 +20,7 @@ Game has no stage select; per-credit choices are character, cartridge (loadout),
 - [x] Game over + continue screen (char-mika: full continue → game-over sequence, continue timer waited out fully)
 - [ ] Novice mode (leg novice — pending)
 
-Note: Cartridge loadouts varied across legs; no enumerated list in-game to gate on.
+Note: Cartridge (battle-style) loadouts and outfits varied across legs; both have no enumerated lists in-game to gate on. Outfits are cosmetic variants, not exhaustively covered (known non-gated variation).
 
 ## Standing rows
 
