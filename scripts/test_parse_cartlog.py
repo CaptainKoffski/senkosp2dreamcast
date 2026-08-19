@@ -112,4 +112,66 @@ with tempfile.TemporaryDirectory() as d:
     assert lines[0] == "leg,cart_offset,length,dest,mode,above_16m"
     assert "attract,0x00200000,0x7520,0x0dfe0000,DMA,1" in lines
 
+# PC layer: CARTDMAPC/MAPLEPC/BIOSEXEC lines + pc_checks() + --pc-report join
+PCLEG = """\
+CARTDMA src=00200000 dest=0dfe0000 len=7520
+CARTDMAPC pc=8c03bd28 sp=8cffff00
+CARTDMA src=00300000 dest=0d244c20 len=100
+CARTDMAPC pc=8c03bd30 sp=8cfffef0
+MAPLEPC cmd=86 sub=15 pc=8c031600
+MAPLEPC cmd=86 sub=01 pc=8c032000
+MAPLEPC cmd=86 sub=0b pc=8c032100
+"""
+
+legs = [P.parse_leg("pc", PCLEG)]
+cks = dict((n, ok) for n, ok, _ in P.pc_checks(
+    legs,
+    cart_fn=[(0x8C03BD00, 0x8C03BE00)],
+    input_fn=[(0x8C031000, 0x8C031FFF)],
+    eeprom_fn=[(0x8C032000, 0x8C032200)],
+    stack=[(0x8CFF0000, 0x8D000000)]))
+assert cks == {"no_bios_exec": True, "dma_pc_in_cart_fn": True,
+               "input_pc_in_input_fn": True, "eeprom_read_seen": True,
+               "eeprom_write_seen": True, "sp_consistent": True}, cks
+
+# cart-fn range excluding 8c03bd30 -> dma_pc_in_cart_fn fails
+cks = dict((n, ok) for n, ok, _ in P.pc_checks(
+    legs, cart_fn=[(0x8C03BD00, 0x8C03BD28)], input_fn=None,
+    eeprom_fn=None, stack=None))
+assert cks["dma_pc_in_cart_fn"] is False
+
+# a BIOSEXEC line fails no_bios_exec
+bad = [P.parse_leg("pc", PCLEG + "BIOSEXEC pc=8c000100\n")]
+cks = dict((n, ok) for n, ok, _ in P.pc_checks(bad, None, None, None, None))
+assert cks["no_bios_exec"] is False
+
+# SP outside the static stack region fails sp_consistent
+cks = dict((n, ok) for n, ok, _ in P.pc_checks(
+    legs, None, None, None, stack=[(0x8C000000, 0x8C100000)]))
+assert cks["sp_consistent"] is False
+
+# no PC lines at all -> no dmapc-derived checks fire (Phase 2 legs untouched)
+cks = dict((n, ok) for n, ok, _ in P.pc_checks(
+    [a, b], cart_fn=[(0x8C03BD00, 0x8C03BE00)], input_fn=None,
+    eeprom_fn=None, stack=None))
+assert cks["no_bios_exec"] is True         # no BIOSEXEC lines -> vacuous pass
+assert cks["dma_pc_in_cart_fn"] is True    # no dmapc lines -> vacuous pass (all() on empty)
+assert "sp_consistent" not in cks          # no dmapc lines -> heuristic/region test skipped
+
+# pcpairs: CARTDMAPC attaches to the immediately preceding CARTDMA
+assert legs[0]["pcpairs"] == [
+    (0x00200000, 0x0dfe0000, 0x7520, 0x8c03bd28, 0x8cffff00),
+    (0x00300000, 0x0d244c20, 0x100, 0x8c03bd30, 0x8cfffef0),
+]
+
+print("OK pc_checks self-check")
+
+# regression: Phase 2 fixtures (no PC lines) still parse identically —
+# re-assert the existing ATTRACT/PLAY expectations after the change.
+assert a["dmapc"] == [] and a["maplepc"] == [] and a["biosexec"] == [] and a["pcpairs"] == []
+assert P.main_hw(a["dma"]) == 33453344
+cks2 = dict((n, ok) for n, ok, _ in P.checks([a, b], rows, attract=a))
+assert cks2["dest_known"] and cks2["len_aligned_32"] and cks2["beyond_boot_read"]
+assert cks2["attract_anchor"] and cks2["merged_hw_bounds"]
+
 print("ok")

@@ -20,10 +20,16 @@ truth from the instrumented fork (../flycast4naomi2dreamcast @ f014a410c):
   MIERESP sub=%02x addr=%08x data=<hex>      maple_if.cpp:292
   JVSREPORT buttons=%04x                     maple_jvs.cpp:2241 (P1 digital word)
   HW[RW] pc=%08x addr=%08x val=%08x          addrspace.cpp:136 (game-code MMIO)
+  CARTDMAPC pc=%08x sp=%08x                  naomi.cpp:468-470, follows CARTDMA
+  MAPLEPC cmd=86 sub=%02x pc=%08x            maple_if.cpp caller PC, Phase 3
+  BIOSEXEC pc=%08x                           PC observed executing in BIOS window
 
 Usage:
   parse_cartlog.py captures/*.log [--csv OUT.csv] [--attract-leg NAME]
                    [--input-report] [--hw-report]
+                   [--cart-fn LO-HI[,LO-HI]] [--input-fn LO-HI[,LO-HI]]
+                   [--eeprom-fn LO-HI[,LO-HI]] [--stack LO-HI[,LO-HI]]
+                   [--pc-report]
 Exit: nonzero if any CHECK fails.
 """
 import argparse
@@ -56,6 +62,9 @@ _SER = re.compile(r"^SERIALPOKE addr=([0-9a-f]+) data=([0-9a-f]+)", re.I)
 _MIE = re.compile(r"^MIERESP sub=([0-9a-f]+) addr=([0-9a-f]+) data=([0-9a-f]*)", re.I)
 _JVS = re.compile(r"^JVSREPORT buttons=([0-9a-f]+)", re.I)
 _HW = re.compile(r"^HW([A-Z]) pc=([0-9a-f]+) addr=([0-9a-f]+) val=([0-9a-f]+)", re.I)
+_DMAPC = re.compile(r"^CARTDMAPC pc=([0-9a-f]+) sp=([0-9a-f]+)", re.I)
+_MPC = re.compile(r"^MAPLEPC cmd=86 sub=([0-9a-f]+) pc=([0-9a-f]+)", re.I)
+_BIOS = re.compile(r"^BIOSEXEC pc=([0-9a-f]+)", re.I)
 
 
 def _kv(s):
@@ -78,7 +87,8 @@ def region_of(dest):
 def parse_leg(name, text):
     leg = {"name": name, "dma": [], "pio": set(), "pio_bytes": 0, "wm": {},
            "prof": {}, "hist": {}, "regs": None, "serial": [], "mie": [],
-           "jvs": [], "hw": {}}
+           "jvs": [], "hw": {}, "dmapc": [], "pcpairs": [], "maplepc": [],
+           "biosexec": []}
     for line in text.splitlines():
         m = _DMA.match(line)
         if m:
@@ -140,6 +150,22 @@ def parse_leg(name, text):
             key = (m.group(1).upper(), int(m.group(3), 16))
             leg["hw"][key] = leg["hw"].get(key, 0) + 1
             continue
+        m = _DMAPC.match(line)
+        if m:
+            pc, sp = int(m.group(1), 16), int(m.group(2), 16)
+            leg["dmapc"].append((pc, sp))
+            if leg["dma"]:   # CARTDMAPC immediately follows its CARTDMA (naomi.cpp:468-470)
+                d = leg["dma"][-1]
+                leg["pcpairs"].append((d["src"], d["dest"], d["len"], pc, sp))
+            continue
+        m = _MPC.match(line)
+        if m:
+            leg["maplepc"].append((int(m.group(1), 16), int(m.group(2), 16)))
+            continue
+        m = _BIOS.match(line)
+        if m:
+            leg["biosexec"].append(int(m.group(1), 16))
+            continue
     return leg
 
 
@@ -196,6 +222,57 @@ def checks(legs, rows, attract=None):
         out.append(("merged_hw_bounds", ATTRACT_HW <= merged_hw <= 0x02000000,
                     f"merged high-water 0x{merged_hw:x} in [attract figure, 32 MB]"))
     return out
+
+
+def _ranges(s):
+    """Parse 'LO-HI[,LO-HI]' (P1 hex, no 0x) into [(lo, hi), ...]."""
+    out = []
+    for part in s.split(","):
+        lo, hi = part.split("-")
+        out.append((int(lo, 16), int(hi, 16)))
+    return out
+
+
+def _in(ranges, pc):
+    return any(lo <= pc <= hi for lo, hi in ranges)
+
+
+def pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack):
+    out = []
+    bios = [p for l in legs for p in l["biosexec"]]
+    out.append(("no_bios_exec", not bios,
+                f"{len(bios)} BIOSEXEC lines (expect 0)"))
+    dmapc = [p for l in legs for p, _ in l["dmapc"]]
+    if cart_fn:
+        out.append(("dma_pc_in_cart_fn", all(_in(cart_fn, p) for p in dmapc),
+                    f"{len(dmapc)} DMA-kick PCs vs cart fn"))
+    if input_fn:
+        pcs = [p for l in legs for s, p in l["maplepc"] if s == 0x15]
+        out.append(("input_pc_in_input_fn", bool(pcs) and all(_in(input_fn, p) for p in pcs),
+                    f"{len(pcs)} sub=15 PCs vs input fn"))
+    if eeprom_fn:
+        rd = [p for l in legs for s, p in l["maplepc"] if s in (0x01, 0x03)]
+        wr = [p for l in legs for s, p in l["maplepc"] if s == 0x0b]
+        out.append(("eeprom_read_seen", bool(rd) and all(_in(eeprom_fn, p) for p in rd),
+                    f"{len(rd)} sub=01/03 PCs vs eeprom fn"))
+        out.append(("eeprom_write_seen", bool(wr) and all(_in(eeprom_fn, p) for p in wr),
+                    f"{len(wr)} sub=0b PCs vs eeprom fn"))
+    sps = [sp for l in legs for _, sp in l["dmapc"]]
+    if sps:
+        if stack:
+            ok = all(_in(stack, sp) for sp in sps)
+            det = f"{len(sps)} SPs vs static stack region"
+        else:
+            ok = max(sps) - min(sps) < 0x100000
+            det = f"SP spread {max(sps) - min(sps):#x} (< 1 MB heuristic)"
+        out.append(("sp_consistent", ok, det))
+    return out
+
+
+def pc_report(legs):
+    lines = [f"PCPAIR dest={dest:08x} pc={pc:08x} sp={sp:08x}"
+             for l in legs for _, dest, _, pc, sp in l["pcpairs"]]
+    return "\n".join(lines)
 
 
 def high_map(rows):
@@ -333,6 +410,11 @@ def main(argv):
     ap.add_argument("--attract-leg")
     ap.add_argument("--input-report", action="store_true")
     ap.add_argument("--hw-report", action="store_true")
+    ap.add_argument("--cart-fn", help="LO-HI[,LO-HI] P1 hex, no 0x")
+    ap.add_argument("--input-fn", help="LO-HI[,LO-HI] P1 hex, no 0x")
+    ap.add_argument("--eeprom-fn", help="LO-HI[,LO-HI] P1 hex, no 0x")
+    ap.add_argument("--stack", help="LO-HI[,LO-HI] P1 hex, no 0x")
+    ap.add_argument("--pc-report", action="store_true")
     args = ap.parse_args(argv)
     legs = [parse_leg(os.path.splitext(os.path.basename(p))[0],
                       open(p, encoding="utf-8", errors="replace").read())
@@ -342,7 +424,15 @@ def main(argv):
     if args.attract_leg and attract is None:
         print(f"attract leg '{args.attract_leg}' not among logs", file=sys.stderr)
         return 2
+    cart_fn = _ranges(args.cart_fn) if args.cart_fn else None
+    input_fn = _ranges(args.input_fn) if args.input_fn else None
+    eeprom_fn = _ranges(args.eeprom_fn) if args.eeprom_fn else None
+    stack = _ranges(args.stack) if args.stack else None
     check_list = checks(legs, rows, attract=attract)
+    if cart_fn or input_fn or eeprom_fn or stack:
+        # PC checks run only when at least one PC-range flag is given, so a
+        # flag-less Phase 2 re-parse stays bit-identical (no extra CHECK lines).
+        check_list = check_list + pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack)
     all_pass = all(ok for _, ok, _ in check_list)
     if args.csv:
         if all_pass:
@@ -356,6 +446,8 @@ def main(argv):
         print(input_report(legs))
     if args.hw_report:
         print(hw_report(legs))
+    if args.pc_report:
+        print(pc_report(legs))
     return 0 if all_pass else 1
 
 
