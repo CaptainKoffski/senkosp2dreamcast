@@ -21,14 +21,14 @@ Game has no stage select; per-credit choices are character, cartridge (loadout),
 - [x] Novice mode (covered inside leg char-baek — novice=yes on beginner credit, 2026-08-19)
 - [x] Draw / timer-out round (char-sakurako: timer-out on beginner first round)
 
-Note: Cartridge (battle-style) loadouts and outfits varied across legs; both have no enumerated lists in-game to gate on. Outfits are cosmetic variants, not exhaustively covered (known non-gated variation).
+Note: Cartridge (battle-style) loadouts and outfits varied across legs; both have no enumerated lists in-game to gate on. Outfits are cosmetic variants, not exhaustively covered (known non-gated variation). Stages: 8 stages total (enumerated from 2P stage-select screen, 2026-08-19).
 
 ## Standing rows
 
 - [x] Novice-mode run (covered inside leg char-baek — novice=yes on the beginner credit, 2026-08-19; other legs ran novice=no, so both variants are captured)
 - [ ] Test-menu leg (Task 6)
 - [x] Input leg (Task 4)
-- [ ] 2P stage sweep (leg 2p-stages)
+- [x] 2P stage sweep (leg 2p-stages: all 8 stages played one round each; EXTENDED above-16-MB map floor from 0x145bd20 to 0x1244c20 — ~2.2 MB new territory; merged high-water unchanged at 0x1fe7520)
 
 ---
 
