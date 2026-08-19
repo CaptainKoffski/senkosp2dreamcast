@@ -132,9 +132,25 @@ not only the parser's aggregate — across **all 14 legs**, not just testmenu2.
 > and `scripts/capture_leg.sh:16` sets only `FLYCAST_CARTLOG` — so no leg ever
 > emitted an `HW[RW]` line for *any* address. `SERIALPOKE` = 0 remains valid
 > evidence, but it watches the Naomi **communication board**
-> (`0x5f7018`–`0x5f7028`), not the SH-4 SCIF. The device verdicts themselves
-> survive on static grounds; see `docs/kb/boot-binary.md`
-> §RTC / SCIF / watchdog for the replacement evidence and the re-run recipe.
+> (`0x5f7018`–`0x5f7028`), not the SH-4 SCIF.
+>
+> The **shim-or-ignore calls survive** on static grounds (see
+> `docs/kb/boot-binary.md` §RTC / SCIF / watchdog for the replacement evidence
+> and the re-run recipe), but three claims above do **not**:
+>
+> - The RTC row's "**Not touched at runtime anywhere in this campaign**" is
+>   unsupported — nothing measured it.
+> - The RTC row's prediction that the static refs would turn out to be
+>   "**dead/conditional code**" is **contradicted** for the read path.
+>   `FUN_8c067c82` reads the RTC from a periodic tick (`FUN_8c068034`, every
+>   16th call while G1 DMA is idle, exported through the thunk at
+>   `0x8c07157e`), so it almost certainly *did* fire during those 14 legs and
+>   simply went unrecorded. The prediction holds only for the *write* path,
+>   which Phase 3 found is real, complete, and genuinely unreferenced.
+> - The static ref count was low. The guts scan's "3 MMIO refs" is what a
+>   defined-data scan sees; the image holds **5**, the extra two being the
+>   write-enable and low-half registers of an RTC setter that sits in a
+>   Ghidra-undefined span.
 
 ---
 

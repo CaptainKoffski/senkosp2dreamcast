@@ -77,7 +77,8 @@ Charter + Phase 1 spec:
   6, one to spare.
 - Streaming is modest: 26.6 MiB per 600 s attract, steady 2.3 MB/min.
 - Guts flags to watch in Phase 3: `eeprom_bios`, `serial`, `rtc` (RTC is
-  new vs Cleopatra — 3 MMIO refs).
+  new vs Cleopatra — 3 MMIO refs; **Phase 3 found 5**, and closed the flag:
+  `docs/kb/boot-binary.md` §RTC / SCIF / watchdog).
 - Boot verification 2026-08-13: untouched romset reaches title + demo in the
   reused fork build (`f014a410c`) on this machine —
   `docs/kb/img/senkosp-{title,attract}.png` (title grab is the
@@ -106,6 +107,14 @@ Charter + Phase 1 spec:
     watchdog all **0 pokes** anywhere in the campaign — not touched. EEPROM
     (MIE `sub=0x0b`) confirmed BIOS-path: 32 ops, all in the test-menu leg
     only, 0 elsewhere.
+    **Retracted (Phase 3, Task 4):** the "0 pokes" half is a null instrument
+    — the probe emitting those lines is gated on `FLYCAST_HWLOG`, which
+    `scripts/capture_leg.sh:16` never sets, so no leg could have recorded a
+    poke to any address. Devices were re-decided statically instead
+    (all three: **ignore, no shim**); the RTC is in fact read on a live
+    periodic tick. See `docs/kb/phase2-measurements.md` §Device verdicts
+    correction and `docs/kb/boot-binary.md` §RTC / SCIF / watchdog. The
+    EEPROM row is unaffected (`MIERESP` is a separate, always-on probe).
   - Input map: 13/13 controls mapped (`docs/kb/input-map.md`).
 
 ## Next step
@@ -114,8 +123,9 @@ Phase 3 — reverse engineering. Brainstorm + spec first (superpowers loop,
 per the playbook cadence): find the touchpoint addresses behind Phase 2's
 measured behavior and decide the relocation-vs-streaming-retarget strategy
 for the 5 above-16m main-RAM streams and the tight-but-fitting VRAM budget;
-decide the shim/ignore call for serial/RTC/watchdog (0 runtime pokes,
-static-only guts refs); trace the EEPROM `sub=0x0b` handler (test-menu-only,
+decide the shim/ignore call for serial/RTC/watchdog (**done, Task 4: all
+three ignore** — decided statically, since the "0 runtime pokes" evidence
+was retracted above); trace the EEPROM `sub=0x0b` handler (test-menu-only,
 BIOS-path confirmed); finalize the control-layout choice from the closed
 input map. Inputs, all from this phase: `docs/kb/cart-streaming-map.md` +
 `.csv` (above-16m map, per-stream cart-offset provenance),

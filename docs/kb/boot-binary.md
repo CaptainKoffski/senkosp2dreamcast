@@ -308,7 +308,7 @@ its raw value before being counted as real:
 | `g1dma` | 10 | `0xa05f7418` ×5, `0xa05f7480/7484/7490/74a4/74b8` ×1 each | 10 |
 | `maple` | 11 | `0xa05f6c04` ×4, `0xa05f6c14` ×2, `0xa05f6c00/6c10/6c18/6c80/6c8c` ×1 each | 11 |
 | `pvr_fb` | 0 | — | 0 (see below) |
-| `rtc` | 3 | `0xa0710000` ×2, `0xa0710004` ×1 | 3 — matches the guts scan's "3 MMIO refs" (`docs/kb/00-status.md` §Key facts) |
+| `rtc` | 3 | `0xa0710000` ×2, `0xa0710004` ×1 | 3 *defined*; the image actually holds **5** — see below |
 | `scif` | 2 | `0xffe80020` ×1, `0xffe80000` ×1 | 2 |
 | `wdt` | 43 | `0x3fc00000` ×37, `0xbfc00000` ×4, `0xffc00004` ×2 | **0** |
 
@@ -339,7 +339,7 @@ for o in range(0,len(b)-3,4):
 | `g1dma` | 10 | 19 | 19 |
 | `maple` | 11 | 20 | 20 |
 | `pvr_fb` | 0 | 6 | 6 |
-| `rtc` | 3 | 16 | 3 (`0xa0710000/4`, plus one `0xa0710008`) |
+| `rtc` | 3 | 16 | **5** (`0xa0710000` ×2, `0xa0710004` ×2, `0xa0710008` ×1) |
 | `scif` | 2 | 37 | 2 |
 | `wdt` | 43 | 173 | 0 |
 
@@ -354,7 +354,16 @@ Three distinct blind spots, all confirmed:
    The cart pool words at `0x8c06642c`/`0x8c066430`/`0x8c06643c` and
    `0x8c066534`–`0x8c066544`, and the `SB_GDSTAR`/`SB_GDLEN`/`SB_GDDIR` words
    at `0x8c066554`–`0x8c06655c`, sit in those undefined spans and are
-   therefore missing from the Ghidra counts.
+   therefore missing from the Ghidra counts. **The same gap hides two of the
+   five RTC words**: `0x8c029ee8`–`0x8c029f5b` was undefined, so the pools at
+   `0x8c029fa4` (`0xa0710008`) and `0x8c029fac` (`0xa0710004`) — and the three
+   functions that load them — did not appear at all until the span was
+   force-disassembled (`DisasmRange.java <lo> <hi> force`, see §RTC). Note
+   that recovering the *code* does **not** close the gap: re-running
+   `FindMmioXrefs` afterwards still reports `rtc` = 3, because `run.sh script`
+   passes `-noanalysis` and nothing promotes those two words to *defined*
+   data. This is the blind spot that matters most: **a zero, or a low count,
+   from this scan is never on its own evidence of absence.**
 2. **Base-pointer access.** Registers reached as *base + displacement* are
    structurally invisible to a constant-range scan. This is why `pvr_fb` = 0:
    the only `FB_R_SOF1/2`/`FB_W_SOF1/2` words in the image
@@ -469,13 +478,26 @@ listed above.
 Static half of the device question (target 8). Classification per the plan:
 dead code / compile-time gated / reachable.
 
-**RTC — 3 refs, both sites reachable, reads only.**
+**RTC — 5 register words in 5 functions: 2 readers (reachable) and a complete
+3-function write path (unreferenced).**
 
-The 3 pool words are `0xa0710000` (`0x8c029f98`, `0x8c067ddc`) and
-`0xa0710004` (`0x8c067de0`). This is the **AICA RTC counter**, whose two
-halves are exactly what flycast serves at those offsets — `case 0:` returns
-`RealTimeClock >> 16`, `case 4:` returns `RealTimeClock & 0xFFFF`
-(`../flycast4naomi2dreamcast/core/hw/aica/aica_if.cpp:60-68`).
+`FindMmioXrefs` reports 3, because two of the words sit in a Ghidra-undefined
+span (blind spot (1) above). The image holds **five**:
+
+| Pool word | Value | Loaded at | Function | Direction |
+| --- | --- | --- | --- | --- |
+| `0x8c029f98` | `0xa0710000` | `0x8c029e9a` | `FUN_8c029e8c` | read (both halves, stride) |
+| `0x8c029fa4` | `0xa0710008` | `0x8c029ef0` | `0x8c029ee8`–`0x8c029f0f` | **write** (enable) |
+| `0x8c029fac` | `0xa0710004` | `0x8c029f1e` | `0x8c029f10`–`0x8c029f35` | **write** (low half) |
+| `0x8c029f98` | `0xa0710000` | `0x8c029f44` | `0x8c029f36`–`0x8c029f5b` | **write** (high half) |
+| `0x8c067ddc` / `0x8c067de0` | `0xa0710000` / `0xa0710004` | `0x8c067c82` / `0x8c067c86` | `FUN_8c067c82` | read |
+
+This is the **AICA RTC counter**, whose halves are exactly what flycast serves
+at those offsets — `case 0:` returns `RealTimeClock >> 16`, `case 4:` returns
+`RealTimeClock & 0xFFFF`, `case 8:` returns constant `0`
+(`../flycast4naomi2dreamcast/core/hw/aica/aica_if.cpp:60-68`). Offset 8 being
+read-as-zero is why a *load* of `0xa0710008` can only be a write-enable: there
+is nothing there to read.
 
 ```c
 // FUN_8c067c82 @8c067c82  body 8c067c82..8c067ca5
@@ -494,19 +516,60 @@ The second site is a debounced read: `FUN_8c029e8c` (`0x8c029e8c`–
 `0x8c029ee7`) passes `0xa0710000` to a generic reader
 (`(*(code *)PTR_FUN_8c029f9c)(DAT_8c029f98,&local_10,4,2,1,1)`) and
 recombines `hi<<16 | lo`; `FUN_8c029e00` calls it until three consecutive
-reads agree; `FUN_8c029a74`/`FUN_8c029a3c` sit above that. **No write to any
-RTC register exists anywhere in the image** — no `0xa0710008` store, which is
-the enable register flycast requires before a write takes effect
-(`aica_if.cpp:100`, `rtc_EN = data & 1`).
+reads agree; `FUN_8c029a74`/`FUN_8c029a3c` sit above that.
+
+**The write path.** Three sibling leaf functions immediately after
+`FUN_8c029e8c`, all structurally identical, all calling the *mirror* helper
+(pool `0x8c029fa8` = `0x8c02afe4`, versus the reader's `0x8c029f9c` =
+`0x8c02ac28`) with the MMIO address and buffer arguments **swapped** — `r4` =
+buffer, `r5` = register, `r6` = 4, `r7` = 1, where the reader passes `r4` =
+register, `r5` = buffer, `r7` = 2:
+
+```
+8c029ef0  mov.l 0x8c029fa4,r5      ; r5 = 0xa0710008   (write-enable)
+8c029ef4  mov.w r3,@r15            ; buffer = 1        (r3 = 1, immediate)
+8c029f02  jsr @r3                  ; r3 = [0x8c029fa8]
+8c029f1e  mov.l 0x8c029fac,r5      ; r5 = 0xa0710004   (low half),  buffer = param
+8c029f44  mov.l 0x8c029f98,r5      ; r5 = 0xa0710000   (high half), buffer = param
+```
+
+Their one caller, `0x8c029b04`–`0x8c029b55`, is a complete **RTC setter** that
+follows flycast's write protocol exactly (`aica_if.cpp:78-100`: offset 8 arms
+`rtc_EN`, offset 4 writes the low half, offset 0 writes the high half and
+clears the arm):
+
+```
+8c029b08  bsr 0x8c029b94           ; fetch the 32-bit value to set -> [r15]
+8c029b0c  bsr 0x8c029ee8           ; enable   ; bail via bf 0x8c029b4e on failure
+8c029b18  bsr 0x8c029f10           ; low half (extu.w r4,r4)
+8c029b26  bsr 0x8c029f36           ; high half (shlr16 r4; extu.w r4,r4)
+8c029b30  bsr 0x8c029e00           ; read back, accept value or value+1
+8c029b46  mov.l r4,@r2             ; on match, store to [0x8c029c18]; return 0 / -1
+```
+
+> **Classification: the write path is dead code.** `0x8c029b04` has **no
+> reference of any kind** in the image: no pool word anywhere in `boot.bin`
+> holds `0x8c029b04`, and no `bsr`/`bra` in the whole ±4 KB PC-relative reach
+> (`0x8c028b02`–`0x8c02ab00`, scanned raw) targets it. The three leaf writers
+> are likewise referenced only from inside it. The residual hole is the one
+> already disclosed in §BIOS-call verdict — a computed target no static scan
+> resolves.
 
 > **Verdict: RTC — ignore, no shim.** The register is not Naomi-specific:
 > flycast's area-0 handler maps `0x00710000`–`0x0071000b` to the AICA RTC
 > outside any `if constexpr (System == ...)` guard, i.e. identically for
 > Dreamcast, Naomi and Atomiswave
 > (`../flycast4naomi2dreamcast/core/hw/holly/sb_mem.cpp:118`, `:234`). Real
-> Dreamcast hardware answers these reads. Phase 3 therefore closes the
-> `rtc` guts flag: 3 refs, all reads, all of a register the target platform
-> has.
+> Dreamcast hardware answers these accesses. Phase 3 closes the `rtc` guts
+> flag: 5 words, 5 functions — 2 readers on live code paths, 3 writers behind
+> an unreferenced setter, and every one of them targets a register the DC has.
+>
+> **Phase 4 note:** an RTC *write* path does exist, contrary to what a
+> defined-data-only scan shows. If it is ever reached (computed target, or a
+> service-menu clock-set screen no capture leg visited), it writes the
+> **Dreamcast's own AICA RTC** — i.e. it would set the console clock. Not a
+> port blocker and not something to shim, but worth knowing before anyone
+> concludes an RTC store is a stray write.
 
 **SCIF — 2 refs; one boot-path pin init, one debug console.**
 
