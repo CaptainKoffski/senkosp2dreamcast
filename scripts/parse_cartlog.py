@@ -237,11 +237,13 @@ def _in(ranges, pc):
     return any(lo <= pc <= hi for lo, hi in ranges)
 
 
-def pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack):
-    out = []
+def _bios_check(legs):
     bios = [p for l in legs for p in l["biosexec"]]
-    out.append(("no_bios_exec", not bios,
-                f"{len(bios)} BIOSEXEC lines (expect 0)"))
+    return ("no_bios_exec", not bios, f"{len(bios)} BIOSEXEC lines (expect 0)")
+
+
+def pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack):
+    out = [_bios_check(legs)]
     dmapc = [p for l in legs for p, _ in l["dmapc"]]
     if cart_fn:
         out.append(("dma_pc_in_cart_fn", all(_in(cart_fn, p) for p in dmapc),
@@ -270,8 +272,17 @@ def pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack):
 
 
 def pc_report(legs):
-    lines = [f"PCPAIR dest={dest:08x} pc={pc:08x} sp={sp:08x}"
-             for l in legs for _, dest, _, pc, sp in l["pcpairs"]]
+    """Merged: dedup on the printed (dest, pc, sp) triple, first occurrence wins
+    (Task 10's corridor->PC join needs unique pairs, not raw per-leg duplicates)."""
+    seen = set()
+    lines = []
+    for l in legs:
+        for _, dest, _, pc, sp in l["pcpairs"]:
+            key = (dest, pc, sp)
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(f"PCPAIR dest={dest:08x} pc={pc:08x} sp={sp:08x}")
     return "\n".join(lines)
 
 
@@ -429,10 +440,14 @@ def main(argv):
     eeprom_fn = _ranges(args.eeprom_fn) if args.eeprom_fn else None
     stack = _ranges(args.stack) if args.stack else None
     check_list = checks(legs, rows, attract=attract)
+    # no_bios_exec is a safety tripwire: it runs on every parse, flags or not.
+    check_list.append(_bios_check(legs))
     if cart_fn or input_fn or eeprom_fn or stack:
-        # PC checks run only when at least one PC-range flag is given, so a
-        # flag-less Phase 2 re-parse stays bit-identical (no extra CHECK lines).
-        check_list = check_list + pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack)
+        # The other PC checks stay flag-gated: sp_consistent's 1 MB heuristic
+        # false-FAILs on merged dynarec-relocated PCs across ordinary legs, and
+        # the fn-range checks are meaningless without a range to test against.
+        check_list += [c for c in pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack)
+                       if c[0] != "no_bios_exec"]
     all_pass = all(ok for _, ok, _ in check_list)
     if args.csv:
         if all_pass:

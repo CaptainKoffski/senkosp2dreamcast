@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Self-check for parse_cartlog.py — synthetic two-leg logs, every line type."""
+import contextlib
+import io
 import os
 import tempfile
 
@@ -164,7 +166,33 @@ assert legs[0]["pcpairs"] == [
     (0x00300000, 0x0d244c20, 0x100, 0x8c03bd30, 0x8cfffef0),
 ]
 
+# --pc-report: merged/deduped on the printed (dest, pc, sp) triple, not raw
+# per-leg concatenation — two legs with the same pcpairs collapse to 2 lines,
+# not 4, order-preserving first occurrence.
+dup_legs = [P.parse_leg("pc1", PCLEG), P.parse_leg("pc2", PCLEG)]
+rep_lines = P.pc_report(dup_legs).splitlines()
+assert rep_lines == [
+    "PCPAIR dest=0dfe0000 pc=8c03bd28 sp=8cffff00",
+    "PCPAIR dest=0d244c20 pc=8c03bd30 sp=8cfffef0",
+], rep_lines
+
 print("OK pc_checks self-check")
+
+# no_bios_exec is unconditional: a flagless CLI parse must still print it
+# (it's a safety tripwire), while the flag-gated PC checks stay silent.
+with tempfile.TemporaryDirectory() as d:
+    logpath = os.path.join(d, "attract.log")
+    with open(logpath, "w", encoding="utf-8") as f:
+        f.write(ATTRACT + "CARTDMAPC pc=8c027f54 sp=8c00ee38\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = P.main([logpath, "--attract-leg", "attract"])
+    out = buf.getvalue()
+assert rc == 0
+assert out.count("CHECK no_bios_exec:") == 1
+assert "CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)" in out
+assert "dma_pc_in_cart_fn" not in out       # still flag-gated, no --cart-fn given
+assert "sp_consistent" not in out           # still flag-gated, no PC-range flag given
 
 # regression: Phase 2 fixtures (no PC lines) still parse identically —
 # re-assert the existing ATTRACT/PLAY expectations after the change.
