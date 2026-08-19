@@ -26,7 +26,7 @@ Note: Cartridge (battle-style) loadouts and outfits varied across legs; both hav
 ## Standing rows
 
 - [x] Novice-mode run (covered inside leg char-baek — novice=yes on the beginner credit, 2026-08-19; other legs ran novice=no, so both variants are captured)
-- [ ] Test-menu leg (Task 6)
+- [x] Test-menu leg (Task 6: legs testmenu + testmenu2, full walk with EEPROM ops observed, 2026-08-19)
 - [x] Input leg (Task 4)
 - [x] 2P stage sweep (leg 2p-stages: all 8 stages played one round each; EXTENDED above-16-MB map floor from 0x145bd20 to 0x1244c20 — 2,191,616 B (~2.1 MB) new territory; merged high-water unchanged at 0x1fe7520)
 
@@ -35,6 +35,15 @@ Note: Cartridge (battle-style) loadouts and outfits varied across legs; both hav
 - char-fabian (leg 1): startup crash (transient SH4 vmem "Verify Failed" — documented Cleopatra gotcha); one relaunch; merged data clean.
 - char-sakurako (leg 1): startup crash (transient SH4 vmem "Verify Failed"); one relaunch; merged data clean.
 - char-lili (leg 1): aborted by host-side PyCharm/terminal hang; partial log deleted, leg re-captured cleanly from scratch; merged data contains only the clean re-run.
+- testmenu (leg 1): service-menu RAM TEST hangs the instrumented fork; partial log kept as evidence (48,130 lines); full walk re-captured in testmenu2 with RAM test deliberately skipped — Phase 3 curiosity, recorded not interpreted.
+
+## Test-menu device evidence (raw)
+
+Leg testmenu2 (full walk, RAM test skipped):
+- MIERESP subcommand counts: sub=01 ×9, sub=03 ×9, sub=0b ×32 (EEPROM ops), sub=13 ×9, sub=15 ×12,483, sub=17 ×81, sub=21 ×21, sub=27 ×12,408, sub=31 ×12, sub=33 ×6,868, sub=ff ×3.
+- SERIALPOKE lines: 0 (no serial writes).
+- Game-code HW pokes (HWR/HWW from game PC range): 0 (no RTC/SCIF MMIO observed).
+- PIO bytes: 0x334b70 (vs. 0x172538 typical boot — menu bookkeeping screens do extra PIO reads).
 
 ---
 
