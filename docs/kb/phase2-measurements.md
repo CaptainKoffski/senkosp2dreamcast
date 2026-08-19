@@ -15,9 +15,9 @@ Roster (from character-select screen, enumerated in-game 2026-08-19):
 ## Mode/option coverage
 
 Game has no stage select; per-credit choices are character, cartridge (loadout), novice yes/no, and mode. Arenas/opponents covered implicitly across character ladder (user report, 2026-08-19):
-- [x] Beginner mode (char-mika: one win + one loss)
+- [x] Beginner mode (char-mika: progressed to stage 2 — won 2 rounds on stage 1, lost 2 on stage 2)
 - [x] Score attack mode (char-mika: one run, loss)
-- [x] Game over + continue screen (char-mika: multiple)
+- [x] Game over + continue screen (char-mika: full continue → game-over sequence, continue timer waited out fully)
 - [ ] Novice mode (leg novice — pending)
 
 Note: Cartridge loadouts varied across legs; no enumerated list in-game to gate on.
