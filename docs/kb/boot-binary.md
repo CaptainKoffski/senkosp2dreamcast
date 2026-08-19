@@ -207,3 +207,55 @@ the loader/shim needs GD-ROM syscalls *after* SP init, the collision has to be
 resolved (do the syscall work before the game's SP init, or relocate the
 game's stack via the one-constant patch site above). Flagged for Phase 4 —
 this is a low-RAM collision, unrelated to the above-16 MB relocation work.
+
+## BIOS-call verdict
+
+Static half of naomi-vs-dreamcast §8-3 ("does any call/jump/pool constant
+resolve into BIOS ROM?"). Evidence: `scripts/ghidra/run.sh script
+ScanBiosTargets.java` against the same `senkosp3` Ghidra project (image
+`0x8c020000`–`0x8c191ff7`). The script scans **both halves** of that
+question, over the whole image, for anything resolving into BIOS ROM phys
+range `0x0`–`0x1fffff` (`inBios()`: `(v & 0x1fffffff) < 0x200000`):
+
+- **(a) Resolved flow references** — every reference Ghidra's analyzer marks
+  as flow (`isFlow()`), i.e. `jsr`/`jmp @rN` targets it managed to resolve
+  through a literal pool. SH-4 `bsr`/`bra` are PC-relative ±4 KB and
+  structurally cannot reach BIOS from code based at `0x8c02xxxx`, so they are
+  excluded by construction, not by the scan (script header comment).
+- **(b) Pool constants** — every defined 32-bit word in the listing whose
+  value looks like a BIOS-range virtual address: P1 cached
+  (`0x80000000`–`0x801fffff`) or P2 uncached (`0xa0000000`–`0xa01fffff`),
+  excluding the exact `0x80000000`/`0xa0000000` masks.
+
+### Result: 5 candidates (not NONE)
+
+`RESULT: 5 candidate(s) — inspect each`. Per the spec, each is recorded here
+rather than dropped, with containing function and manual follow-up
+(`DisasmRange.java`, and direct byte reads of `tools/boot.bin` at
+`file offset = address − 0x8c020000`, same method used throughout this doc).
+
+| # | Kind | Address | Value/target | Containing fn | Use | Assessment |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | BIOSREF (`COMPUTED_JUMP`) | `0x8c1035b8` | to `0x0009402b` | `FUN_8c103408` (`0x8c103408`–`0x8c103a4b`) | `jmp @r0` ending a 5-way jump table: `shll2 r13; mova 0x8c1035bc,r0; mov.l @(r0,r13),r0; jmp @r0`, index bounds-checked `0<=r13<=4` by the two `cmp`/`bt`/`bf` pairs immediately before it | **Static-analysis artifact, not a real BIOS call.** The 5 actual table entries, read directly from `tools/boot.bin` at `0x8c1035bc`–`0x8c1035cf`: `0x8c1035d0, 0x8c103764, 0x8c103698, 0x8c103838, 0x8c103910` — all local code in/near the same function. None matches `0x0009402b`; Ghidra's `COMPUTED_JUMP` resolver produced a value that is not any of the table's real contents (the index `r13` is data-dependent, not a compile-time constant). |
+| 2 | POOLBIOS | `0x8c023b90` | `0x80000200` | `FUN_8c023aa4` | Not dereferenced: `mov.l 0x8c023b90,r1; shll16 r2; or r1,r2; mov.l r2,@r5` — folded into a composed word stored to memory | Coincidental VA-shaped literal (register/descriptor-style constant), never used as an address. |
+| 3 | POOLBIOS | `0x8c066120` | `0xa0060000` | `FUN_8c065ff0` | **Dereferenced**: `mov.l 0x8c066120,r1` → `mov.l @r1+,r4` in an 8-word compare loop (`and r6,r4; cmp/eq r0,r4`), value reloaded as `r6` for a `mov.l @r6+,r3` copy loop | **Real BIOS-range data access** — reads/copies words directly from P2-uncached phys `0x00060000` (inside the BIOS ROM span). Mandatory Task 9/10 follow-up: what Naomi BIOS holds there and whether it must be reproduced for the DC loader. |
+| 4 | POOLBIOS | `0x8c066ae0` | `0x80000300` | `FUN_8c066964` | Not dereferenced: `mov.l 0x8c066ae0,r3; mov.l r3,@-r1` — one of several values pushed the same way (others sourced from `r13`, a `.w` pool) building what looks like an argument list | Coincidental VA-shaped literal, never used as an address. |
+| 5 | POOLBIOS | `0x8c06711c` | `0xa01ffd00` | `FUN_8c067084` | **Dereferenced**: `mov.l 0x8c06711c,r6` → `mov.b @r6,r1` in a byte-compare loop | **Real BIOS-range data access** — byte reads from P2-uncached phys `0x001ffd00` (near the top of the 2 MB BIOS window). Mandatory Task 9/10 follow-up, same as #3. |
+
+Two of five (#3, #5) are genuine reads of BIOS-ROM *contents*; no hit is a
+`jsr`/`jmp` that actually resolves into BIOS *code* (the one flow-reference
+hit, #1, is contradicted by the jump table's real contents, read directly
+from the image). Two (#2, #4) are coincidental VA-shaped constants never
+used as addresses.
+
+> **Verdict: no confirmed BIOS-code call.** Two confirmed BIOS-ROM
+> *data* reads (phys `0x00060000`, `0x001ffd00`) carried forward as
+> mandatory Task 9/10 follow-ups — the Phase 4 loader must supply
+> equivalent data at those physical offsets (or reimplement whatever the
+> read is checking) for the port to work. The one computed-jump hit is
+> explained by manual verification as a scan/tooling artifact, not silently
+> dropped.
+
+Caveat (spec, verbatim): "a computed non-pool branch target could evade the
+static scan; the dynamic backstop covers executed paths only." Dynamic
+half: Task 9.
