@@ -267,3 +267,336 @@ used as addresses.
 Caveat (spec, verbatim): "a computed non-pool branch target could evade the
 static scan; the dynamic backstop covers executed paths only." Dynamic
 half: Task 9.
+
+## MMIO xref sweep — cart / G1 / Maple / PVR-FB / RTC / SCIF / WDT
+
+Evidence: `scripts/ghidra/run.sh script FindMmioXrefs.java` against the same
+`senkosp3` project. The script reports every instruction operand and every
+*defined* 32-bit data word whose value, masked `& 0x1fffffff`, lands in a
+watched physical block. Full output: `tools/mmio-xrefs.txt` (gitignored).
+
+Watched blocks (`FindMmioXrefs.java:13-22`), all physical:
+
+| Label | Range | What |
+| --- | --- | --- |
+| `cart` | `0x005f7000`–`0x005f7014` | Naomi ROM-board regs (`../flycast4naomi2dreamcast/core/hw/naomi/naomi_regs.h:9-14`) |
+| `g1dma` | `0x005f7400`–`0x005f74ff` | G1 / GD-DMA channel (`.../core/hw/holly/sb.h:150-183`) |
+| `maple` | `0x005f6c00`–`0x005f6cff` | Maple bus controller (`.../core/hw/holly/sb.h:116-135`) |
+| `pvr_fb` | `0x005f8050`–`0x005f8067` | `FB_R_SOF1/2`, `FB_W_SOF1/2` (`.../core/hw/pvr/pvr_regs.h:31-36`, offsets from PVR base `0x005f8000`) |
+| `rtc` | `0x00710000`–`0x0071ffff` | AICA RTC counter (`.../core/hw/holly/sb_mem.cpp:35`) |
+| `scif` | `0x1fe80000`–`0x1fe8ffff` | SH-4 SCIF (`.../core/hw/sh4/sh4_mmr.h:382-406`) |
+| `wdt` | `0x1fc00000`–`0x1fc000ff` | SH-4 WDT `WTCNT`/`WTCSR` (`.../core/hw/sh4/sh4_mmr.h:235,:238`) |
+
+In the listings below, everything up to the `;` is verbatim script output;
+text after a `;` is annotation added here. Every pool word quoted was
+re-read byte-for-byte from `tools/boot.bin` (file offset = address −
+`0x8c020000`).
+
+### Hit counts, and the raw-value triage
+
+`TOTAL hits=72`, all of them `POOL` (literal-pool words); zero `XREF`
+(instruction-operand) hits — senkosp materialises every MMIO address through
+a pc-relative pool load, never as an inline scalar.
+
+The `& 0x1fffffff` mask that makes the scan catch P1/P2 mirrors also makes it
+catch *any* word sharing those low 29 bits, so each hit was resolved back to
+its raw value before being counted as real:
+
+| Block | Hits | Raw pool values | Real MMIO refs |
+| --- | --- | --- | --- |
+| `cart` | 3 | `0xa05f7000` ×1, `0xa05f700c` ×2 | 3 |
+| `g1dma` | 10 | `0xa05f7418` ×5, `0xa05f7480/7484/7490/74a4/74b8` ×1 each | 10 |
+| `maple` | 11 | `0xa05f6c04` ×4, `0xa05f6c14` ×2, `0xa05f6c00/6c10/6c18/6c80/6c8c` ×1 each | 11 |
+| `pvr_fb` | 0 | — | 0 (see below) |
+| `rtc` | 3 | `0xa0710000` ×2, `0xa0710004` ×1 | 3 — matches the guts scan's "3 MMIO refs" (`docs/kb/00-status.md` §Key facts) |
+| `scif` | 2 | `0xffe80020` ×1, `0xffe80000` ×1 | 2 |
+| `wdt` | 43 | `0x3fc00000` ×37, `0xbfc00000` ×4, `0xffc00004` ×2 | **0** |
+
+> **Verdict: zero watchdog references.** `WTCNT` (`0xffc00008`) and `WTCSR`
+> (`0xffc0000c`) do not appear anywhere in the image. All 43 `wdt`-block hits
+> are false positives of the 29-bit mask: 41 are the IEEE-754 float constants
+> `1.5f` (`0x3fc00000`) and `-1.5f` (`0xbfc00000`), and the remaining 2 are
+> `0xffc00004` = **CPG `STBCR`**, not WDT
+> (`../flycast4naomi2dreamcast/core/hw/sh4/sh4_mmr.h:232`) — both inside the
+> serial driver (see §RTC / SCIF / watchdog).
+
+### Coverage limits of this scan (read before trusting a zero)
+
+An independent raw scan of every 4-byte-aligned word in `tools/boot.bin`
+finds strictly more MMIO-shaped words than Ghidra reports, because
+`FindMmioXrefs` only sees *defined* data and *disassembled* operands:
+
+```sh
+python3 -c 'import struct;b=open("tools/boot.bin","rb").read()
+for o in range(0,len(b)-3,4):
+ v=struct.unpack_from("<I",b,o)[0];p=v&0x1fffffff
+ if 0x5f7000<=p<=0x5f7014: print("%08x %08x"%(0x8c020000+o,v))'
+```
+
+| Block | Ghidra hits | Raw-scan words in range | Of those, plausible MMIO addresses |
+| --- | --- | --- | --- |
+| `cart` | 3 | 11 | 11 |
+| `g1dma` | 10 | 19 | 19 |
+| `maple` | 11 | 20 | 20 |
+| `pvr_fb` | 0 | 6 | 6 |
+| `rtc` | 3 | 16 | 3 (`0xa0710000/4`, plus one `0xa0710008`) |
+| `scif` | 2 | 37 | 2 |
+| `wdt` | 43 | 173 | 0 |
+
+Three distinct blind spots, all confirmed:
+
+1. **Undefined data.** Ghidra's auto-analysis left large spans of the
+   hardware-driver block undisassembled and undefined — `Decomp.java` reports
+   `NO FUNCTION` at `0x8c0663a8`, `0x8c0663c8`, `0x8c066400`, `0x8c066460`,
+   `0x8c0664cc`, `0x8c0664e0`, `0x8c066500`, `0x8c066564`, `0x8c0665a0`,
+   `0x8c0665e0`, and `DisasmRange.java 0x8c0663a8 0x8c066600` returns
+   instructions only for `0x8c0664b4`–`0x8c0664ca` and `0x8c0665f0`–onward.
+   The cart pool words at `0x8c06642c`/`0x8c066430`/`0x8c06643c` and
+   `0x8c066534`–`0x8c066544`, and the `SB_GDSTAR`/`SB_GDLEN`/`SB_GDDIR` words
+   at `0x8c066554`–`0x8c06655c`, sit in those undefined spans and are
+   therefore missing from the Ghidra counts.
+2. **Base-pointer access.** Registers reached as *base + displacement* are
+   structurally invisible to a constant-range scan. This is why `pvr_fb` = 0:
+   the only `FB_R_SOF1/2`/`FB_W_SOF1/2` words in the image
+   (`0x8c15c798`–`0x8c15c7ac`) are entries in a register-address *table*, and
+   the PVR base `0xa05f8000` is loaded once as a pool word at `0x8c032160`.
+   Same mechanism inside the serial driver: it reaches SCIF through a pointer
+   (`0x8c02cbb4` → `0x8c15c938` → `0xffe80000`), so only the pointer's target
+   word is visible, not the individual register accesses.
+3. **Data tables.** A block of MMIO addresses used as *data* lives at
+   `0x8c15c3e8`–`0x8c15c7b4` (a `(register, value)` init-pair list, then a
+   flat register-address list). These are real references to the registers but
+   are not code sites.
+
+> **Verdict: `pvr_fb` = 0 is a scan limitation, not an absence.** senkosp
+> does place framebuffers; it just never loads `FB_*_SOF*` as a whole-address
+> pool constant. Framebuffer placement must be traced through the PVR base
+> pointer (`0x8c032160`) or dynamically, not by constant xref.
+
+### Candidates
+
+Candidate function ranges for Task 9 to prove (`--cart-fn` / `--input-fn` /
+`--eeprom-fn`). P1 hex, inclusive. These are **candidates**: derived
+statically from where the register constants live, unproven until Task 9
+drives them.
+
+```
+cart_fn: 0x8c0661e0-0x8c066560,0x8c0678c2-0x8c067e18
+input_fn: 0x8c0665fe-0x8c066b0f
+eeprom_fn: 0x8c0665fe-0x8c066b0f
+```
+
+**Why these bounds are spans, not Ghidra function bodies.** Every recovered
+body in this block is truncated relative to the pool words its own code
+loads — e.g. `FUN_8c0664b4` has body `0x8c0664b4`–`0x8c0664cb` (24 bytes) yet
+its two instructions load pools at `0x8c066530` and `0x8c066550`, and the
+gaps between bodies are the undefined spans of blind spot (1) above. Each
+range is therefore taken as *the contiguous span from the end of the last
+cleanly-recovered function before the block to the last register pool word in
+it*, which is the smallest window guaranteed to contain the whole driver.
+
+`cart_fn` range 1 — `0x8c0661e0`–`0x8c066560`. LO = first byte after
+`FUN_8c0661b2`'s body end (`0x8c0661df`); HI = last G1 pool word
+`0x8c06655c` + 4. Contains all 11 `cart`-block and 12 of the 19 `g1dma`-block
+words, plus the two recovered functions in it:
+
+- `FUN_8c066288` (`0x8c066288`–`0x8c066395`) — **G1 bus-timing setup.** Takes
+  a clock/speed parameter and, per a 7-way `if/else` on it, writes
+  `SB_GDAPRO` (`0xa05f74b8`), `SB_G1RRC`/`SB_G1RWC` (`0xa05f7480`/`7484`),
+  `SB_G1CRC` (`0xa05f7490`) and `SB_G1GDWC` (`0xa05f74a4`).
+- `FUN_8c0664b4` (`0x8c0664b4`–`0x8c0664cb`) — **cart DMA arm.**
+  `if (*SB_GDST != 0) return 0; *NAOMI_DMA_OFFSETH = <const>; return 1;`
+  (`SB_GDST` = `0xa05f7418`, `NAOMI_DMA_OFFSETH` = `0xa05f700c`). The
+  `SB_GDSTAR`/`SB_GDLEN`/`SB_GDDIR` and `NAOMI_ROM_OFFSETH/L`/
+  `NAOMI_ROM_DATA`/`NAOMI_DMA_OFFSETL`/`NAOMI_DMA_COUNT` words follow at
+  `0x8c066534`–`0x8c06655c`, in the undefined span — i.e. the real cart-read
+  routine extends past `0x8c0664cb`.
+
+`cart_fn` range 2 — `0x8c0678c2`–`0x8c067e18`. The layer above: three
+recovered wrappers that spin on `SB_GDST` and then dispatch through a
+function pointer — `FUN_8c0678c2`, `FUN_8c0679b4`, `FUN_8c067b48` — plus
+their shared pool area holding the remaining four `0xa05f7418` words
+(`0x8c067970`, `0x8c067adc`, `0x8c067c44`, `0x8c067e14`). Note this range
+also encloses the RTC reader `FUN_8c067c82` (below); that is expected, they
+are neighbours in the same runtime library.
+
+`input_fn` / `eeprom_fn` — `0x8c0665fe`–`0x8c066b0f`, the union of the two
+recovered maple functions and the pool gap between them. **Input and EEPROM
+share this path**, so both names resolve to the same range, per the plan's
+"record both names anyway":
+
+- `FUN_8c066964` (`0x8c066964`–`0x8c066b0f`) — **maple init + first
+  transaction.** Writes `NAOMI_DMA_OFFSETH` (`0xa05f700c`), then
+  `SB_MDEN = 0` (`0xa05f6c14`), `SB_MDAPRO` (`0xa05f6c8c`), `SB_MSYS`
+  (`0xa05f6c80`), `SB_MDTSEL = 0` (`0xa05f6c10`), `SB_MDSTAR` = command-table
+  address (`0xa05f6c04`), builds a maple frame, then `SB_MDEN = 1`,
+  `SB_MDST = 1` (`0xa05f6c18`), polls `SB_MDST` to zero, `SB_MDEN = 0`.
+  Reached from the system init `FUN_8c085b00` via the thunk at `0x8c06f9d0`
+  (pool `0x8c085bb4`).
+- `FUN_8c0665fe` (`0x8c0665fe`–`0x8c06694b`) — **maple device scan**, called
+  at the end of `FUN_8c066964`; same DMA sequence in a retry loop, walking
+  `0x18`-byte response records. This is the JVS/MIE enumeration Phase 2 saw
+  as `MIERESP sub=0x01`/`0x03` in every leg
+  (`docs/kb/phase2-measurements.md` §Device verdicts).
+
+The EEPROM path (`MIERESP sub=0x0b`, test-menu only — same source) is *not* a
+separate MMIO path: it is a different maple *frame payload* pushed through
+this same DMA. The `sub=0x0b` frame builder is higher-level code with no MMIO
+constant of its own, so this scan cannot name it; it needs the MIE-response
+trace, not an xref.
+
+**MMIO sites deliberately outside the ranges** (recorded so nothing is
+silently dropped):
+
+- `FUN_8c02751a` (`0x8c02751a`–`0x8c02751f`) — `return DAT_8c0275e8;`, i.e. a
+  one-line accessor returning the constant `0xa05f7000`. Never dereferences
+  it; not a cart access.
+- `FUN_8c026b30` (`0x8c026b30`–`0x8c026b3b`) — stores the constant
+  `0xa05f6c00` into a struct field. Records the maple base somewhere; not an
+  access.
+- `0x8c066a88` (`0xa05f700c`) is a `cart`-block site that falls in
+  `input_fn`, not `cart_fn`: it is the `NAOMI_DMA_OFFSETH` write inside the
+  maple init `FUN_8c066964`, not part of the cart-read path.
+- `0x8c15c3e8`–`0x8c15c7b4` and `0x8c15c938` — the register-address data
+  tables of blind spot (3).
+
+Together those account for every one of the 11 `cart`, 19 `g1dma` and 20
+`maple` words the raw scan finds: each is either inside a candidate range or
+listed above.
+
+### RTC / SCIF / watchdog
+
+Static half of the device question (target 8). Classification per the plan:
+dead code / compile-time gated / reachable.
+
+**RTC — 3 refs, both sites reachable, reads only.**
+
+The 3 pool words are `0xa0710000` (`0x8c029f98`, `0x8c067ddc`) and
+`0xa0710004` (`0x8c067de0`). This is the **AICA RTC counter**, whose two
+halves are exactly what flycast serves at those offsets — `case 0:` returns
+`RealTimeClock >> 16`, `case 4:` returns `RealTimeClock & 0xFFFF`
+(`../flycast4naomi2dreamcast/core/hw/aica/aica_if.cpp:60-68`).
+
+```c
+// FUN_8c067c82 @8c067c82  body 8c067c82..8c067ca5
+*(int *)*DAT_8c067de4 =
+     ((*DAT_8c067ddc << 0x10 | *DAT_8c067de0 & 0xffff) - *DAT_8c067de8) +
+     ((int *)*DAT_8c067de4)[1];        ; hi<<16 | lo  ->  32-bit RTC seconds
+```
+
+Reachable, not dead: its caller `FUN_8c068034` (`0x8c068034`–`0x8c0680b7`)
+is a periodic tick that, every 16th call and only while G1 DMA is idle, calls
+it through the pointer at `0x8c0680d0` (= `0x8c067c82`, verified in the
+image); the busy test at `0x8c0680c4` is `FUN_8c066396`, the `SB_GDST`
+reader. `FUN_8c068034` is itself exported through the thunk at `0x8c07157e`.
+
+The second site is a debounced read: `FUN_8c029e8c` (`0x8c029e8c`–
+`0x8c029ee7`) passes `0xa0710000` to a generic reader
+(`(*(code *)PTR_FUN_8c029f9c)(DAT_8c029f98,&local_10,4,2,1,1)`) and
+recombines `hi<<16 | lo`; `FUN_8c029e00` calls it until three consecutive
+reads agree; `FUN_8c029a74`/`FUN_8c029a3c` sit above that. **No write to any
+RTC register exists anywhere in the image** — no `0xa0710008` store, which is
+the enable register flycast requires before a write takes effect
+(`aica_if.cpp:100`, `rtc_EN = data & 1`).
+
+> **Verdict: RTC — ignore, no shim.** The register is not Naomi-specific:
+> flycast's area-0 handler maps `0x00710000`–`0x0071000b` to the AICA RTC
+> outside any `if constexpr (System == ...)` guard, i.e. identically for
+> Dreamcast, Naomi and Atomiswave
+> (`../flycast4naomi2dreamcast/core/hw/holly/sb_mem.cpp:118`, `:234`). Real
+> Dreamcast hardware answers these reads. Phase 3 therefore closes the
+> `rtc` guts flag: 3 refs, all reads, all of a register the target platform
+> has.
+
+**SCIF — 2 refs; one boot-path pin init, one debug console.**
+
+- `0xffe80020` = `SCIF_SCSPTR2` (`.../core/hw/sh4/sh4_mmr.h:406`), pool
+  `0x8c02c5e4`, written `0xc0` by `FUN_8c02c584` (`0x8c02c584`–`0x8c02c5d1`).
+  That function is the machine bring-up: it also zeroes `0xffd00000`–
+  `0xffd0000c` (SH-4 INTC) and then walks the `(register, value)` init-pair
+  table at `0x8c15c3e8` — a single `SCSPTR2` write parking the serial pin, on
+  the boot path (`FUN_8c085b00` → `FUN_8c02c37c` → `FUN_8c02c584`).
+- `0xffe80000` = `SCIF_SCSMR2`, the SCIF register base
+  (`.../core/hw/sh4/sh4_mmr.h:382`). It is not a code pool at all: it is the
+  data word at `0x8c15c938`, pointed to by the pool at `0x8c02cbb4`. The
+  sibling word `0x8c15c934` holds `0xffe00000`, the **SCI** base
+  (`SCI_SCSCR1_addr 0x1FE00008`, `.../sh4_mmr.h:361`) — the driver picks one
+  of the two at runtime from a flag.
+
+What that driver is, from the decompilation:
+
+```c
+// FUN_8c02ca74 @8c02ca74 — serial putchar
+do { } while ((*(ushort *)(*(int *)PTR_DAT_8c02cbb4 + 0x10) & 0x20) != 0x20);  ; wait SCFSR2.TDFE
+*(undefined1 *)(*(int *)PTR_DAT_8c02cbb4 + 0xc) = param_1;                     ; write SCFTDR2
+...
+do { } while ((*(ushort *)(*(int *)puVar1 + 0x10) & 0x40) != 0x40);            ; wait SCFSR2.TEND
+```
+
+`+0x10` = `SCFSR2`, `+0xc` = `SCFTDR2` (`.../sh4_mmr.h:391,394`); bit `0x20`
+= `TDFE`, bit `0x40` = `TEND` (`.../sh4_mmr.h:1185-1204`). Above it sit
+`FUN_8c02cba6` (puts) and `FUN_8c02cbdc` (hex printer), and their one real
+consumer is `FUN_8c02c5ec` (`0x8c02c5ec`–`0x8c02c823`), a **crash dump**:
+it prints `"---- ADDRESS CHECKER TRAP ----"`, then `FR0-7:`, `FR8-15:`,
+`FPUL:`, `FPSCR:`, `R0-7:`, `R8-15:`, `MACL:`, `MACH:`, `VBR:`, `GBR:`,
+`DBR:`, `PR:`, `PC:`, `SR:`, a 0x45-entry table, then
+`"Please cancel the interrupt from ..."` and blocks reading serial until it
+receives `'\r'`. Its two callers (`0x8c02c8f2`, `0x8c02c9a4`) are not inside
+any recognised function — exception-vector stubs.
+
+The two `0xffc00004` words belong to the same driver and are the CPG
+`STBCR`, not the WDT: `FUN_8c02c9ac` (serial init) does
+`*DAT_8c02ca88 = *DAT_8c02ca88 & 0xfe` — clear bit 0 — before programming
+the port, and `FUN_8c02cb50` (serial teardown) does
+`*DAT_8c02cbc8 = *DAT_8c02cbc8 | 1` — set bit 0 — after. Module-stop-style
+gating of the serial block around its use.
+
+> **Verdict: SCIF — ignore, no shim.** One boot-path write of `0xc0` to
+> `SCSPTR2` (idles the TX pin) plus a developer crash-dump console reachable
+> only from an exception vector. Neither needs anything from the Dreamcast
+> port: the DC has the same SH-4 SCIF at the same P4 addresses, so even if the
+> trap handler fires the writes land on real hardware and are harmless. No
+> game logic depends on a reply — the only serial *read* is the crash
+> handler's "press Enter" loop, which is already a dead end on a cabinet with
+> nothing attached.
+
+**Watchdog — 0 refs.** See the `wdt` verdict above; nothing to shim, nothing
+to ignore.
+
+#### Cross-check against Phase 2 — and a correction to it
+
+`docs/kb/phase2-measurements.md` §Device verdicts records `HW[RW]` = 0 for
+`rtc` and `scif` across all 14 legs. That zero cannot be used as evidence
+either way, because **the probe that emits `HW[RW]` was never enabled during
+the campaign**: `cartlog_hwaccess()` returns immediately unless the
+environment variable `FLYCAST_HWLOG` is set
+(`../flycast4naomi2dreamcast/core/hw/mem/addrspace.cpp:118-120`), and
+`scripts/capture_leg.sh:16` sets only `FLYCAST_CARTLOG`. `FLYCAST_HWLOG`
+appears nowhere in this repository. Zero `HW[RW]` lines in every leg is a
+null instrument, not a measurement — which also explains why the count is 0
+for *every* address, including the cart and maple traffic the game
+demonstrably performed.
+
+Two further notes on that table:
+
+- Its "serial (SCIF)" row also cites `SERIALPOKE` = 0. That probe is real
+  (unconditional `cartlog`), but it watches the **Naomi communication board**,
+  not the SH-4 SCIF: it fires only for
+  `NAOMI_COMM_CTRL_addr`–`NAOMI_COMM_STATUS2_addr` = `0x5f7018`–`0x5f7028`
+  (`../flycast4naomi2dreamcast/core/hw/naomi/naomi.cpp:119-120`). `SERIALPOKE`
+  = 0 is therefore solid evidence that senkosp never touches the comm board
+  — consistent with this scan finding no `cart`-block word above `0x5f7014` —
+  and says nothing about SCIF.
+- The watchdog row's argument ("0 pokes to any address ⇒ 0 to a watchdog
+  address") inherits the same null instrument. The verdict survives anyway,
+  on the stronger static ground above: `WTCNT`/`WTCSR` do not appear in the
+  image at all.
+
+Had `FLYCAST_HWLOG` been set, the probe *would* have covered both devices:
+P4 system registers are mapped through `addrspace`
+(`mapHandler(p4mmr_handler, 0xFF, 0xFF)`,
+`../flycast4naomi2dreamcast/core/hw/sh4/sh4_mmr.cpp:658`), so `0xffe8xxxx`
+accesses reach `cartlog_hwaccess`, and the parser's device ranges match
+(`scripts/parse_cartlog.py:46`, tagging on `addr & 0x1fffffff`). A re-run
+with the variable set is the cheap way to confirm the SCIF `SCSPTR2` write
+dynamically, if Phase 4 ever wants it.

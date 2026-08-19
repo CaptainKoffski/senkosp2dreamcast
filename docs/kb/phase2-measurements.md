@@ -125,6 +125,17 @@ not only the parser's aggregate — across **all 14 legs**, not just testmenu2.
 | watchdog | No separate watchdog device tag in the fork's probe (`DEVICES` covers rtc/scif only); since total `HW[RW]` pokes across the whole campaign are 0, no watchdog-range poke exists either, by construction (0 pokes to any address ⇒ 0 to a watchdog address). | Not touched — same 0/0 evidence as serial/RTC. Nothing further to add from this instrument; not expected to need a shim. |
 | EEPROM | `MIERESP sub=0x0b` (EEPROM ops): 32 total, **all 32 in leg `testmenu2`**, 0 in every other leg (per-leg grep: `sub=0b` count is 0 in attract, all 8 char-* legs, 2p-stages, input, service-retest, testmenu; only testmenu2 shows 32). `sub=0x01`/`sub=0x03` (JVS/IO enumeration, not EEPROM-specific) fire in every leg at a 2–3 baseline, rising to 9 each in testmenu2 (37 total each across the campaign). | **BIOS-path confirmed**: the EEPROM read/write path is exercised only through the service/test-menu UI (Task 6's setting flip-and-persist: Advertise Sound OFF → exit → re-enter confirmed → restored ON), never during attract or any of the 10 gameplay/roster legs. Phase 3 traces the `sub=0x0b` handler function from this MIE evidence as its entry point. |
 
+> **Correction (Phase 3, Task 4).** The `HW[RW]` = 0 evidence in the serial,
+> RTC and watchdog rows above is a **null instrument, not a measurement**:
+> `cartlog_hwaccess()` returns immediately unless `FLYCAST_HWLOG` is set in the
+> environment (`../flycast4naomi2dreamcast/core/hw/mem/addrspace.cpp:118-120`),
+> and `scripts/capture_leg.sh:16` sets only `FLYCAST_CARTLOG` — so no leg ever
+> emitted an `HW[RW]` line for *any* address. `SERIALPOKE` = 0 remains valid
+> evidence, but it watches the Naomi **communication board**
+> (`0x5f7018`–`0x5f7028`), not the SH-4 SCIF. The device verdicts themselves
+> survive on static grounds; see `docs/kb/boot-binary.md`
+> §RTC / SCIF / watchdog for the replacement evidence and the re-run recipe.
+
 ---
 
 Task 7 complete — see `docs/kb/00-status.md` for the Phase 2 gate summary and
