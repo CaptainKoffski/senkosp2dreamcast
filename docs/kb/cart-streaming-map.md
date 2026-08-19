@@ -7,8 +7,8 @@ service-retest; testmenu + testmenu2 (service/test-menu walk — RAM TEST
 hangs the instrumented fork, see phase2-measurements.md incidents; testmenu2
 is the clean re-walk with RAM test skipped) (recipe: tooling.md §Phase 2
 capture harness; fork @ `f014a410c`).
-Machine-readable: `cart-streaming-map.csv` (columns `leg,cart_offset,length,
-dest,mode,above_16m` — append-friendly; top-ups merge+dedup via
+Machine-readable: `cart-streaming-map.csv`
+(columns `leg,cart_offset,length,dest,mode,above_16m` — append-friendly; top-ups merge+dedup via
 `parse_cartlog.py`). 1,592 rows: 1,590 unique DMA tuples + 2 PIO seeks.
 
 ## The above-16m map (the port's central problem)
@@ -27,8 +27,8 @@ window):
 
 **Attribution note (span 5, and any span whose leg list looks too short):**
 `parse_cartlog.py`'s `merge()` dedups `(src, dest, len)` DMA tuples globally,
-first-leg-wins in the order the CLI processes the log files (`scripts/
-parse_cartlog.py:146–166`) — this run's `captures/*.log` glob orders legs
+first-leg-wins in the order the CLI processes the log files
+(`scripts/parse_cartlog.py:146–166`) — this run's `captures/*.log` glob orders legs
 alphabetically, so `2p-stages` is parsed first. Span 5 (`0x1fe6d20`–
 `0x1fe7520`) is a load every single leg performs at boot; it is credited to
 `2p-stages` only because that leg's copy of each tuple is the one that

@@ -49,9 +49,9 @@ Leg testmenu2 (full walk, RAM test skipped):
 
 ## Region verdicts (write-truth, all legs merged)
 
-Source: final full parse, 2026-08-19 (`python3 scripts/parse_cartlog.py
-captures/*.log --attract-leg attract --csv docs/kb/cart-streaming-map.csv
---hw-report`, `exit=0`, all six CHECKs PASS — see cart-streaming-map.md
+Source: final full parse, 2026-08-19
+(`python3 scripts/parse_cartlog.py captures/*.log --attract-leg attract --csv docs/kb/cart-streaming-map.csv --hw-report`,
+`exit=0`, all six CHECKs PASS — see cart-streaming-map.md
 §Checks). "Full campaign" pairs mirror the assessment's own field pairing:
 main is `nz` / `nz_above16m` (no separate content mask); vram is
 `(content_below8m+content_above8m) + 2×fb_bytes` / raw `nz_above8m`; aram is
@@ -76,22 +76,47 @@ vram above-cap buckets (256 KB each): #32(0x800000)=262128, #33(0x840000)=254131
 aram above-cap buckets (256 KB each): #8(0x200000)=262144, #9(0x240000)=262144, #10(0x280000)=262144, #11(0x2c0000)=262144, #12(0x300000)=262144, #13(0x340000)=262144, #14(0x380000)=262144, #15(0x3c0000)=262144, #16(0x400000)=262144, #17(0x440000)=262144, #18(0x480000)=262144, #19(0x4c0000)=262144, #20(0x500000)=262144, #21(0x540000)=262144, #22(0x580000)=262144, #23(0x5c0000)=262144, #24(0x600000)=262144, #25(0x640000)=262144, #26(0x680000)=262144, #27(0x6c0000)=262144, #28(0x700000)=262144, #29(0x740000)=262144, #30(0x780000)=262144, #31(0x7c0000)=262144
 ```
 
-The `main`/`vram` bucket lists are the write-truth relocation source map
-(content actually observed above cap, bucket by bucket). The `aram` list is
-the **raw**, unmasked histogram — per the note above, this is reverb/delay
-work-buffer traffic, not asset content; the content-side aram bucket list is
-empty (content_above2m is 16 B, below the 256 KB bucket granularity, so it
-does not surface a bucket row at all). Do not read the aram bucket list as a
-relocation source map — it is the informational raw counter, included here
-only because the brief's format calls for the full above-cap bucket dump per
-region.
+**Corrected 2026-08-19 (review fix):** all three `*HIST` bucket arrays are
+raw diff histograms — `hist[b]++` fires unconditionally on every nonzero
+byte, **before** any content-masking check, in all three profile functions
+(`../flycast4naomi2dreamcast/core/hw/naomi/naomi.cpp`): aram
+`hist[b]++` at line 216, ahead of the `dup`-gated content increment at
+lines 217–220; vram `hist[b]++` at line 269, ahead of the `in_fb`
+framebuffer-exclusion check at lines 271–278
+(`bool in_fb = …; if (in_fb) … else { cnz++; … }`). The FB/dup masking changes only the separate
+`content_*` scalars printed on the `VRAMPROFILE`/`ARAMPROFILE` line — it
+never touches the bucket arrays. `main` has no masking logic at all
+(`naomi.cpp:292-299`: "Raw diff only — no ARAM-style content dedup"; no
+`content_*` fields exist for main), so for `main` specifically the raw
+`nz`-based bucket list *is* the content figure — there is nothing separate
+to mask against.
+
+So: the **`main` bucket list is the write-truth relocation source map**
+(content actually observed above cap, bucket by bucket — main's `nz` and
+"content" are the same measure by construction). The **`vram` and `aram`
+bucket lists are both raw, unmasked histograms**, not content:
+- `vram`: raw `nz_above8m` is 5,496,597 B vs. FB-masked `content_above8m`
+  4,962,056 B — a 534,541 B gap. That gap is framebuffer scan-out traffic
+  sitting inside the buckets above, which the scoring already budgets
+  separately as `2×fb_bytes` (region-verdicts table above). Do not treat
+  the vram bucket list as a pure relocation source map without subtracting
+  known FB regions (`VRAMREGS fb_w_sof1/fb_w_sof2/fb_r_sof1`, logged
+  alongside) — at face value it would double-count ~535 KB of framebuffer
+  bytes as relocatable assets.
+- `aram`: raw `nz_above2m` is 6,291,456 B vs. content `content_above2m` of
+  16 B (per the note above, this is reverb/delay work-buffer traffic, not
+  asset content). The content-side aram bucket list is empty
+  (`content_above2m` is 16 B, below the 256 KB bucket granularity, so it
+  does not surface a bucket row at all). Do not read the aram bucket list
+  as a relocation source map — it is the informational raw counter,
+  included here only because the brief's format calls for the full
+  above-cap bucket dump per region.
 
 ## Device verdicts (runtime)
 
-Evidence cross-checked against raw logs directly (`grep -c "^SERIALPOKE"
-captures/*.log`, `grep -hc "^HW[RW]" captures/*.log`, and per-leg `MIERESP
-sub=` counts), not only the parser's aggregate — across **all 14 legs**, not
-just testmenu2.
+Evidence cross-checked against raw logs directly
+(`grep -c "^SERIALPOKE" captures/*.log`, `grep -hc "^HW[RW]" captures/*.log`, and per-leg `MIERESP sub=` counts),
+not only the parser's aggregate — across **all 14 legs**, not just testmenu2.
 
 | Device | Evidence | Verdict |
 |---|---|---|
