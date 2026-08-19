@@ -169,20 +169,27 @@ header".
 - **CARTDMA count:** `grep -c CARTDMA captures/phase3/datboot.log` = **158**
   (79 pure `CARTDMA` transfers + 79 paired `CARTDMAPC` pc/sp lines) —
   nonzero.
-- **First-tuple comparison vs the known-good zip boot** (`captures/
-  attract.log`, Phase 2): `diff <(grep "^CARTDMA" captures/phase3/
-  datboot.log | head -65) <(grep "^CARTDMA" captures/attract.log | head
-  -65)` → **empty diff, byte-identical** — the first 65 combined
-  `CARTDMA`+`CARTDMAPC` lines (33 CARTDMA tuples with their paired pc/sp)
-  match exactly, same src/dest/len/pc/sp sequence (well past the brief's
-  "first 50" / "more than 5" ask). Divergence starts at combined line 66:
-  `attract.log` (660 s run) contains extra streaming bursts absent at the
-  equivalent position in the shorter 120 s `datboot.log` run — expected
-  real-time scheduling variance between two runs of different length, not
-  a content mismatch. Confirms further: the tail of `datboot.log`'s own
-  158-line CARTDMA stream (its last 5 lines) matches byte-for-byte against
-  `attract.log`'s lines at the same relative position, i.e. both runs are
-  streaming the identical asset sequence.
+- **Full-run tuple comparison vs the known-good zip boot** (`captures/
+  attract.log`, Phase 2): `diff <(grep "^CARTDMA " captures/phase3/
+  datboot.log) <(grep "^CARTDMA " captures/attract.log | head -79)` →
+  **empty diff, byte-identical** — the entire 79-tuple pure `CARTDMA
+  src=.../dest=.../len=...` sequence in the 120 s `datboot.log` run matches
+  `attract.log`'s first 79 tuples exactly, well past the brief's "first 50"
+  / "more than 5" ask (the whole run, not just a prefix). This is the
+  verdict-relevant criterion (same src/dest/len sequence) and it holds with
+  zero exceptions.
+  Separately, the paired `CARTDMAPC pc=`/`sp=` lines (call-site + stack
+  pointer at each transfer) match exactly for the first 33 tuples, then
+  diverge intermittently: `diff <(grep "^CARTDMA" captures/phase3/
+  datboot.log) <(grep "^CARTDMA" captures/attract.log | head -158)` shows
+  8 `<`/8 `>` lines — six `CARTDMAPC pc=` substitutions (same `sp=`,
+  alternating between two call sites already seen in the matching prefix,
+  `8c027ad0` vs `8c027f54`) at combined lines 66, 70, 90, 94, 122, 136,
+  plus one adjacent CARTDMAPC/CARTDMA pair-ordering swap at ~98–100 (same
+  two lines, reversed order). No `src=`/`dest=`/`len=` value differs
+  anywhere. This is a benign scheduling/logging-order artifact between two
+  differently-timed real-time runs (120 s vs 660 s), outside the verdict's
+  stated criterion, not a content mismatch.
 - **Visual confirmation:** `screencapture -x .../datboot-visual.png` fired
   ~75 s into the window → `stderr: could not create image from display`
   (screen locked / no active display session; operator asleep, per task
@@ -190,7 +197,7 @@ header".
   locked.** Verdict rests on the CARTDMA tuple comparison alone, per the
   task's operator-asleep ruling — not treated as a FAIL signal.
 - **Verdict: `.dat` boots identically: YES** — nonzero CARTDMA count +
-  byte-identical first-tuple sequence (33 tuples / 65 combined lines) vs
-  the known-good zip boot. Per the task's Interfaces block, this is the
+  byte-identical `src`/`dest`/`len` sequence across the entire 79-tuple run
+  vs the known-good zip boot. Per the task's Interfaces block, this is the
   dry-run vehicle decision: Tasks 11–12 patch and run `senkosp-reloc.dat`
   directly; no `FLYCAST_PATCHSET` load-time patch-hook fallback needed.
