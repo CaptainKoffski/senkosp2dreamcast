@@ -144,7 +144,12 @@ def parse_leg(name, text):
 
 
 def merge(legs):
-    """Dedup DMA tuples across legs (first leg wins attribution) + PIO rows."""
+    """Dedup DMA tuples across legs (first leg wins attribution) + PIO rows.
+
+    Attribution of a deduped tuple = whichever leg is first in `legs`, i.e.
+    first on the CLI (glob order) — keep leg naming/glob order stable across
+    top-up captures, or shared-tuple attribution in the CSV will churn.
+    """
     rows, seen = [], set()
     for leg in legs:
         for d in leg["dma"]:
@@ -338,14 +343,20 @@ def main(argv):
         print(f"attract leg '{args.attract_leg}' not among logs", file=sys.stderr)
         return 2
     check_list = checks(legs, rows, attract=attract)
+    all_pass = all(ok for _, ok, _ in check_list)
     if args.csv:
-        write_csv(rows, args.csv)
+        if all_pass:
+            write_csv(rows, args.csv)
+        else:
+            print(f"CHECK failure — not writing {args.csv} "
+                  f"(a committed CSV must never be overwritten with bad data)",
+                  file=sys.stderr)
     print(summary(legs, rows, check_list))
     if args.input_report:
         print(input_report(legs))
     if args.hw_report:
         print(hw_report(legs))
-    return 0 if all(ok for _, ok, _ in check_list) else 1
+    return 0 if all_pass else 1
 
 
 if __name__ == "__main__":

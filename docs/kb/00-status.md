@@ -50,9 +50,13 @@ Charter + Phase 1 spec:
       above-16m map (5 spans) summarized in `cart-streaming-map.md`.
 - [x] Per-region write-truth verdicts + above-cap bucket maps in
       `phase2-measurements.md` §Region verdicts.
-- [x] `input-map.md` — 13/13 controls mapped (11 measured via MIE sub=15 +
-      JVS cross-check, 2 source-derived: Coin/Test, masked out of the
-      16-bit JVS log line — `maple_devs.h:97-98`).
+- [x] `input-map.md` — 13/13 controls mapped (11 measured via JVS word
+      bits — MIE sub=15 carried no per-press signal, see input-map.md
+      §Why no MIE sub=15 — 2 source-derived: Coin/Test, masked out of the
+      16-bit JVS log line — `maple_devs.h:97-98`). Exit criterion 3 met in
+      substance (all 13 controls' wire bits established); the "MIE +
+      JVS cross-check" phrasing in the original spec text does not hold —
+      JVS is the sole measured channel.
 - [x] Serial/RTC/watchdog verdicts in `phase2-measurements.md` §Device
       verdicts — all three: 0 pokes across all 14 legs.
 - [x] Coverage checklist closed (`phase2-measurements.md`): full roster (8
