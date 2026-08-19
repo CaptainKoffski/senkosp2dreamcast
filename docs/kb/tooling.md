@@ -105,3 +105,44 @@ header".
 - Profile scans (32 MB main + 16 MB VRAM + 8 MB ARAM byte-diffs) fire every
   ~600 vblanks (~10 s, `core/hw/naomi/naomi.cpp` cartlog_sample) — a brief
   periodic stutter during play is the instrument, not the game.
+
+### Phase 3: BIOSEXEC entry gate (FLYCAST_ENTRYPC)
+
+- **Fork change:** `../flycast4naomi2dreamcast` commit `19c9acb4f`
+  ("cartlog: FLYCAST_ENTRYPC parameterizes the BIOSEXEC arming PC (senkosp
+  phase 3)"), pushed to `origin/master` (`f014a410c..19c9acb4f`). Rebuilt
+  into the same reused binary path (`../cleopatra/tools/flycast-src/build/
+  Flycast.app/Contents/MacOS/Flycast`); `make -j8`, exit 0.
+- **Build-tree provenance:** the local build tree at `19c9acb4f` = `f014a410c`
+  (Phase 2's cited base) + 12 additive cartlog-watch commits already ahead of
+  `origin/master` before this task (MMUCRWR vecbc/vecc0, SQWR, VIDFLG, SOFWR,
+  IMLWR, SETWR, GAMEWR/BANDWR, C2D/TAREG/TAEND, GD-rate divider, load-engine
+  RAM dump — round 12 through 20) + this task's gate edit. All lines Phase 2
+  cited against `f014a410c` are present unchanged; the extras are additive
+  watches (e.g. `SOFWR`), not modifications to existing instrument paths.
+- **`cartlog_bios_check`** (`core/hw/sh4/interpr/sh4_interpreter.cpp` ~line
+  26): the PC that arms the BIOSEXEC watch now comes from env
+  `FLYCAST_ENTRYPC` (hex, no `0x` prefix), read once via `getenv`/`strtoul`;
+  unset → default `0x8c04ae2c` (Cleopatra's trampoline, existing recipes
+  unchanged). `scripts/capture_leg.sh` exports `FLYCAST_ENTRYPC=8c021000`
+  (senkosp's own entry) by default; an explicitly exported
+  `FLYCAST_ENTRYPC` in the caller's environment wins over the script's
+  default (canary use). BIOSEXEC only fires under the interpreter —
+  dynarec never reaches this check.
+- **Interpreter toggle (required for any BIOSEXEC capture):**
+  `~/Library/Application Support/Flycast/emu.cfg` line 39,
+  `Dynarec.Enabled = no` before the run, `= yes` restored after — later
+  tasks depend on dynarec being back on by default.
+- **Canary results (2026-08-20, instrument control test):**
+  - Positive (`FLYCAST_ENTRYPC=a0000000`, BIOS reset vector — BIOS itself
+    runs at phys < 0x200000 from cold reset): 60 s run, 133,766 log lines,
+    `grep -c BIOSEXEC` = **81,169** (large nonzero, as expected).
+  - Negative (script default, senkosp entry `8c021000`): 90 s run, 105,480
+    log lines (other instrument classes present throughout, confirming the
+    run and instrumentation were live), `grep -c BIOSEXEC` = **0**, as
+    expected — first attempt hit the known transient SH4 vmem
+    `Verify Failed` startup crash (§Phase 2 capture harness above), relaunch
+    succeeded.
+  - Both canary logs deleted after recording (`rm captures/canary-*.log`) —
+    canary logs are the only deletable log class; all other `captures/*.log`
+    are primary data.
