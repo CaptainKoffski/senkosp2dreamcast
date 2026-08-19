@@ -8,7 +8,7 @@ Roster (from character-select screen, enumerated in-game 2026-08-19):
 - [x] Cuilan (Rounder: Orangette) — leg char-cuilan
 - [x] Fabian the Fastman (Rounder: Graphride) — leg char-fabian
 - [x] Sakurako Sanjo (Rounder: Triad) — leg char-sakurako
-- [x] Lili Levinas (Rounder: Brinsta) — leg char-lili
+- [x] Lili Levinas (Rounder: Brinsta) — leg char-lili (beginner stage 1 win-lose-win, then stage 2 losses + score attack loss)
 - [x] Ernula (Rounder: Castrato) — leg char-ernula
 - [x] Karel Werfel (Rounder: Azureus) — leg char-karel
 
@@ -28,7 +28,13 @@ Note: Cartridge (battle-style) loadouts and outfits varied across legs; both hav
 - [x] Novice-mode run (covered inside leg char-baek — novice=yes on the beginner credit, 2026-08-19; other legs ran novice=no, so both variants are captured)
 - [ ] Test-menu leg (Task 6)
 - [x] Input leg (Task 4)
-- [x] 2P stage sweep (leg 2p-stages: all 8 stages played one round each; EXTENDED above-16-MB map floor from 0x145bd20 to 0x1244c20 — ~2.2 MB new territory; merged high-water unchanged at 0x1fe7520)
+- [x] 2P stage sweep (leg 2p-stages: all 8 stages played one round each; EXTENDED above-16-MB map floor from 0x145bd20 to 0x1244c20 — 2,191,616 B (~2.1 MB) new territory; merged high-water unchanged at 0x1fe7520)
+
+## Capture incidents
+
+- char-fabian (leg 1): startup crash (transient SH4 vmem "Verify Failed" — documented Cleopatra gotcha); one relaunch; merged data clean.
+- char-sakurako (leg 1): startup crash (transient SH4 vmem "Verify Failed"); one relaunch; merged data clean.
+- char-lili (leg 1): aborted by host-side PyCharm/terminal hang; partial log deleted, leg re-captured cleanly from scratch; merged data contains only the clean re-run.
 
 ---
 
