@@ -26,7 +26,7 @@ Note: Cartridge (battle-style) loadouts and outfits varied across legs; both hav
 ## Standing rows
 
 - [x] Novice-mode run (covered inside leg char-baek — novice=yes on the beginner credit, 2026-08-19; other legs ran novice=no, so both variants are captured)
-- [x] Test-menu leg (Task 6: legs testmenu + testmenu2, full walk with EEPROM ops observed, 2026-08-19)
+- [x] Test-menu leg (Task 6: legs testmenu + testmenu2, full walk with EEPROM ops observed; setting flipped: Advertise Sound OFF → exit persists → re-enter confirmed → restored ON, 2026-08-19)
 - [x] Input leg (Task 4)
 - [x] 2P stage sweep (leg 2p-stages: all 8 stages played one round each; EXTENDED above-16-MB map floor from 0x145bd20 to 0x1244c20 — 2,191,616 B (~2.1 MB) new territory; merged high-water unchanged at 0x1fe7520)
 
@@ -42,8 +42,8 @@ Note: Cartridge (battle-style) loadouts and outfits varied across legs; both hav
 Leg testmenu2 (full walk, RAM test skipped):
 - MIERESP subcommand counts: sub=01 ×9, sub=03 ×9, sub=0b ×32 (EEPROM ops), sub=13 ×9, sub=15 ×12,483, sub=17 ×81, sub=21 ×21, sub=27 ×12,408, sub=31 ×12, sub=33 ×6,868, sub=ff ×3.
 - SERIALPOKE lines: 0 (no serial writes).
-- Game-code HW pokes (HWR/HWW from game PC range): 0 (no RTC/SCIF MMIO observed).
-- PIO bytes: 0x334b70 (vs. 0x172538 typical boot — menu bookkeeping screens do extra PIO reads).
+- Game-code HW pokes (HWR/HWW from game PC range): 0 (no RTC/SCIF MMIO observed). (PC filter applied by the fork's probe, not the parser.)
+- PIO bytes: 0x334b70 (vs. 0x172538 typical boot).
 
 ---
 
