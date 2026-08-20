@@ -452,18 +452,31 @@ input_fn: 0x8c0665fe-0x8c066b0f
 eeprom_fn: 0x8c0665fe-0x8c066b0f
 ```
 
-> **Task 9 outcome: NOT promoted — these are the wrong layer.** Driving the
-> game proved every one of these ranges innocent of the thing `--cart-fn` /
-> `--input-fn` actually test. The checks measure the PC at the **trigger
-> store** (`SB_GDST = 1`, `SB_MDST = 1`); these ranges hold the **register-
-> programming** code that runs *before* the trigger (G1 bus timing, the
-> `SB_GDSTAR`/`GDLEN`/`GDDIR` arm, maple init and device scan). Both trigger
-> stores live in a different block entirely — `0x8c027f72` and `0x8c025446` —
-> reached through a **struct base pointer**, which is blind spot (2) above
-> doing exactly what that section warned it would do. Nothing below is
-> retracted: these functions do own the register constants attributed to them.
-> The confirmed trigger sites, and why the static scan structurally could not
-> find them, are in §Dynamic reconciliation.
+> **Task 9 outcome: NOT promoted — but for two different reasons, one per
+> range.** The checks measure the PC at the **trigger store** (`SB_GDST = 1`,
+> `SB_MDST = 1`), and the two candidates fail that test in unrelated ways:
+>
+> - **`cart_fn` is the wrong layer.** Every one of the 672 DMA kicks is a
+>   `SB_GDST` store at `0x8c027f72`, in a different block entirely, reached
+>   through a **struct base pointer** — blind spot (2) above doing exactly what
+>   that section warned it would do. These ranges hold the register-programming
+>   code that runs *before* the trigger (G1 bus timing, the
+>   `SB_GDSTAR`/`GDLEN`/`GDDIR` arm). They never kick a cart DMA.
+> - **`input_fn`/`eeprom_fn` is the right code but the wrong *phase*.** This
+>   range does kick maple DMA, exactly as `FUN_8c066964` and `FUN_8c0665fe` are
+>   described below — **1035 times in the leg**, from five `SB_MDST` stores
+>   (`0x8c066726` ×1023, plus `0x8c066810`/`0x8c0668a2`/`0x8c066926` in the
+>   device scan and `0x8c066a5e` in the init). It is the **boot-time** maple
+>   driver, and it is real. What it is *not* is the **steady-state per-frame**
+>   path: that is `FUN_8c02532a`, `0x8c025446`, 80 392 kicks. The check FAILs
+>   because it filters sub `0x15`, and no sub-`0x15` line comes from this
+>   range at all.
+>
+> **Nothing below is retracted** — least of all the `SB_MDST` store-and-poll
+> attributed to `FUN_8c066964`/`FUN_8c0665fe`, which the log confirms
+> instruction for instruction. A Phase 4 reader should take this block as a
+> live maple call site, just a boot-time one. The confirmed steady-state sites,
+> and why the static scan could not find them, are in §Dynamic reconciliation.
 
 **Why these bounds are spans, not Ghidra function bodies.** Every recovered
 body in this block is truncated relative to the pool words its own code
@@ -743,9 +756,31 @@ one leg via `scripts/capture_leg.sh phase3/pc` — boot → attract through a de
 cycle → coin → one match with all five buttons and the stick → test menu →
 Advertise Sound OFF → exit → re-enter → restore ON → quit.
 
-Line census (whole leg): 672 `CARTDMA` + 672 `CARTDMAPC`, 86 219 `MAPLEPC`,
-86 222 `MIERESP`, 83 220 `JVSREPORT`, 1601 `SOFWR`, 1614 `PCSAMPLE`, **0
-`BIOSEXEC`**.
+**Full line census** — `awk '{print $1}' captures/phase3/pc.log | sort | uniq -c
+| sort -rn`, every tag the file contains, reflowed into columns to fit. This is
+the whole log, not a selection, so nothing in it goes unaccounted for:
+
+```
+842746 MDODMA      297292 PVRW        86222 MIERESP     86219 MAPLEPC
+ 83220 JVSREPORT    69307 TAREG       69306 TAEND       66524 C2D
+  1614 PCSAMPLE      1601 SOFWR         672 CARTDMAPC     672 CARTDMA
+   507 WATERMARK      169 VRAMREGS      169 VRAMPROFILE   169 VRAMHIST
+   169 CARTPIOCNT     169 ARAMPROFILE   169 ARAMHIST      168 MAINPROFILE
+   168 MAINHIST       136 LOWRAMWR      104 SETWR         104 CLOSERWR
+   100 IMLWR           82 VIDFLG         22 CARTPIO        20 IOCHK
+     8 ARAMREBASE       7 MMUCRWR         1 VRAMHANDOFF     1 MAINHANDOFF
+     1 ARAMHANDOFF      1 HANG
+```
+
+`BIOSEXEC` is **absent from that list entirely** — `uniq -c` cannot emit a zero
+row, so the count of 0 relied on elsewhere in this doc is the *absence* of the
+tag, confirmed separately by `grep -c "^BIOSEXEC" … → 0`.
+
+`MDODMA` is 92 % of the log and is **a second, independent maple probe** — see
+"`MDODMA` — the wider maple probe" below; it is the reason the boot-time maple
+driver could be attributed at all. The `PVRW`/`TAREG`/`TAEND`/`C2D` bulk is
+render traffic, out of scope for Phase 3 targets. `HANG` ×1 and `IOCHK` ×20 are
+Phase 4 probes riding along in the same build.
 
 ### Provenance and instrument checks (read before trusting any number below)
 
@@ -920,6 +955,55 @@ has seen an EEPROM write at all, and worth having — but every one of them
 carries `0c03161e`, the artifact PC. This leg therefore proves the write
 *happens* and says nothing about *where the game issues it from*.
 
+### `MDODMA` — the wider maple probe, and the boot-time driver it reveals
+
+`MAPLEPC` fires only inside `MIEImpl::handle_86_subcommand()`, i.e. only for
+MIE command `0x86`. **`MDODMA enter` fires once per `maple_DoDma()` call**
+(`.../core/hw/maple/maple_if.cpp:179`), whatever the command list contains, and
+carries the same `pc=`. 89 578 `enter` lines, **12 distinct PCs** where
+`MAPLEPC` showed 2 — and the `+2` store test separates them just as cleanly:
+
+| `enter` count | PC | insn at `pc-2` | Store? | Where |
+| --- | --- | --- | --- | --- |
+| 81 016 | `8c025448` | `12c6` `mov.l r12,@(0x18,r2)` | **yes** | `FUN_8c02532a` — per-frame |
+| 1023 | `8c066728` | `2572` `mov.l r7,@r5` | **yes** | `FUN_8c0665fe` — device scan |
+| 3 | `8c066812` | `2572` `mov.l r7,@r5` | **yes** | `FUN_8c0665fe` |
+| 3 | `8c0668a4` | `2572` `mov.l r7,@r5` | **yes** | `FUN_8c0665fe` |
+| 3 | `8c066928` | `2572` `mov.l r7,@r5` | **yes** | `FUN_8c0665fe` |
+| 3 | `8c066a60` | `2452` `mov.l r5,@r4` | **yes** | `FUN_8c066964` — init |
+| 5787 | `0c03161e` | `4b08` `shll2 r11` | no | vblank trigger |
+| 1705 | `0c031f36` | `8b07` | no | vblank trigger |
+| 15 | `0c03179e` | `f20d` | no | vblank trigger |
+| 10 | `0c031c80` | `8f07` | no | vblank trigger |
+| 5 | `0c03204c` | `d12a` | no | vblank trigger |
+| 5 | `0c03185c` | `034e` | no | vblank trigger |
+
+Six of six P1 PCs are stores; zero of six P0 PCs are. The `+2` split now rests
+on 12 points, not 3.
+
+The `0x8c066726` site is the store-then-poll this doc already attributed to
+`FUN_8c0665fe`, read straight out of `tools/boot.bin`:
+
+```
+8c066726  2572   mov.l r7,@r5     ; SB_MDST = 1   (r7 = 1)
+8c066728  6252   mov.l @r5,r2     ; <== logged PC; poll it back
+8c06672a  2228   tst r2,r2
+8c06672c  8bfc   bf 0x8c066728    ; spin until the DMA completes
+```
+
+> **This is why §Candidates' `input_fn` range is un-promoted for *phase*, not
+> for being the wrong code.** 1035 real maple kicks come out of it. `MAPLEPC`
+> never showed them because that traffic is not MIE `0x86` — it is the maple
+> device enumeration Phase 2 logged as `MIERESP sub=0x01`/`0x03`.
+
+**What `MDODMA` does *not* buy: better attribution.** Both probes read the same
+`Sh4cntx.pc` at the same moment, and the log proves it — joining every one of
+the 86 219 `MAPLEPC` lines to its preceding `MDODMA enter` gives **0
+mismatches**. So `MDODMA` widens *coverage* (all maple DMA, not just `0x86`)
+without resolving the vblank problem below. Joining the 16 sub-`0x0b` EEPROM
+writes to their `enter` lines puts **all 16 on `0c03161e`** — the write call
+site stays unknown by a second, independent route.
+
 ### Why three checks cannot pass as written — the maple-trigger artifact
 
 `MAPLEPC` is emitted inside `MIEImpl::handle_86_subcommand()`
@@ -935,10 +1019,12 @@ carries `0c03161e`, the artifact PC. This leg therefore proves the write
   is at the same point in its frame each time, that lands on the same
   instruction every time. Hence one stable, meaningless value.
 
-That is the mechanical cause of the P1/P0 split in the `+2` table:
-guest-store events are logged in the driver code (P1); hardware-triggered
-events are logged wherever the main loop is (P0). The four `SOFWR` P0 PCs are
-the same phenomenon on the PVR side.
+That is the mechanical cause of the P1/P0 split — in the `+2` table, and again
+across all 12 `MDODMA` PCs above: guest-store events are logged in the driver
+code (P1); hardware-triggered events are logged wherever the main loop is (P0).
+The four `SOFWR` P0 PCs are the same phenomenon on the PVR side. `MDODMA` does
+not escape it either — it samples the same `Sh4cntx.pc` (0 mismatches over
+86 219 joined lines).
 
 > **Verdict: `input_pc_in_input_fn`, `eeprom_read_seen` and `eeprom_write_seen`
 > cannot pass against any static range, and that is a probe limitation, not a
@@ -947,11 +1033,19 @@ the same phenomenon on the PVR side.
 > re-deriving one can fix it — a range covering `0x8c03161c` would be asserting
 > that `FUN_8c031560` issues maple commands, which the disassembly disproves.
 >
-> **The fix is one line in the fork**, not in this repo: log the PC from
-> `maple_SB_MDST_Write()`'s call path only (or tag the line with the trigger
-> source) and re-capture. Until then the input target rests on the sub `0x33`
-> evidence above, which *is* a confirmed guest store — strong enough for Task
-> 10 — and the EEPROM-write call site stays unknown.
+> **A per-`DoDma` PC probe already exists and does not solve this** — see
+> `MDODMA` above. It widens coverage to every maple DMA and is what exposed the
+> boot-time driver's 1035 kicks, but it reads the same `Sh4cntx.pc`, so
+> vblank-triggered transactions are just as unattributable there (all 16
+> sub-`0x0b` writes land on `0c03161e` by that route too).
+>
+> **The fix is therefore a one-line change in the fork**, not in this repo, and
+> it is about the *trigger source*, not about adding another PC: tag the log
+> line with which caller reached `maple_DoDma()` — `maple_SB_MDST_Write()`
+> (attributable) versus `maple_vblank()` (not) — and re-capture. A boolean
+> would do. Until then the input target rests on the sub `0x33` evidence above,
+> which *is* a confirmed guest store — strong enough for Task 10 — and the
+> EEPROM-write call site stays unknown.
 
 ### SP — two stacks, not one
 
@@ -1076,7 +1170,7 @@ a green line is honest. **`tools/pc-parse.txt` is left in place regardless: the
 | Target | Static candidate | Dynamic result | Which side was wrong |
 | --- | --- | --- | --- |
 | cart-read fn | `0x8c0661e0-0x8c066560`, `0x8c0678c2-0x8c067e18` | **`FUN_8c027f54` `0x8c027f54`–`0x8c027f99`**, 672/672 kicks | static — register-programming layer mistaken for the trigger; base-pointer + 16-bit-offset blind spots |
-| input fn | `0x8c0665fe-0x8c066b0f` | **`FUN_8c02532a` `0x8c02532a`–`0x8c025505`**, 80 392 sub `0x33` | static — same cause; *plus* the check filters the boot-phase sub `0x15` instead of the per-frame sub `0x33` |
+| input fn | `0x8c0665fe-0x8c066b0f` | **`FUN_8c02532a` `0x8c02532a`–`0x8c025505`**, 80 392 sub `0x33` | *not* the wrong code — the candidate really does kick maple DMA (1035×, `MDODMA`), it is the **boot-time** driver. Wrong *phase*, and the check filters the boot-phase sub `0x15` instead of the per-frame sub `0x33` |
 | EEPROM fn | `0x8c0665fe-0x8c066b0f` | reads share `FUN_8c02532a`; **write call site unknown** | neither — probe cannot see vblank-triggered transactions |
 | SP | `0x8c000000-0x8c00f000` | boot stack confirmed (118 SPs); **second stack at `0x8c1d4984`** (554 SPs) | static — correct but incomplete; senkosp is multi-stack |
 | BIOS call | no confirmed BIOS-code call | `no_bios_exec` PASS, 0 lines | agree — verdict closed for code |
