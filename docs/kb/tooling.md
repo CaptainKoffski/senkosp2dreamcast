@@ -201,3 +201,57 @@ header".
   vs the known-good zip boot. Per the task's Interfaces block, this is the
   dry-run vehicle decision: Tasks 11–12 patch and run `senkosp-reloc.dat`
   directly; no `FLYCAST_PATCHSET` load-time patch-hook fallback needed.
+
+### Phase 3: RAM snapshot via Flycast AutoSaveState (Task 10b, 2026-08-20)
+
+Route: **no new fork code**. The stock savestate path in the reused
+instrumented build already serializes all 32 MB of Naomi main RAM
+(`Serializer` in `.../core/serialize.cpp`; save path `dc_savestate()`,
+`.../core/nullDC.cpp:181` — RZip-compressed), and `Emulator::unloadGame()`
+auto-saves when `Dreamcast.AutoSaveState = yes`
+(`.../core/emulator.cpp:751`). SDL2's default signal handler turns
+`SIGTERM` into `SDL_QUIT` → `dc_exit()` → graceful unload, so no GUI
+interaction is needed. Exact steps (reproducible):
+
+1. `sed -i '' 's/Dreamcast.AutoSaveState = no/Dreamcast.AutoSaveState = yes/' \
+   ~/Library/Application\ Support/Flycast/emu.cfg` (restored to `no`
+   afterwards — the emulator persists config on exit).
+2. `scripts/capture_leg.sh canary-snapshot` (canary log class — deleted
+   after use), let attract run ~150 s, then
+   `pkill -TERM -f "flycast-src.*Flycast"` and wait ~20 s.
+3. State lands at `~/Library/Application Support/Flycast/data/senkosp.state`
+   (6.3 MB compressed for a 59.4 MB stream).
+4. **Carve** (python3, stdlib only): find the RZip magic `#RZIPv\x01#`
+   (format: magic + u32 maxChunkSize + u64 totalSize, then u32-length-
+   prefixed zlib chunks — `.../core/archive/rzip.cpp`), inflate all chunks,
+   locate main RAM by plaintext: the syMalloc banner `"\nsyMalloc Ver
+   2.01"` lives at RAM offset `0x15c980` (`0x8c15c980`), so RAM starts at
+   `banner_offset − 0x15c980` (this run: stream offset `0x18a5a63`;
+   layout-independent — no need to parse the serializer field order).
+   Extract 32 MB → `tools/ram-snapshot.bin` (gitignored, never committed).
+5. **Carve control tests (all must pass before analysis):**
+   - `ram[0x15c980..]` = syMalloc banner ✓
+   - `ram[0x85b00:0x85bb4] == senkosp.dat[0x65b00:0x65bb4]` (heap-create
+     code) ✓
+   - `ram[0x15b2c4..]` = GDFS error strings ✓
+   - `ram[0x20000:0x21000] == senkosp.dat[0:0x1000]` (boot-image head) ✓
+   Whole-image sanity: only 907/1,515,512 bytes of the loaded image span
+   differ from the `.dat` (all initialized-data cells), which is itself a
+   Task 10b finding (no code overlay exists).
+6. **Second Ghidra program** (same project dir, own program name):
+   `analyzeHeadless tools/ghidra-proj senkosp3ram -import
+   tools/ram-snapshot.bin -overwrite -processor "SuperH4:LE:32:default"
+   -loader BinaryLoader -loader-baseAddr 0x8c000000 -noanalysis`, then
+   `analyzeHeadless tools/ghidra-proj senkosp3ram -process ram-snapshot.bin
+   -noanalysis -scriptPath scripts/ghidra -postScript DisasmRange.java
+   <start> <end> force` for targeted regions (full auto-analysis of 32 MB
+   deliberately skipped).
+
+Bonus identification from the snapshot: low RAM `0x0c000600`–`0x0c007xxx`
+is the **Naomi BIOS resident RTOS kernel** — byte runs match the BIOS ROM
+(`bios/naomi/epr-21576h.ic27`) at ROM offset − `0x800` (e.g. RAM `0x1cca`
+= ROM `0x14ca`, RAM `0x1004` = ROM `0x804`); VBR+0x600 stub at
+`0x0c000600`, INTEVT dispatcher `0x0c001cba`, per-task 0x200-byte TCBs at
+`0x0c004000`. Not present in `senkosp.dat` (byte-search negative) — on DC,
+Phase 4's loader must account for the game running under this BIOS kernel
+(task/interrupt services), alongside the already-known `0x0c018000` blob.

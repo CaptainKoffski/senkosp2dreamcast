@@ -14,7 +14,12 @@ Evidence tooling: `scripts/ghidra/run.sh script
 (image `0x8c020000`–`0x8c191ff7`), plus direct byte reads of
 `tools/boot.bin`/`senkosp.dat`. Every pool word quoted below was read
 byte-for-byte out of the image; every dynamic number comes from
-`captures/phase3/pc.log` or the Phase 2 logs as cited.
+`captures/phase3/pc.log` or the Phase 2 logs as cited. Task 10b added a
+**32 MB main-RAM snapshot** of the running game (`tools/ram-snapshot.bin`,
+gitignored; carved from a Flycast AutoSaveState — recipe + carve control
+tests in tooling.md §Phase 3) imported as Ghidra program `senkosp3ram`
+(base `0x8c000000`, `-noanalysis`); "live"/"snapshot" values below come
+from it.
 
 ---
 
@@ -224,41 +229,106 @@ val`). Callers seen in `pr=`: `FUN_8c03baa0` (per-frame flip; writes reg
 addresses from display-buffer descriptors (field `+0x1c`), built inside the
 graphics library.
 
-**The P0 population is runtime-resident code that is NOT in the boot
-image.** Reading the static bytes at `pc−2` for each (file offset =
-P1-normalized addr − `0x8c020000`): `0x8c0548d8` = `0x3010` (`cmp/eq`),
-`0x8c0548e2` = `0xd116` (`mov.l` pool load), `0x8c0558e8` = `0xd217`
-(`mov.l` pool load), and `0x8c054da6` falls inside data — `0x8c054da8` is
-the pointer-table word `0x8c0556e4`. None is a store, yet `SOFWR` only
-fires on a guest register write — so the code that executed at phys
-`0x0c0548da`/`e4`/`0c054da8`/`0c0558ea` at runtime **differs from the
-static image**: overlay or copied code (the `pr=` values `0c0551d4/e4`,
-`0c045cxx` sit in the same region). These four PCs are precisely the
-scan-out-FB placement code the blocker's question (a) asks for — known
-addresses, unknown bytes.
+**The P0 population is a probe artifact, not overlay code — settled by the
+Task 10b RAM snapshot.** Task 10 conjectured runtime-resident code differing
+from the boot image at those PCs. The 32 MB main-RAM snapshot
+(`tools/ram-snapshot.bin`, carve recipe in tooling.md §Phase 3) refutes it:
+across the whole loaded image span only **907 bytes** differ from the boot
+load — all in initialized-data cells (`0x8c170cxx` config, `0x8c17dxxx`,
+`0x8c18xxxx` tables) — and the bytes at and around *every* SOFWR P0 PC
+(`0c0548da/e4`, `0c054da8`, `0c0558ea`, and the canary-leg set
+`0c0551c0/d0/d8`) are **byte-identical to the boot image**. There is no
+overlay. The static bytes at `pc−2` are `cmp/eq`/pool-loads inside
+`ldc SR` interrupt-masked critical sections of the command-packet library
+(`0x8c054xxx`–`0x8c05axxx`), and the `pr=` values are similarly off-by-4
+from any real `jsr` — the P0 pc/pr pairs do not obey the `+2` rule and are
+**unattributable samples** (boot-binary.md §maple-trigger artifact already
+classed them with the maple P0 population). The game runs its tasks in the
+P0 mirror under the Naomi BIOS's resident RTOS kernel (low RAM
+`0x0c000600`–`0x0c007xxx`, byte-identical to BIOS ROM `epr-21576h.ic27`
+at ROM offset − 0x800; VBR+0x600 stub at `0x0c000600` → INTEVT dispatcher
+`0x0c001cba` → per-task 0x200-byte TCBs at `0x0c004000`), which is why
+these sampled PCs render in P0 form. The fork mechanism that makes a
+synchronous FB-reg store log a non-store PC was not pinned (candidate:
+pc staleness across the RTOS context-switch/`rte` path); it does not
+matter for relocation — the *value* provenance below is complete.
 
 **The graphics library is KAMUI2** (NEC): copyright string
 `"KAMUI2 Copyright (C) NEC Corporation 1999 … Ver 16,5,3,2 Build:Jun 16
 2000"` at `[0x8c032030]`, referenced by the device init `FUN_8c031fee`.
 That function is `kmInitDevice`: it stores the device word
-(`param & 0xffff0000`) at state `0x8c19e4bc` and sets state`+0x7f8` =
-**total VRAM size**: `0x00800000` (8 MB) if device == `[0x8c032038]` =
-`0x00010000`, else `[0x8c03203c]` = `0x01000000` (16 MB). The game calls it
-via `FUN_8c03d472` with `[0x8c03d598]` = **`0x00010000`** — i.e. senkosp
-already initializes KAMUI2 in its **8 MB (Dreamcast-class) VRAM mode**.
-The 64↔32-bit-path bank mapper `FUN_8c035920` (`[0x8c035960]`=`0x400000`
-bank stride, `[0x8c035964]`=`0x800000` half boundary) confirms the 4×4 MB
-bank geometry.
+(`param & [0x8c03202c]`=`0xffff0000`) at state `0x8c19e4bc` and sets
+state`+0x7f8` (`mov.w` pool `0x8c0320e0` = `0x07f8`; store in the `jsr`
+delay slot `0x8c032048`) = **total VRAM size**. Verbatim disassembly
+(corrects Task 10, which had the branch inverted): device ==
+`[0x8c032038]` = `0x00010000` (the value senkosp passes, `[0x8c03d598]`)
+→ size = **`[0x8c03203c]` = `0x01000000` (16 MB, Naomi)**; any other
+device → `[0x8c0320ec]` = `0x00800000` (8 MB — the library's native
+Dreamcast mode). The snapshot's live state settles it: `[0x8c19e4bc]` =
+`0x00010000` and state`+0x7f8` = **`0x01000000`** — senkosp runs KAMUI2 in
+**16 MB Naomi VRAM mode**, and that single cell is where every above-8m
+placement comes from.
 
-**The gap.** Despite the 8 MB device mode, the scan-out FB pair sits at
-`0x800000`/`0xc00000` and 4.4 MB of content (Phase 2 `content_above8m` =
-`0x4697c3`) lives above 8 MB. The derivation of those placements was traced
-into the KAMUI2 display/TA configuration (`FUN_8c02e300` ← `FUN_8c03d9d8`
-← the config struct `FUN_8c086258` builds) without reaching a patchable
-constant: the values are computed through several config-struct
-transformations, and no `0x800000`-shaped seed analogous to the main-RAM
-one could be isolated (the `or #0x80,r0; shll16` idiom occurs 200+ times in
-the image — as generic bit-23 masks — and cannot be audited by pattern).
+**The seed and its propagation** (each hop byte-verified in image +
+snapshot):
+
+1. **One seed.** A D-opcode sweep over every `mov.l @(disp,PC)` in the
+   whole image finds exactly **one** loader of the 16 MB pool
+   (`0x8c032012`, in `kmInitDevice`) and one of the 8 MB pool
+   (`0x8c032040`, its else-branch). All other `0x01000000` pool words are
+   audited non-sources: address-bound compares (`0x8c02acb4`,
+   `0x8c02b0ca/122/182` — `cmp/hi`, superset checks, harmless below 8 MB),
+   a 16 MB window-mapping length (`0x8c02e650`, same class as the MMU
+   window item below), bit-24 flag tests/ors (`0x8c037c84`, `0x8c03ce86`),
+   an address-mode flag added to `FB_W_SOF1` values (`0x8c03bc3c` — mode
+   bit, not a placement), the size *classifier* codec (`0x8c03e9ca`,
+   compares only), and the two genuine dual-path consumers next.
+2. **state+0x7f8 has exactly two readers** (`mov.w 0x07f8` sweep, whole
+   image): **`FUN_8c02e300`** — the display/TA config function Task 10's
+   trace dead-ended at — reads it at `0x8c02e332` and passes it into the
+   **placement function `0x8c038aa0`**, whose body carries explicit dual
+   arithmetic: `cmp/eq r6,r7` against `[0x8c038b48]`=`0x1000000`, then
+   `addr += 0x1000000` (16 MB path, `0x8c038af2`) or `addr +=
+   [0x8c038b50]`=`0x800000` (8 MB path, `0x8c038b02`), plus arena-limit
+   list setup. And **`0x8c031b60`** — the scan-out region clamp: under a
+   `size == [0x8c031c0c]=0x1000000` guard it forces state`+0x7fc` ≥
+   size/2 = **`0x800000`** (`shlr`, `0x8c031b84`) — the 8 MB line itself.
+3. **The live structures downstream** (snapshot): the KAMUI2 config block
+   `0x8c170eb8` — which the `.dat` **file-ships with 8 MB-mode defaults**
+   (`+4` = `0x00800000`, `+0x14/18/1c` = `0x00400000`) — is runtime-
+   overwritten to the 16 MB values (`+4` = `0x01000000`, snapshot diff);
+   the scan-out display-descriptor pair (640×480, `0x96000`) with bases
+   **`0x800000`/`0xc00000`** at `0x0c291cf8`/`0x0c291d20` (base field
+   `+0x1c` = `0x0c291d14`/`0x0c291d3c`); and a second KAMUI2-layout
+   display state block (`0x0c2b0540`+) that duplicates the game's own SPG
+   timing words (`0x8c1a00b8`+) with the FB pair swapped in at `+0x20/24`
+   and one `FB_R_CTRL` bit different — i.e. the two FB pairs are a
+   **compose pipeline** (render into pair A `0x2ea000/0x6ea000`, per-frame
+   copy/scan-out via pair B `0x800000/0xc00000`): open question (c)
+   resolves **yes, 4 FBs are live in 16 MB mode**.
+4. **No table alternative exists**: the pair `{0x00800000, 0x00c00000}`
+   appears nowhere in the entire 251 MB `.dat` as adjacent words, and
+   `0x00c00000` never appears in either program image as a pool word —
+   `0xc00000` is computed (`0x800000` + the `0x400000` bank stride,
+   `[0x8c035960]`). The 64↔32 bank mapper `FUN_8c035920` is 8 MB-safe:
+   its `addr ≥ [0x8c035964]=0x800000 → +0x400000` upper-half branch
+   simply never fires when no placement exceeds 8 MB.
+
+**Patch: flip the seed to the library's native DC mode.** `dat 0x1203c`
+(`P1 0x8c03203c`): `0x01000000` → `0x00800000`. kmInitDevice then reports
+8 MB for the Naomi device word, and every placement decision — scan-out
+region base, FB descriptor bases, texture-arena limit — takes the 8 MB
+branch that already ships in the binary (it is the DC configuration of
+this DC-native library; the `.dat`'s own static config defaults are the
+8 MB values). Unlike the main-RAM patch this is not a rigid shift: the
+library *recomputes* its native below-8m layout, so alignment and low-bit
+flags are its own responsibility — the same code paths every DC KAMUI2
+title runs. The test image carries a verbatim kmInitDevice copy (entry
+`dat 0x183b66` = test-RAM `0x8c031b6e`; loaders `d20a`/`d22a` at entry
+`+0x24`/`+0x52` byte-identical, entries congruent mod 4 so the
+PC-relative pools resolve to entry`+0x4e`/`+0xfe` = `dat 0x183bb4` =
+`0x01000000` / `dat 0x183c64` = `0x00800000`, byte-verified) — patched as
+entry 4.
 
 **Why it matters on DC:** DC VRAM is 8 MB
 (`../flycast4naomi2dreamcast/core/emulator.cpp:456`; Naomi 16 MB, `:463`)
@@ -266,27 +336,29 @@ and accesses wrap through `VRAM_MASK`
 (`.../core/hw/pvr/pvr_mem.cpp:229,313,329`), so `0x800000` aliases onto
 `0x000000` and `0xc00000` onto `0x400000` — directly on top of the TA
 ISP/OL buffers (`0x0`–`0x2d5680`) and the low FB pair. Scan-out would
-display TA garbage and texture uploads would corrupt live buffers. VRAM
-relocation is therefore **required, and is not covered by this patch set.**
+display TA garbage and texture uploads would corrupt live buffers. The
+VRAM-size seed patch (entries 3–4) removes every above-8m placement at its
+single source.
 
-> **BLOCKER (scope decision for the user, per the plan's contingency):**
-> static analysis did not pin the above-8m VRAM placement source — and the
-> log shows why it *cannot*: the scan-out-FB writers are runtime-resident
-> code at known PCs (`0c0548da`/`0c0548e4`/`0c054da8`/`0c0558ea`) whose
-> bytes are not in the boot image (overlay/copied code, above). The
-> **directly indicated instrument is therefore the RAM-snapshot import**
-> (the spec's §Static-analysis harness contingency): dump emulator RAM at a
-> known moment, import as a second program, disassemble around those four
-> PCs, and read the live KAMUI2 state (`0x8c19e4bc`+) and display
-> descriptors. The **VRAM-write-PC fork watch** (log `pc/pr` for guest
-> writes into VRAM offsets ≥ `0x800000`, both paths, one leg) remains the
-> complementary option for question (b), where no PCs are known yet.
-> Open questions: (a) which code computes `0x800000`/`0xc00000` for the
-> scan-out pair — PCs known, bytes needed (snapshot); (b) what uploads the
-> 4.4 MB above-8m content (TA path vs CPU path — fork watch); (c) whether
-> the two FB pairs are a compose pipeline (Phase 2's 8 MB-cap fit math
-> assumed 2 FBs; if all 4 are simultaneously live, below-8m fit needs
-> 2×`0x96000` more than budgeted).
+> **Blocker resolution (Task 10b).** The former blocker's three open
+> questions closed as: (a) the `0x800000`/`0xc00000` scan-out placement is
+> computed by KAMUI2's 16 MB-mode paths (region clamp `0x8c031b60` =
+> size/2; placement fn `0x8c038aa0`; bank stride `0x400000`) from the one
+> seed `[0x8c03203c]` — the four logged P0 PCs were probe artifacts, not
+> the writer; (b) the above-8m texture content is placed by the same
+> library's texture arena, whose limit derives from the same
+> state`+0x7f8` size — no second seed exists (whole-image loader sweep);
+> (c) the two FB pairs ARE a compose pipeline — 4 FBs live in 16 MB mode
+> (two KAMUI2-layout display states in the snapshot, identical SPG
+> timing, one `FB_R_CTRL` bit apart). What the patch does **not** prove
+> statically: whether the library's 8 MB mode keeps the compose stage
+> (needing 2×`0x96000` more below-8m budget) or scans out directly from
+> the render pair as DC titles do (the file-default 8 MB config suggests
+> the latter), and whether per-moment texture residency fits the ~3.9 MB
+> left after TA + FBs (campaign-*union* content 5.68 MB is an upper
+> bound, not a per-moment figure). Both are exactly what Task 12's
+> `dryrun_vram_below_8m` measures; the library's own out-of-VRAM error
+> path is the failure signature to watch.
 
 ---
 
@@ -327,34 +399,45 @@ Arithmetic check (all figures campaign-measured):
   Phase 2's below-16m occupancy (`nz_below16m` = `0x18578c`, essentially
   image+BSS writes) lies entirely below `0x0c1de200`.
 
-### VRAM (below-8m targets — pending the VRAM blocker)
+### VRAM (below-8m layout — post-patch, library-computed)
 
-What must fit under the DC's 8 MB once the VRAM provenance is resolved:
+Unlike the main-RAM half, the below-8m VRAM layout is not a rigid
+translation this document can tabulate address-by-address: entries 3–4
+switch KAMUI2 into its native 8 MB mode and the **library recomputes**
+every placement. What is known and budgeted:
 
-| Item | Size | Note |
+| Item | Size | Post-patch expectation |
 |---|---|---|
-| TA ISP/OL buffers | `0x0`–`0x2d5680` (~2.8 MB) | already below 8m (`VRAMREGS`) |
-| FB pair A (`0x2ea000`/`0x6ea000`) | 2 × `0x96000` (640×480×16bpp) | already below 8m |
-| FB pair B (scan-out, `0x800000`/`0xc00000`) | 2 × `0x96000` | must move below 8m — or collapse onto pair A if it is a compose stage (open question (c) above) |
-| Content above 8m | `0x4697c3` (4.4 MB) | must move below 8m |
-| Content below 8m | `0x10022c` (1.0 MB) | stays |
+| TA ISP/OL buffers | `0x0`–`0x2d5680` (~2.8 MB) | already below 8m (`VRAMREGS`); game-configured, size-independent — unchanged |
+| FB pair A (render, was `0x2ea000`/`0x6ea000`) | 2 × `0x96000` (640×480×16bpp) | already below 8m; library re-places it in 8 MB mode |
+| FB pair B (scan-out, was `0x800000`/`0xc00000`) | 2 × `0x96000` | 16 MB-mode compose stage; the 8 MB path either drops it (direct scan-out from pair A — the DC-normal arrangement the file-default config describes) or re-places it below 8m |
+| Texture content (was 4.4 MB above + 1.0 MB below 8m) | ≤ `0x5699ef` (5.68 MB) union — see note | arena limit recomputed from size; all placements below 8m |
 
-Phase 2's scored fit (`content+2×fb` = 7,239,988 / 8,388,608, u 0.863)
-holds only under the 2-FB assumption; with 4 live FBs the total is
-~8.44 MB > 8 MB. Resolving this is part of the VRAM blocker.
+Budget arithmetic: TA (`0x2d5680` = 2.96 MB) + pair A (1.17 MB) leaves
+**~3.9 MB** of texture space if the compose pair persists below 8m, or
+**~5.1 MB** if 8 MB mode scans out directly from pair A. The campaign
+**union** of texture content is 5.68 MB (`0x4697c3` above + `0x10022c`
+below), but that is a 14-leg union, not per-moment residency; Phase 2's
+scored per-moment fit (`content+2×fb` = 7,239,988 / 8,388,608, u 0.863)
+excluded the TA regions. The honest statement: **placement authority is
+resolved below 8 MB by construction; peak simultaneous occupancy is the
+measured question Task 12 answers** (`VRAMHIST` above-8m buckets must go
+to zero; watch the library's out-of-VRAM error path for pressure).
 
 ---
 
 ## §Patch set
 
-`scripts/reloc_patchset.json` — **two entries** (schema: u32 LE words;
-`dat_offset` = P1 − `0x8c020000` for boot-image sites; the test-image site
-uses its own `.dat` offset directly):
+`scripts/reloc_patchset.json` — **four entries** (schema: u32 LE words;
+`dat_offset` = P1 − `0x8c020000` for boot-image sites [entries 1, 3]; the
+test-image sites [entries 2, 4] use their own raw `.dat` offset directly):
 
 | dat_offset | old | new | What |
 |---|---|---|---|
 | `0x65b50` | `0x4028cb8e` | `0x4028cb8d` | Main image, `0x8c085b50`: `or #0x8e,r0` → `or #0x8d,r0` (low halfword of the LE word; the `0x4028` = `shll16 r0` upper halfword is unchanged). Heap top `0x8e000000` → `0x8d000000`. Covers **all five corridors** via the single-seed mechanism proven in §Provenance. |
 | `0x1af894` | `0x4028cb8e` | `0x4028cb8d` | Test image, test-RAM `0x8c05d89c`: the verbatim copy of the same seed (§Provenance item 8). Same one-halfword change, so test mode gets the same 16 MB heap top. |
+| `0x1203c` | `0x01000000` | `0x00800000` | Main image, `0x8c03203c`: kmInitDevice's 16 MB VRAM-size pool (device `0x00010000`/Naomi branch) → 8 MB. Single seed for **every above-8m VRAM placement** (scan-out FB pair, texture arena) — §Provenance → VRAM/FB. The library's 8 MB (DC-native) paths ship in the binary and take over. |
+| `0x183bb4` | `0x01000000` | `0x00800000` | Test image, test-RAM pool `0x8c031bbc` (kmInitDevice copy at entry `0x8c031b6e`, pools at entry`+0x4e`): same one-word change for the service/test menu. |
 
 Old values verified against `senkosp.dat` byte-for-byte
 (`python3` verify loop; the applier re-checks).
@@ -386,8 +469,14 @@ Old values verified against `senkosp.dat` byte-for-byte
   `0x8c02e232`). Post-patch, no pointer in the `0x8d`/`0xE1` window is ever
   produced, so the codec round-trips consistently and the extra mapping is
   a harmless unused alias. No patch needed.
-- **VRAM/FB** — blocked, see §Provenance → VRAM/FB. No entry is emitted
-  rather than a guessed one.
+- **VRAM/FB scan-out region hint** `state+0x7fc` (live `0x900000`): written
+  only inside the clamp fn `0x8c031b60` (both `mov.w 0x07fc` loaders in the
+  whole image are in that function); post-patch the 16 MB guard fails and
+  the caller's value stands unclamped. No other reader found — flagged for
+  the Task 12 dry run, not patched.
+- **Bank mapper `FUN_8c035920`** (`0x400000` stride / `0x800000` half
+  pools): the upper-half branch is dead once no placement exceeds 8 MB —
+  superset logic, no patch needed (same class as the address checker).
 
 ---
 
@@ -400,6 +489,8 @@ Old values verified against `senkosp.dat` byte-for-byte
 - Heap pressure: watch for the OOM/retry path (~410 KB margin at the
   campaign-observed peak) and the `"FATAL ERROR Cannot get semaph…"`
   signature.
-- VRAM: rendering artifacts from the unresolved above-8m aliasing are
-  *expected* until the VRAM blocker is resolved — they are not evidence
-  against the main-RAM patch.
+- VRAM (entries 3–4): `SOFWR` values all < `0x800000` (scan-out no longer
+  at `0x800000`/`0xc00000`); `VRAMHIST` above-8m buckets (#32–#55) go to
+  zero; `VRAMREGS` TA bases unchanged. Watch for VRAM-pressure symptoms
+  (missing/garbled textures, the library's out-of-VRAM error path) — the
+  per-moment fit is the open measured question, not the placement.

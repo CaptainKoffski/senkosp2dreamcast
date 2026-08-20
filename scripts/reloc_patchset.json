@@ -10,5 +10,17 @@
     "old": "0x4028cb8e",
     "new": "0x4028cb8d",
     "why": "Heap-top seed, TEST image: the .dat's second program (Test load entry, ROM 0x171ff8 -> RAM 0x8c020000, 0x4dc40 B, docs/kb/game.md §Parsed .dat header) carries a verbatim copy of the same heap-create function (180-byte identical run: dat 0x1af844-0x1af8f8 == dat 0x65b00-0x65bb4) with its own 'or #0x8e,r0; shll16' word at test-RAM 0x8c05d89c. An idiom sweep over the whole test image finds exactly this one seed. Same one-halfword change as the main-image entry, so test mode runs against the same 16MB heap top instead of producing above-16m dests that would falsely indict the main patch."
+  },
+  {
+    "dat_offset": "0x1203c",
+    "old": "0x01000000",
+    "new": "0x00800000",
+    "why": "VRAM-size seed, MAIN image (dat_offset = P1 - 0x8c020000; P1 0x8c03203c). kmInitDevice = FUN_8c031fee (KAMUI2, NEC): stores device word (arg & [0x8c03202c]=0xffff0000) at state 0x8c19e4bc, then sets state+0x7f8 = total VRAM size ('mov.w 0x8c0320e0'=0x7f8; store in the jsr delay slot at 0x8c032048): device == [0x8c032038]=0x00010000 (Naomi, the value senkosp passes via [0x8c03d598]) -> size = [0x8c03203c] = 0x01000000 (16MB, THIS word); any other device -> [0x8c0320ec] = 0x00800000 (8MB, the library's native DC mode). Task 10 had this branch inverted; the Task 10b RAM snapshot (tools/ram-snapshot.bin) shows live state 0x8c19e4bc = 0x00010000 with state+0x7f8 = 0x01000000. Whole-image D-opcode sweep: exactly ONE loader of this pool (0x8c032012) and one of the 8MB pool (0x8c032040); every other 0x01000000 pool word is a comparand/flag/window-length (audit in docs/kb/relocation-map.md). Downstream (the whole above-8m placement): state+0x7f8 is read at exactly two sites - FUN_8c02e300 (display/TA config; passes it into the placement fn 0x8c038aa0, which has explicit dual 16MB/8MB arithmetic: 'cmp/eq 0x1000000' then +0x1000000 or +0x800000 at 0x8c038aec-0x8c038b0c) and the region-base clamp 0x8c031b60 (forces the scan-out region base to size/2 = 0x800000 only under a size==0x1000000 guard). The scan-out FB pair 0x800000/0xc00000 and the above-8m texture arena are all computed from this one cell; the .dat even ships the KAMUI2 config block 0x8c170eb8 with 8MB-mode file defaults (+4 = 0x00800000, runtime-overwritten to 0x01000000 - snapshot diff). Patching 16MB->8MB makes the library configure its native DC 8MB layout: all placements below 0x800000, alignment guaranteed by the library's own 8MB path."
+  },
+  {
+    "dat_offset": "0x183bb4",
+    "old": "0x01000000",
+    "new": "0x00800000",
+    "why": "VRAM-size seed, TEST image (raw .dat offset convention, same as heap entry 2). The test program carries its own kmInitDevice copy at dat 0x183b66 = test-RAM 0x8c031b6e (0x32-byte identical run from entry; the 16MB pool loader 'd20a' at entry+0x24 and the 8MB loader 'd22a' at entry+0x52 are byte-identical to the main copy, and both entries are congruent mod 4 so the PC-relative displacements resolve to the same entry-relative pools: 16MB word at entry+0x4e = dat 0x183bb4 = THIS word, 8MB word at entry+0xfe = dat 0x183c64 = 0x00800000, both byte-verified). Same one-word change so the service/test menu also configures the 8MB VRAM layout."
   }
 ]
