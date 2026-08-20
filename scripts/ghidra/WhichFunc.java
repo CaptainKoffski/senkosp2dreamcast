@@ -12,13 +12,16 @@ import java.util.*;
 public class WhichFunc extends GhidraScript {
 
     // Addresses to map: dynamic PCs (normalised to P1 0x8c...) + static candidates.
+    // senkosp Task 9 (dynamic PCs are the logged pc MINUS 2 = the actual store;
+    // the fork logs Sh4cntx.pc, which ReadNexOp has already advanced past the
+    // executing instruction — core/hw/sh4/interpr/sh4_interpreter.cpp `ctx->pc = addr + 2`).
     private static final long[] ADDRS = {
-        0x8c03bd28L, // cart DMA trigger (SB_GDST store) — dynamic
-        0x8c03161eL, // Maple/MIE site 1 — dynamic (0x0c03161e → P1)
-        0x8c03c3e4L, // Maple/MIE site 2 — dynamic
-        0x8c08063cL, // g1dma static candidate (FindMmioXrefs)
-        0x8c0809b2L, // maple static candidate 1
-        0x8c080d18L, // maple static candidate 2
+        0x8c027f72L, // cart DMA kick: SB_GDST store — dynamic (logged pc 0x8c027f74)
+        0x8c025446L, // Maple SB_MDST store — dynamic (logged pc 0x8c025448)
+        0x8c03161cL, // Maple site B — dynamic (logged pc 0x0c03161e); NOT a store
+        0x8c0664b4L, // cart_fn static candidate (FindMmioXrefs, Task 4)
+        0x8c0665feL, // input/eeprom_fn static candidate 1
+        0x8c066964L, // input/eeprom_fn static candidate 2
     };
 
     // MMIO blocks to sweep for cross-check.

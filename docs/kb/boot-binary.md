@@ -193,6 +193,15 @@ The block **above** HI, `0x8c00f000`–`0x8c00ffff` (VBR vectors + the 1 KB
 scratch), is game-reserved as well but is *not* stack; noted here so the
 free-space map does not mistake it for free.
 
+> **Correction (Task 9, dynamic): this region is the boot stack, not *the*
+> stack — senkosp is multi-stack.** 554 of the 672 logged DMA-kick SPs sit at
+> `0x8c1d4984`, ~1.8 MB above this region and past the end of the loaded image
+> (`0x8c191ff8`). The span above is a *correct* description of the boot/init
+> stack (118 SPs land in it) but an *incomplete* description of the game's
+> stack usage. See §Dynamic reconciliation → "SP — two stacks". The free-space
+> map (Task 10) must not treat `0x8c00f000`–`0x8c191ff8` as the only reserved
+> low region.
+
 ### Phase 4 note — low-RAM overlap (not a 16 MB problem)
 
 On a real Dreamcast the bottom of main RAM is BIOS/system territory: the
@@ -265,8 +274,56 @@ used as addresses.
 > dropped.
 
 Caveat (spec, verbatim): "a computed non-pool branch target could evade the
-static scan; the dynamic backstop covers executed paths only." Dynamic
-half: Task 9.
+static scan; the dynamic backstop covers executed paths only."
+
+### Dynamic half (Task 9) — closed for code, still open for the two data reads
+
+`captures/phase3/pc.log`, one interpreter leg covering boot → attract → coin →
+a full match → the test-menu EEPROM sequence (provenance in §Dynamic
+reconciliation):
+
+```
+CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)
+```
+
+`BIOSEXEC` fires from the interpreter's instruction-fetch path for any guest
+PC with `(pc & 0x1fffffff) < 0x00200000` once the arming PC has been seen
+(`../cleopatra/tools/flycast-src/core/hw/sh4/interpr/sh4_interpreter.cpp:31-44`).
+Zero lines over the whole leg is therefore positive evidence on two counts:
+
+- **The residual hole is not firing on any path this leg executed.** The
+  `0xa0000000 + <runtime struct field>` thunks at `0x8c0660f0`/`0x8c066100`
+  disclosed in (b) above never computed a target below `0x200000`. That is the
+  backstop working as designed, not a scan that never ran.
+- **The `COMPUTED_JUMP` hit #1 is confirmed a tooling artifact.** Had
+  `0x8c1035b8` ever jumped to `0x0009402b`, this check would have caught it.
+
+**Instrument validity — read before trusting the zero.** The arming PC is
+`FLYCAST_ENTRYPC`, and its **compiled-in default is Cleopatra's trampoline
+`0x8c04ae2c`** (`.../sh4_interpreter.cpp:35`), an address senkosp never
+executes. Armed with that default the check would be a null instrument — the
+same trap as the `FLYCAST_HWLOG` one dissected in §Cross-check against Phase 2.
+It is *not* null here because `scripts/capture_leg.sh:17` exports
+`FLYCAST_ENTRYPC="${FLYCAST_ENTRYPC:-8c021000}"`, senkosp's real entrypoint,
+on every leg. That is a provenance argument, not a self-evidencing one: the
+log records no arming event, so a leg launched *without* `capture_leg.sh`
+would produce an identical, meaningless `PASS`. The cheap hardening
+`capture_leg.sh:16` already anticipates — export `FLYCAST_ENTRYPC` to a PC the
+game *does* execute and confirm `BIOSEXEC` fires — remains the canary worth
+running once.
+
+> **Verdict: no BIOS-code call, static and dynamic.** The static half found no
+> `jsr`/`jmp` resolving into BIOS; the dynamic half executed the game through
+> boot, attract, a match and the test menu without a single instruction fetch
+> inside the BIOS window. §8-3 is answered for code.
+>
+> **Still open: the two BIOS-ROM *data* reads** (#3 phys `0x00060000`, #5 phys
+> `0x001ffd00`). `BIOSEXEC` watches *execution*, not loads, so this leg says
+> nothing about them, and the probe that would (`HW[RW]`) is the one
+> §Cross-check against Phase 2 shows was never enabled. They stay mandatory
+> Task 10 follow-ups exactly as recorded above — a re-run with
+> `FLYCAST_HWLOG` set is the cheap way to learn whether either read actually
+> happens on a live path.
 
 ## MMIO xref sweep — cart / G1 / Maple / PVR-FB / RTC / SCIF / WDT
 
@@ -394,6 +451,19 @@ cart_fn: 0x8c0661e0-0x8c066560,0x8c0678c2-0x8c067e18
 input_fn: 0x8c0665fe-0x8c066b0f
 eeprom_fn: 0x8c0665fe-0x8c066b0f
 ```
+
+> **Task 9 outcome: NOT promoted — these are the wrong layer.** Driving the
+> game proved every one of these ranges innocent of the thing `--cart-fn` /
+> `--input-fn` actually test. The checks measure the PC at the **trigger
+> store** (`SB_GDST = 1`, `SB_MDST = 1`); these ranges hold the **register-
+> programming** code that runs *before* the trigger (G1 bus timing, the
+> `SB_GDSTAR`/`GDLEN`/`GDDIR` arm, maple init and device scan). Both trigger
+> stores live in a different block entirely — `0x8c027f72` and `0x8c025446` —
+> reached through a **struct base pointer**, which is blind spot (2) above
+> doing exactly what that section warned it would do. Nothing below is
+> retracted: these functions do own the register constants attributed to them.
+> The confirmed trigger sites, and why the static scan structurally could not
+> find them, are in §Dynamic reconciliation.
 
 **Why these bounds are spans, not Ghidra function bodies.** Every recovered
 body in this block is truncated relative to the pool words its own code
@@ -663,3 +733,350 @@ accesses reach `cartlog_hwaccess`, and the parser's device ranges match
 (`scripts/parse_cartlog.py:46`, tagging on `addr & 0x1fffffff`). A re-run
 with the variable set is the cheap way to confirm the SCIF `SCSPTR2` write
 dynamically, if Phase 4 ever wants it.
+
+## Dynamic reconciliation — Task 9 PC-capture leg
+
+Dynamic half of the Phase 3 targets: drive the real game under the
+instruction-exact interpreter and check where the PC actually is when the
+hardware fires. Evidence: `captures/phase3/pc.log` (gitignored, 64 227 457 B),
+one leg via `scripts/capture_leg.sh phase3/pc` — boot → attract through a demo
+cycle → coin → one match with all five buttons and the stick → test menu →
+Advertise Sound OFF → exit → re-enter → restore ON → quit.
+
+Line census (whole leg): 672 `CARTDMA` + 672 `CARTDMAPC`, 86 219 `MAPLEPC`,
+86 222 `MIERESP`, 83 220 `JVSREPORT`, 1601 `SOFWR`, 1614 `PCSAMPLE`, **0
+`BIOSEXEC`**.
+
+### Provenance and instrument checks (read before trusting any number below)
+
+**The probes come from `../cleopatra/tools/flycast-src`, not
+`../flycast4naomi2dreamcast`.** `scripts/capture_leg.sh:7` runs the build under
+the *cleopatra* tree, so that tree is the source of truth for what these lines
+mean. The two forks agree verbatim on `CARTDMAPC` and `MAPLEPC`, but only the
+cleopatra tree carries `SOFWR`, `PCSAMPLE` and the `FLYCAST_ENTRYPC` arming
+override — `scripts/parse_cartlog.py`'s docstring, which cites
+`../flycast4naomi2dreamcast @ f014a410c`, is the older reference and does not
+describe every line in this log.
+
+**Interpreter confirmed, not assumed.** 1614 `PCSAMPLE` lines are present, and
+`PCSAMPLE` is emitted from `Sh4Interpreter::ReadNexOp()`'s fetch path
+(`.../core/hw/sh4/interpr/sh4_interpreter.cpp:68`) — a function the dynarec
+never enters. Interpreter-exact PCs are therefore established for this leg,
+which is what makes the `+2` reasoning below sound.
+
+**`Dynarec.Enabled` was still `no` after the leg** (Flycast persists config on
+exit). Restored to `yes` as part of this task; noted because a leg captured
+with dynarec on would silently invalidate every PC in this section.
+
+### The `+2` rule — what a logged PC actually is
+
+Every probe logs `Sh4cntx.pc`. The interpreter advances that field **before**
+executing the instruction it just fetched:
+
+```c
+// .../core/hw/sh4/interpr/sh4_interpreter.cpp:122-131  (verbatim)
+u32 addr = ctx->pc;
+cartlog_bios_check(addr);
+...
+ctx->pc = addr + 2;
+return IReadMem16(addr);
+```
+
+So for a hardware event raised **synchronously by a guest store**, the logged
+PC is `store_address + 2`. This holds through delay slots too: for `jsr` at
+`A`, the slot at `A+2` is fetched via the same `ReadNexOp`, leaving
+`ctx->pc = A+4` while the slot executes.
+
+That rule is a **test**, not just a decoder — and applying it to every distinct
+PC in this log splits them cleanly in two. Reading the instruction at `pc-2`
+out of `tools/boot.bin` (file offset = address − `0x8c020000`):
+
+| Probe | Logged PC | insn at `pc-2` | Store? |
+| --- | --- | --- | --- |
+| `CARTDMAPC` | `8c027f74` | `2142` `mov.l r4,@r1` | **yes** |
+| `MAPLEPC` site A | `8c025448` | `12c6` `mov.l r12,@(0x18,r2)` | **yes** |
+| `SOFWR` | `8c032146` | `2452` `mov.l r5,@r4` | **yes** |
+| `MAPLEPC` site B | `0c03161e` | `4b08` `shll2 r11` | no |
+| `SOFWR` | `0c054da8` | `8c1b` | no |
+| `SOFWR` | `0c0548e4` | `d116` | no |
+| `SOFWR` | `0c0548da` | `3010` | no |
+| `SOFWR` | `0c0558ea` | `d217` | no |
+
+Every PC logged in **P1** form (`8c…`) sits two bytes after a store; every PC
+logged in **P0/U0** form (`0c…`) does not. senkosp genuinely executes from both
+mirrors — `PCSAMPLE` finds the guest in `8c02/8c04/8c05` and in `0c02/0c03/0c04`
+— so this is not a formatting artifact, and it is not a stale image either:
+**no cart DMA in the whole leg writes into the loaded image span** (phys
+`0x0c020000`–`0x0c191ff8`, 0 of 672 overlap), so `tools/boot.bin` *is* the code
+that ran at these addresses. The split has a mechanical cause, given below.
+
+### Target: cart-read function — **CONFIRMED** `FUN_8c027f54`
+
+All **672** DMA kicks report one single PC, `8c027f74` → the store is at
+`0x8c027f72`. Verbatim `DisasmRange.java 0x8c027f54 0x8c027f92`, annotations
+after the `;`:
+
+```
+8c027f5e  mov.w 0x8c028014,r3      ; r3 = 0x0414
+8c027f64  mov #0x58,r0
+8c027f66  mov.l @(r0,r14),r2       ; r2 = obj->[0x58] = the G1/cart base pointer
+8c027f68  add r3,r2                ; base + 0x414
+8c027f6a  mov.l r4,@r2             ; SB_GDEN = 1   (r4 = 1, set at 8c027f58)
+8c027f6c  mov.l @(r0,r14),r1
+8c027f6e  mov.w 0x8c028016,r2      ; r2 = 0x0418
+8c027f70  add r2,r1                ; base + 0x418
+8c027f72  mov.l r4,@r1             ; SB_GDST = 1   <== THE DMA KICK
+8c027f74  bsr 0x8c027e5e           ; <== logged PC (pc-2 = the kick)
+```
+
+The two `mov.w` pool words were read byte-for-byte out of `tools/boot.bin`:
+`0x8c028014` = `0x0414`, `0x8c028016` = `0x0418`. Against the base `0xa05f7000`
+those are `SB_GDEN` (`0x005F7414`, `.../core/hw/holly/sb.h:157`) and `SB_GDST`
+(`0x005F7418`, `sb.h:159`) — and `SB_GDEN != 0` plus `data & 1` is exactly what
+`Naomi_DmaStart` requires before it raises `CARTDMA`
+(`.../core/hw/naomi/naomi.cpp:452-470`). Static and dynamic agree instruction
+for instruction.
+
+**Confirmed range: `0x8c027f54`–`0x8c027f99`** (`WhichFunc.java`, body bounds).
+Contains the kick *and* the logged PC.
+
+**Why the static scan could not find it.** Two compounding reasons, both
+already named as blind spots earlier in this doc:
+
+1. **Base pointer** — the address is `obj->[0x58] + disp`, never a whole-address
+   pool constant. Blind spot (2). The base is the constant `0xa05f7000` that
+   §Candidates dismissed under "MMIO sites deliberately outside the ranges" as
+   *"`FUN_8c02751a` … Never dereferences it; not a cart access."* Locally true,
+   and it is still the only function in the image that *returns* `0xa05f7000`
+   — which makes it the obvious supplier of the base `FUN_8c027f54`
+   dereferences. That link is inferred from the constant, not yet traced call
+   by call; tracing it is a Task 10 item, and it does not affect the confirmed
+   range above.
+2. **16-bit offsets** — `0x0414`/`0x0418` are `mov.w` half-word pool words.
+   `FindMmioXrefs.java` inspects *32-bit* defined words and instruction
+   operands; a 16-bit displacement can never mask into an MMIO range.
+
+> **Which side was wrong: the static side.** Not in what it described — the
+> `0x8c0661e0`–`0x8c066560` range really is the G1 timing + DMA-arm code — but
+> in the assumption that the code holding a register's *address constant* is
+> the code performing the *trigger store*. In senkosp those are different
+> functions in different blocks. The dynamic data was correct as logged.
+
+### Target: input function — **CONFIRMED** `FUN_8c02532a`, via sub `0x33`
+
+`MAPLEPC` by subcommand and PC (verbatim counts, whole leg):
+
+| sub | at `8c025448` (real store) | at `0c03161e` (artifact) | what it is |
+| --- | --- | --- | --- |
+| `0x33` | **80 392** | 0 | receive-then-transmit JVS poll |
+| `0x15` | 21 | 2855 | receive JVS data |
+| `0x27` | 0 | 2810 | transmit with repeat |
+| `0x17` | 27 | 45 | |
+| `0x0b` | 0 | **16** | **EEPROM write** |
+| `0x21` | 3 | 15 | |
+| `0x31` | 6 | 5 | |
+| `0x13` | 3 | 5 | |
+| `0x01` | 3 | 5 | EEPROM read |
+| `0x03` | 3 | 5 | EEPROM read |
+
+The store at `0x8c025446` is `mov.l r12,@(0x18,r2)` in the delay slot of the
+`jsr` at `0x8c025444`, with `r12 = 1` — i.e. `*(maple_base + 0x18) = 1` =
+`SB_MDST` (`0x005F6C18`, `sb.h:123`), the maple DMA start. Same base-pointer
+shape as the cart kick, and the same already-dismissed accessor supplies it:
+§Candidates recorded *"`FUN_8c026b30` … stores the constant `0xa05f6c00` into a
+struct field. Records the maple base somewhere; not an access."* That "somewhere"
+is the struct field `FUN_8c02532a` dereferences — inferred from the constant,
+not yet traced call by call, same caveat as the cart base above.
+
+**Confirmed range: `0x8c02532a`–`0x8c025505`** (`WhichFunc.java`).
+
+**The per-frame input poll is sub `0x33`, not sub `0x15`.** 80 392 events over
+a ~27-minute leg (1614 one-per-second `PCSAMPLE` lines) is ~50/s — frame rate.
+Sub `0x15`'s 2876 events are ~1.8/s and cannot be a per-frame poll. `0x33` is
+*"Receive then transmit with repeat (15 then 21)"*
+(`.../core/hw/maple/maple_jvs.cpp:1888`) — it calls `receive_jvs_messages`
+then `send_jvs_messages`, the combined per-frame transaction. The
+correspondence with `JVSREPORT` confirms it: 83 220 JVS reports vs 80 392 +
+2876 = 83 268 `0x33`+`0x15` transactions.
+
+This reproduces, independently and on a different game, the correction
+Cleopatra had to make after its own Phase 3
+(`../cleopatra/docs/kb/boot-binary.md` §5, "Addendum 2026-07-18 —
+primary/secondary inversion"): the parser's `input_pc_in_input_fn` filters on
+sub `0x15`, which is the **boot-phase** subcommand, so the check does not look
+at the steady-state input path at all. Task 10 and the Phase 4 input shim must
+serve sub `0x33`.
+
+### Target: EEPROM — path confirmed, write call site **not** confirmable here
+
+The static conclusion that *"input and EEPROM share this path"* is upheld: 3×
+sub `0x01` and 3× sub `0x03` carry the real `SB_MDST` store PC, i.e. EEPROM
+reads go through `FUN_8c02532a` like everything else. There is no PC-level
+distinction between input and EEPROM; Phase 4 must differentiate by subcommand.
+
+**The EEPROM *write* is observed but its call site is not.** The operator's
+test-menu flip produced all 16 sub `0x0b` events — the first time this project
+has seen an EEPROM write at all, and worth having — but every one of them
+carries `0c03161e`, the artifact PC. This leg therefore proves the write
+*happens* and says nothing about *where the game issues it from*.
+
+### Why three checks cannot pass as written — the maple-trigger artifact
+
+`MAPLEPC` is emitted inside `MIEImpl::handle_86_subcommand()`
+(`.../core/hw/maple/maple_jvs.cpp:1758-1765`), which is downstream of
+`maple_DoDma()`. `maple_DoDma()` has **two** callers:
+
+- `maple_SB_MDST_Write()` — the guest's `SB_MDST = 1` store, synchronous
+  (`.../core/hw/maple/maple_if.cpp:88-95`). Here `Sh4cntx.pc` is `store + 2`.
+- `maple_vblank()` — the **hardware trigger**: when `SB_MDTSEL == 1` the
+  controller starts the DMA on vblank by itself (`maple_if.cpp:50-64`). No
+  guest store is involved, so `Sh4cntx.pc` is merely wherever the CPU happened
+  to be — and because flycast's scheduler is cycle-deterministic and the guest
+  is at the same point in its frame each time, that lands on the same
+  instruction every time. Hence one stable, meaningless value.
+
+That is the mechanical cause of the P1/P0 split in the `+2` table:
+guest-store events are logged in the driver code (P1); hardware-triggered
+events are logged wherever the main loop is (P0). The four `SOFWR` P0 PCs are
+the same phenomenon on the PVR side.
+
+> **Verdict: `input_pc_in_input_fn`, `eeprom_read_seen` and `eeprom_write_seen`
+> cannot pass against any static range, and that is a probe limitation, not a
+> wrong range.** The checks test the DMA-kick PC; for vblank-triggered maple
+> transactions there is no kick PC to test. Neither widening a range nor
+> re-deriving one can fix it — a range covering `0x8c03161c` would be asserting
+> that `FUN_8c031560` issues maple commands, which the disassembly disproves.
+>
+> **The fix is one line in the fork**, not in this repo: log the PC from
+> `maple_SB_MDST_Write()`'s call path only (or tag the line with the trigger
+> source) and re-capture. Until then the input target rests on the sub `0x33`
+> evidence above, which *is* a confirmed guest store — strong enough for Task
+> 10 — and the EEPROM-write call site stays unknown.
+
+### SP — two stacks, not one
+
+672 logged SPs, in two disjoint clusters:
+
+| Cluster | Samples | Range |
+| --- | --- | --- |
+| boot/init stack | 118 | `0x8c00e864`–`0x8c00ee38` |
+| second stack | **554** | `0x8c1d4984` (one exact value, every time) |
+
+The low cluster lands inside the statically derived stack region
+`0x8c000000`–`0x8c00f000` and **confirms it**: the initial SP `0x8c00f000`
+derived from the pointer indirection at `0x8c021104` is real, and the boot
+stack is 0.5–1.9 KB deep at DMA time (`0x8c00f000` minus the cluster bounds).
+
+The high cluster does not, and is not noise: 554 identical readings of
+`0x8c1d4984`, ~1.8 MB above the boot stack and past the end of the loaded image
+(`0x8c191ff8`), i.e. in memory the runtime allocated. senkosp is running a
+multi-tasking runtime — `FUN_8c02532a` references the string
+`"FATAL ERROR Cannot get semaph…"` on its failure path — and most cart DMA is kicked from a task
+with its own stack, at a constant call depth.
+
+> **Verdict: `sp_consistent` FAIL is a real finding, not a bad range.** The
+> `0x8c000000`–`0x8c00f000` region is correct *and incomplete*: it describes
+> the boot stack only. It is **not** widened here, because widening it to reach
+> `0x8c1d4984` would falsely claim the game image at `0x8c020000`–`0x8c191ff8`
+> is stack. Two disjoint regions is the truth, and only one of them is bounded:
+> a single SP sample gives a task stack's *depth at that moment*, never its
+> extent.
+>
+> **Task 10 must not treat anything around `0x8c1d4984` as free**, and bounding
+> that stack needs its own measurement (an `r15` high/low-water probe), not
+> another PC leg.
+
+### `SOFWR` — Task 10 input, and its cap
+
+1601 `SOFWR` lines, each carrying `val=`/`was=`/`pc=`/`pr=` — the framebuffer
+placements that §MMIO xref sweep's `pvr_fb` = 0 verdict predicted the constant
+scan would miss. Split: `FB_W_SOF1` 800, `FB_R_SOF1` 400, `FB_R_SOF2` 400,
+`FB_W_SOF2` 1.
+
+> **These totals are cap-saturated, not measurements.** `pvr_regs.cpp` stops
+> logging at 800 lines per counter (`:242` shared by `FB_R_SOF1/2`, `:275`
+> `FB_W_SOF1`, `:287` `FB_W_SOF2`). 400+400 and 800 are counters that hit their
+> ceiling; only the `FB_W_SOF2` count of 1 is a true total. Task 10 may use the
+> *addresses* freely but must not treat the *counts* as write frequencies.
+
+The `pc`/`pr` pairs obey the same trigger split as everything else: the P1 site
+`pc=8c032146` (`pr=8c037396`) is a genuine `mov.l r5,@r4`, and it sits beside
+the PVR base pool word at `0x8c032160` that §MMIO xref sweep already identified
+as the way to trace framebuffer placement. That is the site to start from.
+
+### Loose ends, accounted for
+
+- **`MIERESP` 86 222 vs `MAPLEPC` 86 219** — the 3-line difference is
+  `handle_86_subcommand`'s early return when `dma_count_in == 0`, which replies
+  without reaching the log call (`maple_jvs.cpp:1758-1765`).
+- **All 86 219 `MAPLEPC` lines parse**; the per-`(sub, pc)` counts above sum to
+  exactly 86 219. No truncated or interleaved lines anywhere in the log.
+- **Ten `MAPLEPC` subcommands** appear (`0x01 0x03 0x0b 0x13 0x15 0x17 0x21
+  0x27 0x31 0x33`), more than the `0x01`/`0x03`/`0x0b`/`0x15` set Phase 2
+  recorded from `MIERESP`. The extra ones are ordinary MIE/JVS traffic, not a
+  mystery, but they are recorded rather than dropped — Phase 2's
+  `input-map.md` §Why no MIE sub=15 was written without sight of them, and
+  `0x33` in particular turns out to be the one that matters.
+
+### Check lines, verbatim
+
+Run A — the ranges §Candidates proposed:
+
+```
+python3 scripts/parse_cartlog.py captures/phase3/pc.log \
+    --cart-fn 8c0661e0-8c066560,8c0678c2-8c067e18 \
+    --input-fn 8c0665fe-8c066b0f --eeprom-fn 8c0665fe-8c066b0f \
+    --stack 8c000000-8c00f000 --pc-report          # exit=1
+```
+
+```
+CHECK dest_known: PASS — every DMA dest in a known window (main/vram/aram/ta); 0 outside
+CHECK len_aligned_32: PASS — every DMA len a whole number of 0x20-byte DMA_COUNT units
+CHECK beyond_boot_read: PASS — at least one cart read past the 1 MB boot region (runtime streaming)
+CHECK main_watermark_boot: PASS — main watermark 0x1ffffa5 >= boot-load end 0x191ff8
+CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)
+CHECK dma_pc_in_cart_fn: FAIL — 672 DMA-kick PCs vs cart fn
+CHECK input_pc_in_input_fn: FAIL — 2876 sub=15 PCs vs input fn
+CHECK eeprom_read_seen: FAIL — 16 sub=01/03 PCs vs eeprom fn
+CHECK eeprom_write_seen: FAIL — 16 sub=0b PCs vs eeprom fn
+CHECK sp_consistent: FAIL — 672 SPs vs static stack region
+```
+
+Run B — the reconciled ranges, and the run that produced `tools/pc-parse.txt`
+(60 deduped `PCPAIR` lines, Task 10's input):
+
+```
+python3 scripts/parse_cartlog.py captures/phase3/pc.log \
+    --cart-fn 8c027f54-8c027f99 \
+    --input-fn 8c02532a-8c025505 --eeprom-fn 8c02532a-8c025505 \
+    --stack 8c000000-8c00f000 --pc-report > tools/pc-parse.txt    # exit=1
+```
+
+```
+CHECK dest_known: PASS — every DMA dest in a known window (main/vram/aram/ta); 0 outside
+CHECK len_aligned_32: PASS — every DMA len a whole number of 0x20-byte DMA_COUNT units
+CHECK beyond_boot_read: PASS — at least one cart read past the 1 MB boot region (runtime streaming)
+CHECK main_watermark_boot: PASS — main watermark 0x1ffffa5 >= boot-load end 0x191ff8
+CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)
+CHECK dma_pc_in_cart_fn: PASS — 672 DMA-kick PCs vs cart fn
+CHECK input_pc_in_input_fn: FAIL — 2876 sub=15 PCs vs input fn
+CHECK eeprom_read_seen: FAIL — 16 sub=01/03 PCs vs eeprom fn
+CHECK eeprom_write_seen: FAIL — 16 sub=0b PCs vs eeprom fn
+CHECK sp_consistent: FAIL — 672 SPs vs static stack region
+```
+
+The three remaining `FAIL`s are the two findings above — the maple-trigger
+probe limitation and the second stack — not unresolved range errors. Both need
+work outside this repo (a fork probe change; an `r15` water-mark probe) before
+a green line is honest. **`tools/pc-parse.txt` is left in place regardless: the
+`PCPAIR` data it carries comes from the cart path, which is fully confirmed.**
+
+### Reconciliation ledger
+
+| Target | Static candidate | Dynamic result | Which side was wrong |
+| --- | --- | --- | --- |
+| cart-read fn | `0x8c0661e0-0x8c066560`, `0x8c0678c2-0x8c067e18` | **`FUN_8c027f54` `0x8c027f54`–`0x8c027f99`**, 672/672 kicks | static — register-programming layer mistaken for the trigger; base-pointer + 16-bit-offset blind spots |
+| input fn | `0x8c0665fe-0x8c066b0f` | **`FUN_8c02532a` `0x8c02532a`–`0x8c025505`**, 80 392 sub `0x33` | static — same cause; *plus* the check filters the boot-phase sub `0x15` instead of the per-frame sub `0x33` |
+| EEPROM fn | `0x8c0665fe-0x8c066b0f` | reads share `FUN_8c02532a`; **write call site unknown** | neither — probe cannot see vblank-triggered transactions |
+| SP | `0x8c000000-0x8c00f000` | boot stack confirmed (118 SPs); **second stack at `0x8c1d4984`** (554 SPs) | static — correct but incomplete; senkosp is multi-stack |
+| BIOS call | no confirmed BIOS-code call | `no_bios_exec` PASS, 0 lines | agree — verdict closed for code |
