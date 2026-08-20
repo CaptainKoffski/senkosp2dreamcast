@@ -193,6 +193,7 @@ assert out.count("CHECK no_bios_exec:") == 1
 assert "CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)" in out
 assert "dma_pc_in_cart_fn" not in out       # still flag-gated, no --cart-fn given
 assert "sp_consistent" not in out           # still flag-gated, no PC-range flag given
+assert "dryrun_" not in out                 # still flag-gated, no --dryrun given
 
 # regression: Phase 2 fixtures (no PC lines) still parse identically —
 # re-assert the existing ATTRACT/PLAY expectations after the change.
@@ -201,5 +202,75 @@ assert P.main_hw(a["dma"]) == 33453344
 cks2 = dict((n, ok) for n, ok, _ in P.checks([a, b], rows, attract=a))
 assert cks2["dest_known"] and cks2["len_aligned_32"] and cks2["beyond_boot_read"]
 assert cks2["attract_anchor"] and cks2["merged_hw_bounds"]
+
+# Dry-run gate checks (Task 11): synthetic anchor + matching/mismatching legs.
+# Anchor: parsed like any leg but never merged (Step 6 wiring) — its (src,len)
+# multiset and profile fields are the reference the dry-run leg is judged against.
+ANCHOR = """\
+CARTDMA src=00100000 dest=0c020000 len=100000
+CARTDMA src=00200000 dest=0c030000 len=200
+CARTDMA src=00200000 dest=0c030200 len=200
+MAINPROFILE high=800000 nz=10 nz_below16m=10 nz_above16m=0 size=2000000
+VRAMPROFILE high=100000 nz=10 nz_below8m=10 nz_above8m=0 content_high=100000 content_below8m=10 content_above8m=0 fb_bytes=1000 fb_masked_nz=1 size=1000000
+VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 fb_w_sof1=100000 fb_w_sof2=100000 fb_r_sof1=100000
+"""
+
+# Matches the anchor's shape and stays under both caps -> all three PASS.
+DRYRUN_GOOD = """\
+CARTDMA src=00100000 dest=0c020000 len=100000
+CARTDMA src=00200000 dest=0c030000 len=200
+CARTDMA src=00200000 dest=0c030200 len=200
+MAINPROFILE high=800000 nz=10 nz_below16m=10 nz_above16m=0 size=2000000
+VRAMPROFILE high=100000 nz=10 nz_below8m=10 nz_above8m=0 content_high=100000 content_below8m=10 content_above8m=0 fb_bytes=1000 fb_masked_nz=1 size=1000000
+VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 fb_w_sof1=100000 fb_w_sof2=100000 fb_r_sof1=100000
+"""
+
+# Above-16m main DMA, above-8m VRAM content_high + a bad SOF reg, and a
+# different (src,len) shape (0x500000 replaces one of the anchor's 0x200000
+# pair) -> all three FAIL.
+DRYRUN_BAD = """\
+CARTDMA src=00100000 dest=0dfe0000 len=7520
+CARTDMA src=00500000 dest=0c030000 len=200
+MAINPROFILE high=1fe7520 nz=10 nz_below16m=5 nz_above16m=5 size=2000000
+VRAMPROFILE high=900000 nz=10 nz_below8m=5 nz_above8m=5 content_high=900000 content_below8m=5 content_above8m=5 fb_bytes=1000 fb_masked_nz=1 size=1000000
+VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 fb_w_sof1=900000 fb_w_sof2=100000 fb_r_sof1=100000
+"""
+
+anchor_leg = P.parse_leg("anchor", ANCHOR)
+good_dr = P.parse_leg("good_dr", DRYRUN_GOOD)
+bad_dr = P.parse_leg("bad_dr", DRYRUN_BAD)
+
+good_rows = P.merge([good_dr])
+dr_cks = dict((n, ok) for n, ok, _ in P.dryrun_checks([good_dr], good_rows, anchor_leg))
+assert dr_cks == {"dryrun_main_below_16m": True, "dryrun_vram_below_8m": True,
+                   "dryrun_stream_shape": True}, dr_cks
+
+bad_rows = P.merge([bad_dr])
+dr_cks = dict((n, ok) for n, ok, _ in P.dryrun_checks([bad_dr], bad_rows, anchor_leg))
+assert dr_cks == {"dryrun_main_below_16m": False, "dryrun_vram_below_8m": False,
+                   "dryrun_stream_shape": False}, dr_cks
+
+# stream_shape failure detail names the differing tuples on each side
+dr_detail = dict((n, d) for n, _, d in
+                 P.dryrun_checks([bad_dr], bad_rows, anchor_leg))["dryrun_stream_shape"]
+assert "0x500000" in dr_detail          # provided-only tuple surfaced
+assert "0x200000" in dr_detail          # anchor-only tuple surfaced
+
+# --dryrun CLI wiring: checks appear only when the flag is given
+with tempfile.TemporaryDirectory() as d:
+    logpath = os.path.join(d, "attract.log")
+    with open(logpath, "w", encoding="utf-8") as f:
+        f.write(ATTRACT)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        P.main([logpath, "--attract-leg", "attract", "--dryrun", logpath])
+    out_dr = buf.getvalue()
+assert "CHECK dryrun_main_below_16m:" in out_dr
+assert "CHECK dryrun_vram_below_8m:" in out_dr
+assert "CHECK dryrun_stream_shape:" in out_dr
+# self-anchor (same file) -> stream shape trivially matches itself
+assert "CHECK dryrun_stream_shape: PASS" in out_dr
+
+print("OK dryrun_checks self-check")
 
 print("ok")

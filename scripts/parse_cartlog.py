@@ -29,16 +29,19 @@ Usage:
                    [--input-report] [--hw-report]
                    [--cart-fn LO-HI[,LO-HI]] [--input-fn LO-HI[,LO-HI]]
                    [--eeprom-fn LO-HI[,LO-HI]] [--stack LO-HI[,LO-HI]]
-                   [--pc-report]
+                   [--pc-report] [--dryrun ANCHOR.log]
 Exit: nonzero if any CHECK fails.
 """
 import argparse
+import collections
 import os
 import re
 import sys
 
 MAIN_LO, MAIN_HI = 0x0c000000, 0x0e000000   # Naomi 32 MB main-RAM window (phys)
 DC_MAIN_CAP = 0x01000000                    # DC 16 MB line (offset in window)
+DC_VRAM_CAP = 0x00800000                    # DC 8 MB VRAM line (content_high / SOF regs)
+VRAM_SOF_MASK = 0x00fffffc                  # SOF regs carry low-bit flags — mask before compare
 VRAM_LO, VRAM_HI = 0x04000000, 0x06000000   # PVR VRAM, 64-bit + 32-bit windows
 ARAM_LO, ARAM_HI = 0x00800000, 0x01000000   # AICA sound RAM window
 TA_LO, TA_HI = 0x10000000, 0x10800000       # TA FIFO
@@ -271,6 +274,44 @@ def pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack):
     return out
 
 
+def dryrun_checks(legs, rows, anchor):
+    """Phase 3 dry-run gate checks (--dryrun ANCHOR.log): run against the
+    CLI-provided legs/rows, judged against an anchor leg parsed the same way
+    but never merged in. Reuses the Phase 2 prof/regs/rows structures — no
+    re-regexing."""
+    main_over = [r for r in rows if r["mode"] == "DMA" and r["above_16m"]]
+    main_high = max((l["prof"].get("main", {}).get("high", 0) for l in legs), default=0)
+    out = [("dryrun_main_below_16m",
+            not main_over and main_high < DC_MAIN_CAP,
+            f"{len(main_over)} main DMA(s) with dest+len above 16m; "
+            f"MAINPROFILE high=0x{main_high:x} (cap 0x{DC_MAIN_CAP:x})")]
+
+    vram_high = max((l["prof"].get("vram", {}).get("content_high", 0) for l in legs), default=0)
+    sof_bad = [f"{l['name']}:{k}=0x{v & VRAM_SOF_MASK:x}"
+               for l in legs if l["regs"]
+               for k, v in _kv(l["regs"]).items()
+               if k in ("fb_w_sof1", "fb_w_sof2", "fb_r_sof1")
+               and v & VRAM_SOF_MASK >= DC_VRAM_CAP]
+    out.append(("dryrun_vram_below_8m",
+                vram_high < DC_VRAM_CAP and not sof_bad,
+                f"VRAMPROFILE content_high=0x{vram_high:x} (cap 0x{DC_VRAM_CAP:x}); "
+                f"{len(sof_bad)} SOF reg(s) masked above cap {sof_bad[:5]}"))
+
+    prov = collections.Counter((d["src"], d["len"]) for l in legs for d in l["dma"])
+    anc = collections.Counter((d["src"], d["len"]) for d in anchor["dma"])
+    shape_ok = prov == anc
+    if shape_ok:
+        detail = f"{sum(anc.values())} (src,len) events match the anchor leg's multiset"
+    else:
+        extra = [(f"0x{s:x}", f"0x{n:x}", c) for (s, n), c in list((prov - anc).items())[:5]]
+        missing = [(f"0x{s:x}", f"0x{n:x}", c) for (s, n), c in list((anc - prov).items())[:5]]
+        detail = (f"multiset differs vs anchor '{anchor['name']}': "
+                  f"provided-only(first5 src,len,count)={extra} "
+                  f"anchor-only(first5 src,len,count)={missing}")
+    out.append(("dryrun_stream_shape", shape_ok, detail))
+    return out
+
+
 def pc_report(legs):
     """Merged: dedup on the printed (dest, pc, sp) triple, first occurrence wins
     (Task 10's corridor->PC join needs unique pairs, not raw per-leg duplicates)."""
@@ -426,6 +467,10 @@ def main(argv):
     ap.add_argument("--eeprom-fn", help="LO-HI[,LO-HI] P1 hex, no 0x")
     ap.add_argument("--stack", help="LO-HI[,LO-HI] P1 hex, no 0x")
     ap.add_argument("--pc-report", action="store_true")
+    ap.add_argument("--dryrun", metavar="ANCHOR.log",
+                    help="parse ANCHOR.log as an extra leg (not merged) and add the "
+                         "dryrun_main_below_16m/dryrun_vram_below_8m/dryrun_stream_shape "
+                         "checks, run against the logs given on the command line")
     args = ap.parse_args(argv)
     legs = [parse_leg(os.path.splitext(os.path.basename(p))[0],
                       open(p, encoding="utf-8", errors="replace").read())
@@ -448,6 +493,10 @@ def main(argv):
         # the fn-range checks are meaningless without a range to test against.
         check_list += [c for c in pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack)
                        if c[0] != "no_bios_exec"]
+    if args.dryrun:
+        anchor_leg = parse_leg(os.path.splitext(os.path.basename(args.dryrun))[0],
+                               open(args.dryrun, encoding="utf-8", errors="replace").read())
+        check_list += dryrun_checks(legs, rows, anchor_leg)
     all_pass = all(ok for _, ok, _ in check_list)
     if args.csv:
         if all_pass:
