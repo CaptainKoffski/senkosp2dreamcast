@@ -22,6 +22,17 @@ public class WhichFunc extends GhidraScript {
         0x8c0664b4L, // cart_fn static candidate (FindMmioXrefs, Task 4)
         0x8c0665feL, // input/eeprom_fn static candidate 1
         0x8c066964L, // input/eeprom_fn static candidate 2
+        // Task 10 provenance chain (docs/kb/relocation-map.md §Provenance):
+        0x8c027ad6L, // FUN_8c027a66: SB_GDSTAR = request dest (mov.w pool 0x8c027bd2 = 0x0404)
+        0x8c027520L, // GD-syscall ReqCmd (fills device obj 0x8c193e04, state=2)
+        0x8c027894L, // cart server task loop (drains the 48-entry table at 0x8c06532c)
+        0x8c021846L, // GDFS read wrapper: dest &= 0x1fffffff, cmd 0x11/0x10
+        0x8c069844L, // game malloc entry (~100 call sites, OOM retry loop)
+        0x8c06fd60L, // heap arena ring builder
+        0x8c06fda8L, // game heap create + heap_set (called from FUN_8c085b00)
+        0x8c085b50L, // THE SEED: 'or #0x8e,r0' — heap top 0x8e000000 (patch site)
+        0x8c032146L, // SOFWR store: FUN_8c032140 PVR reg poke (base pool 0x8c032160)
+        0x8c031feeL, // KAMUI2 kmInitDevice (vram size 8MB/16MB by device word)
     };
 
     // MMIO blocks to sweep for cross-check.

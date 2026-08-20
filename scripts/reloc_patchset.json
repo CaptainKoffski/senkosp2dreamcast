@@ -1,0 +1,8 @@
+[
+  {
+    "dat_offset": "0x65b50",
+    "old": "0x4028cb8e",
+    "new": "0x4028cb8d",
+    "why": "Heap-top seed: sole provenance site for ALL FIVE above-16m corridors (c1-c5, docs/kb/cart-streaming-map.md). FUN_8c085b00 (system init) creates the game's single Mysalloc heap as [0x8c1de200, TOP) where TOP=0x8e000000 (Naomi 32MB RAM top) is materialized by 'or #0x8e,r0; shll16 r0; shll8 r0' at P1 0x8c085b50-0x8c085b54. This word = the 16-bit insns 0xcb8e ('or #0x8e,r0') + 0x4028 ('shll16 r0'); patching 0xcb8e -> 0xcb8d makes TOP=0x8d000000 (DC 16MB top). The allocator hands out block tails (top-down, 0x8c02d4ae-0x8c02d4e0), so the identical allocation sequence shifts every buffer down exactly 0x1000000: c1 0x0d244c20-0x0dd73e00 -> 0x0c244c20-0x0cd73e00, c2 -> 0x0cd7d020-0x0cd92020, c3 -> 0x0cdc2960-0x0cde3960, c4 (hot ring) -> 0x0ce4dbe0-0x0ce8b480, c5 (GDFS bounce buffer) -> 0x0cfe6d20-0x0cfe7520. Low 24 bits of every allocation are preserved (shift is 16MB-aligned). See docs/kb/relocation-map.md §Provenance."
+  }
+]

@@ -325,6 +325,60 @@ running once.
 > `FLYCAST_HWLOG` set is the cheap way to learn whether either read actually
 > happens on a live path.
 
+### The two BIOS-ROM data reads, decoded (Task 10 — follow-up closed)
+
+Both readers were decompiled (`Decomp.java 0x8c065ff0 0x8c067084`) and their
+pool operands read byte-for-byte from `tools/boot.bin`.
+
+**#3 — `FUN_8c065ff0`, phys `0x00060000`: the Naomi BIOS leaves a runtime
+blob there, and the game copies it into RAM.** The function:
+
+1. Unconditionally stores `[0x8c066118]` = `0xac018000` into the global
+   `[0x8c06611c]` = `0x8c1bf42c` — the same struct the two computed-jump
+   thunks at `0x8c0660f0`/`0x8c066100` dispatch through (§BIOS-call verdict
+   residual hole).
+2. Checks 8 words at `0xa0060000` (`[0x8c066120]`): each must satisfy
+   `(word & 0x0fff0000) == 0x0c010000` (`[0x8c066128]`/`[0x8c066124]`) —
+   i.e. the BIOS ROM at `0x60000` must begin with 8 pointers into low main
+   RAM `0x0c01xxxx`: an entry-vector table.
+3. On match, copies `[0x8c066114]` = `0x1c00` words (28,672 B) from
+   `0xa0060000` to `0xac018000` — phys `0x0c018000`–`0x0c01efff`, between
+   the VBR/scratch block and the load image.
+
+So the "BIOS data" is a **28 KB BIOS-resident runtime with an 8-entry
+vector table**, re-hosted into RAM and called through the `0x8c1bf42c`
+struct. **And it demonstrably runs:** the Task 9 leg contains
+`PCSAMPLE pc=0c018b4a` — the guest executing *inside* the copied blob
+(phys `0x0c018000`–`0x0c01efff`). `BIOSEXEC` never fired because the code
+runs from RAM, not from the BIOS window; this is why the §BIOS-call verdict
+could stay "no BIOS-code call" while BIOS-*derived* code executes anyway.
+**Phase 4 implication (mandatory):** on DC the `0xa0060000` read returns DC
+BIOS bytes, the signature fails, nothing is copied — but the pointer at
+`0x8c1bf42c` is installed regardless, so the live thunk path would jump
+into uninitialized RAM. The loader must place the 28,672-byte blob from the
+user's own Naomi BIOS dump (offset `0x60000`) at phys `0x0c018000` at boot
+(never commit those bytes; extract at build/load time), or reimplement the
+8 vectored services.
+
+**#5 — `FUN_8c067084`, phys `0x001ffd00`: Naomi BOOT ROM identity check.**
+Compares `0x70` bytes at `0xa01ffd00` (`[0x8c06711c]`) against the in-image
+string at `[0x8c067118]` = `0x8c180891`, deobfuscated per byte as
+`bios[i] == img[i] − (i & 7)`. Decoding the image string yields:
+
+```
+COPYRIGHT (C)SEGA ENTERPRISES,LTD.\0 1998 All rights reserved by SEGA
+ENTERPRISES,LTD.\0 …\xff… NAOMI BOOT ROM\0
+```
+
+— the Naomi BIOS copyright block. On match it sets the flag
+`[0x8c067114]` = `0x8c1bf430` = 1. Its consumer is the system init
+`FUN_8c06773a` (which calls the check): when the flag is **0** it falls
+back to deriving the parameter from the DIP switches — **the library
+already has a working "not a Naomi BIOS" fallback path.** **Phase 4
+implication:** on DC the flag is simply 0 and the fallback runs; benign,
+nothing to synthesize. (If the fallback value ever proves wrong, the
+one-byte fix is to pre-set `0x8c1bf430` from the loader.)
+
 ## MMIO xref sweep — cart / G1 / Maple / PVR-FB / RTC / SCIF / WDT
 
 Evidence: `scripts/ghidra/run.sh script FindMmioXrefs.java` against the same
@@ -1079,6 +1133,18 @@ with its own stack, at a constant call depth.
 > **Task 10 must not treat anything around `0x8c1d4984` as free**, and bounding
 > that stack needs its own measurement (an `r15` high/low-water probe), not
 > another PC leg.
+
+**Task 10 resolution — the second stack is static BSS, bounded without a
+probe.** The system init `FUN_8c085b00` passes `[0x8c085bbc]` = `0x8c1cfb64`
+plus `0x5000` = **`0x8c1d4b64`** as the stack-top argument to both the
+machine bring-up (`jsr` at `0x8c085b36`, → `FUN_8c02c37c`) and the task setup
+(`jsr` at `0x8c085b7a`, → `[0x8c071754](0x10, 0x8c1d4b64, 0)`); the 554-sample SP
+cluster `0x8c1d4984` sits `0x1e0` below that top. `0x8c1cfb64` is inside the
+statically-cleared BSS, which ends at `[0x8c15ae64]` = `0x8c1de200` — the
+exact base the game's heap is created with (`docs/kb/relocation-map.md`
+§Provenance). The free-space consequence: everything below `0x8c1de200` is
+image/BSS (reserved wholesale), everything above is the heap — no separate
+reservation window around `0x8c1d4984` is needed.
 
 ### `SOFWR` — Task 10 input, and its cap
 
