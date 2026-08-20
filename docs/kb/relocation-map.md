@@ -49,11 +49,15 @@ Chain of evidence, walked from the confirmed DMA kick upward:
    The main-RAM dest is programmed one frame earlier in **`FUN_8c027a66`**
    (`0x8c027a66`–`0x8c027b5d`): `*(base + [0x8c027bd2]) = param_1[2]` with
    the `mov.w` pool `0x8c027bd2` = `0x0404` = **`SB_GDSTAR`** (likewise
-   `0x8c027bd4` = `0x0408` `SB_GDLEN`, `0x8c027bd6` = `0x040c` `SB_GDDIR`;
-   these are the only `mov.w`-reachable 0x404/0x408/0x40c pools in the whole
-   image, found by decoding every `mov.w @(disp,PC)` against every candidate
-   halfword). It then calls `FUN_8c027f54` — the confirmed kick. So the dest
-   is `param_1[2]` of a request `(sector, count, dest)`.
+   `0x8c027bd4` = `0x0408` `SB_GDLEN`, `0x8c027bd6` = `0x040c` `SB_GDDIR`).
+   Decoding every `mov.w @(disp,PC)` against every candidate halfword finds
+   exactly one other reachable GDSTAR/GDLEN/GDDIR pool triple in the image —
+   `0x8c027e06/08/0a` in the chunked-read path `FUN_8c027d7e`, which kicks
+   `SB_GDST` itself and accounts for **zero** of the 672 logged kicks (all
+   672 carry `FUN_8c027f54`'s PC), so the dynamic evidence pins
+   `FUN_8c027a66` as the live path. It then calls `FUN_8c027f54` — the
+   confirmed kick. So the dest is `param_1[2]` of a request
+   `(sector, count, dest)`.
 2. **Request → GD-syscall layer.** `FUN_8c027a66` is entry **17 = 0x11**
    of a 48-slot command table at `0x8c06532c` (dispatcher `FUN_8c06530c`),
    drained by the **cart server task `FUN_8c027894`**, and fed by
@@ -82,8 +86,9 @@ Chain of evidence, walked from the confirmed DMA kick upward:
    an out-of-memory handler). It dispatches through the current heap object
    (`[[0x8c195f5c]]`), installed by `heap_set` = `0x8c02d1d2`. The library
    default instance carries the vtable `0x8c15c970` whose version string —
-   `"\nMysalloc Ver 2.01 Build:Aug 09 …"` at `0x8c15c980` — names the
-   allocator. The game installs its own instance: descriptor `0x8c1cecb4`
+   `"\nsyMalloc Ver 2.01 Build:Aug 09 …"` at `0x8c15c980` — names the
+   allocator (Sega's `syMalloc`). The game installs its own instance:
+   descriptor `0x8c1cecb4`
    (BSS), methods `0x8c0700f4`/`0x8c06ff18`/`0x8c070100`/`0x8c07010c`,
    arena ring built by `FUN_8c06fd60`. Sub-heaps (`0x8c06fe30`) carve their
    arena out of an allocation from this same heap — there is **no second
@@ -122,7 +127,7 @@ Chain of evidence, walked from the confirmed DMA kick upward:
    shrinks the free node (`node[2] -= units+1`) and carves the new block
    from the node's *top end* (header at `node + remaining*0x20 + 0x20`,
    payload `0x20` above it). (The
-   library-default Mysalloc instance, `0x8c02d26e` family, allocates tails
+   library-default syMalloc instance, `0x8c02d26e` family, allocates tails
    the same way; the game instance is the one live at runtime.) All address
    arithmetic is node-relative — no absolute-address decisions — so the
    layout is translation-invariant given the same arena and request
@@ -147,6 +152,18 @@ Chain of evidence, walked from the confirmed DMA kick upward:
    materialization — checked by disassembly. The `mov.w 0x0e00` load at
    `0x8c02e232` is a bank threshold in the MMU-window address codec, see
    §What is deliberately not patched.)
+8. **The `.dat` ships a second program — the test image — with its own
+   copy of the seed.** The Test load entry (ROM `0x171ff8` → RAM
+   `0x8c020000`, `0x4dc40` B, entry `0x8c021000` — `docs/kb/game.md`
+   §Parsed .dat header) contains a verbatim copy of the heap-create
+   function: the 180-byte run `dat 0x1af844`–`0x1af8f8` is byte-identical
+   to boot `0x65b00`–`0x65bb4` (`cmp`-verified), putting the same
+   `or #0x8e,r0; shll16` word at **dat `0x1af894`** = test-RAM
+   `0x8c05d89c`. The same idiom sweep over the whole test image finds
+   exactly that one seed. It gets the second patch entry so that test mode
+   (service menu boots the test entry) runs against the same 16 MB heap
+   top — otherwise any future test-mode leg would produce above-16m dests
+   that falsely indict the main patch.
 
 ### Per-corridor classification
 
@@ -190,15 +207,35 @@ as value evidence):
 `VRAMREGS` (same log): `isp_base=0 isp_limit=0x2200e0 ol_base=0x2d5680` —
 the TA ISP/object-list buffers occupy the bottom of VRAM.
 
-**Writer identified.** All P1-form `SOFWR` PCs are the single store
-`0x8c032146` in `FUN_8c032140` — a two-instruction PVR register poke
-(`*(reg + [0x8c032160]=0xa05f8000) = val`). Callers seen in `pr=`:
-`FUN_8c03baa0` (per-frame flip; writes reg `0x60`=`FB_W_SOF1`) and
-`FUN_8c0372d6` (display init; writes `0x50`/`0x54`/`0x60`/`0x64` =
-`FB_R_SOF1/2`, `FB_W_SOF1/2` — offsets per
+**Writers: two disjoint populations, split exactly along the 8 MB line.**
+Cross-tabulating every `SOFWR` line's `pc=` against its `val=`:
+
+| PC | Lines | Values carried |
+|---|---|---|
+| `8c032146` (P1) | 446 | **only** the below-8m pair `0x2ea000`/`0x6ea000` (±`0x500`) |
+| `0c0548da`/`0c0548e4`/`0c054da8`/`0c0558ea` (P0) | 1,155 | **all** of the above-8m `0x800000`/`0xc00000` (±`0x500`) writes — and nothing else |
+
+The P1 site is the single store `0x8c032146` in `FUN_8c032140` — a
+two-instruction PVR register poke (`*(reg + [0x8c032160]=0xa05f8000) =
+val`). Callers seen in `pr=`: `FUN_8c03baa0` (per-frame flip; writes reg
+`0x60`=`FB_W_SOF1`) and `FUN_8c0372d6` (display init; writes
+`0x50`/`0x54`/`0x60`/`0x64` = `FB_R_SOF1/2`, `FB_W_SOF1/2` — offsets per
 `../flycast4naomi2dreamcast/core/hw/pvr/pvr_regs.h:31-36`). Both take the
 addresses from display-buffer descriptors (field `+0x1c`), built inside the
 graphics library.
+
+**The P0 population is runtime-resident code that is NOT in the boot
+image.** Reading the static bytes at `pc−2` for each (file offset =
+P1-normalized addr − `0x8c020000`): `0x8c0548d8` = `0x3010` (`cmp/eq`),
+`0x8c0548e2` = `0xd116` (`mov.l` pool load), `0x8c0558e8` = `0xd217`
+(`mov.l` pool load), and `0x8c054da6` falls inside data — `0x8c054da8` is
+the pointer-table word `0x8c0556e4`. None is a store, yet `SOFWR` only
+fires on a guest register write — so the code that executed at phys
+`0x0c0548da`/`e4`/`0c054da8`/`0c0558ea` at runtime **differs from the
+static image**: overlay or copied code (the `pr=` values `0c0551d4/e4`,
+`0c045cxx` sit in the same region). These four PCs are precisely the
+scan-out-FB placement code the blocker's question (a) asks for — known
+addresses, unknown bytes.
 
 **The graphics library is KAMUI2** (NEC): copyright string
 `"KAMUI2 Copyright (C) NEC Corporation 1999 … Ver 16,5,3,2 Build:Jun 16
@@ -233,18 +270,23 @@ display TA garbage and texture uploads would corrupt live buffers. VRAM
 relocation is therefore **required, and is not covered by this patch set.**
 
 > **BLOCKER (scope decision for the user, per the plan's contingency):**
-> static analysis did not pin the above-8m VRAM placement source. The
-> planned instrument is a **VRAM-write-PC watch in the fork**: log
-> `pc/pr` for guest writes into VRAM offsets ≥ `0x800000` (both 64-bit and
-> 32-bit paths), one capture leg, then map the PCs with `WhichFunc.java`
-> exactly as done for `SOFWR`. Alternative: import an emulator RAM snapshot
-> and read the live KAMUI2 state (`0x8c19e4bc`+) and display descriptors.
-> Open questions the instrument should answer: (a) which code computes
-> `0x800000`/`0xc00000` for the scan-out pair; (b) what uploads the 4.4 MB
-> above-8m content (TA path vs CPU path); (c) whether the two FB pairs are
-> a compose pipeline (Phase 2's 8 MB-cap fit math assumed 2 FBs; if all 4
-> are simultaneously live, below-8m fit needs 2×`0x96000` more than
-> budgeted).
+> static analysis did not pin the above-8m VRAM placement source — and the
+> log shows why it *cannot*: the scan-out-FB writers are runtime-resident
+> code at known PCs (`0c0548da`/`0c0548e4`/`0c054da8`/`0c0558ea`) whose
+> bytes are not in the boot image (overlay/copied code, above). The
+> **directly indicated instrument is therefore the RAM-snapshot import**
+> (the spec's §Static-analysis harness contingency): dump emulator RAM at a
+> known moment, import as a second program, disassemble around those four
+> PCs, and read the live KAMUI2 state (`0x8c19e4bc`+) and display
+> descriptors. The **VRAM-write-PC fork watch** (log `pc/pr` for guest
+> writes into VRAM offsets ≥ `0x800000`, both paths, one leg) remains the
+> complementary option for question (b), where no PCs are known yet.
+> Open questions: (a) which code computes `0x800000`/`0xc00000` for the
+> scan-out pair — PCs known, bytes needed (snapshot); (b) what uploads the
+> 4.4 MB above-8m content (TA path vs CPU path — fork watch); (c) whether
+> the two FB pairs are a compose pipeline (Phase 2's 8 MB-cap fit math
+> assumed 2 FBs; if all 4 are simultaneously live, below-8m fit needs
+> 2×`0x96000` more than budgeted).
 
 ---
 
@@ -305,14 +347,16 @@ holds only under the 2-FB assumption; with 4 live FBs the total is
 
 ## §Patch set
 
-`scripts/reloc_patchset.json` — **one entry** (schema: u32 LE words;
-`dat_offset` = P1 − `0x8c020000` for boot-image sites):
+`scripts/reloc_patchset.json` — **two entries** (schema: u32 LE words;
+`dat_offset` = P1 − `0x8c020000` for boot-image sites; the test-image site
+uses its own `.dat` offset directly):
 
 | dat_offset | old | new | What |
 |---|---|---|---|
-| `0x65b50` | `0x4028cb8e` | `0x4028cb8d` | `0x8c085b50`: `or #0x8e,r0` → `or #0x8d,r0` (low halfword of the LE word; the `0x4028` = `shll16 r0` upper halfword is unchanged). Heap top `0x8e000000` → `0x8d000000`. Covers **all five corridors** via the single-seed mechanism proven in §Provenance. |
+| `0x65b50` | `0x4028cb8e` | `0x4028cb8d` | Main image, `0x8c085b50`: `or #0x8e,r0` → `or #0x8d,r0` (low halfword of the LE word; the `0x4028` = `shll16 r0` upper halfword is unchanged). Heap top `0x8e000000` → `0x8d000000`. Covers **all five corridors** via the single-seed mechanism proven in §Provenance. |
+| `0x1af894` | `0x4028cb8e` | `0x4028cb8d` | Test image, test-RAM `0x8c05d89c`: the verbatim copy of the same seed (§Provenance item 8). Same one-halfword change, so test mode gets the same 16 MB heap top. |
 
-Old value verified against `senkosp.dat` at `0x65b50` byte-for-byte
+Old values verified against `senkosp.dat` byte-for-byte
 (`python3` verify loop; the applier re-checks).
 
 ### Deliberately not patched (each checked, with reason)
