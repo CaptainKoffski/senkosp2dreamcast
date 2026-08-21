@@ -68,6 +68,7 @@ _HW = re.compile(r"^HW([A-Z]) pc=([0-9a-f]+) addr=([0-9a-f]+) val=([0-9a-f]+)", 
 _DMAPC = re.compile(r"^CARTDMAPC pc=([0-9a-f]+) sp=([0-9a-f]+)", re.I)
 _MPC = re.compile(r"^MAPLEPC cmd=86 sub=([0-9a-f]+) pc=([0-9a-f]+)", re.I)
 _BIOS = re.compile(r"^BIOSEXEC pc=([0-9a-f]+)", re.I)
+_SOFWR = re.compile(r"^SOFWR (\w+) val=([0-9a-f]+)", re.I)
 
 
 def _kv(s):
@@ -91,7 +92,7 @@ def parse_leg(name, text):
     leg = {"name": name, "dma": [], "pio": set(), "pio_bytes": 0, "wm": {},
            "prof": {}, "hist": {}, "regs": None, "serial": [], "mie": [],
            "jvs": [], "hw": {}, "dmapc": [], "pcpairs": [], "maplepc": [],
-           "biosexec": []}
+           "biosexec": [], "sofwr": collections.Counter()}
     for line in text.splitlines():
         m = _DMA.match(line)
         if m:
@@ -168,6 +169,10 @@ def parse_leg(name, text):
         m = _BIOS.match(line)
         if m:
             leg["biosexec"].append(int(m.group(1), 16))
+            continue
+        m = _SOFWR.match(line)
+        if m:
+            leg["sofwr"][m.group(1).lower()] += 1
             continue
     return leg
 
@@ -274,6 +279,13 @@ def pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack):
     return out
 
 
+# FB_W_SOF2's never-written BIOS default (relocation-map.md §Dry-run evidence
+# ruling; cites ../cleopatra/tools/flycast-src/core/hw/naomi/naomi.cpp:256-258:
+# "31 kHz progressive parks the field-2 pointer at 0xc00000" — masked, so
+# this exact value costs nothing when nothing was ever written there).
+FB_W_SOF2_BIOS_DEFAULT = 0x00c00000
+
+
 def dryrun_checks(legs, rows, anchor):
     """Phase 3 dry-run gate checks (--dryrun ANCHOR.log): run against the
     CLI-provided legs/rows, judged against an anchor leg parsed the same way
@@ -287,27 +299,64 @@ def dryrun_checks(legs, rows, anchor):
             f"MAINPROFILE high=0x{main_high:x} (cap 0x{DC_MAIN_CAP:x})")]
 
     vram_high = max((l["prof"].get("vram", {}).get("content_high", 0) for l in legs), default=0)
-    sof_bad = [f"{l['name']}:{k}=0x{v & VRAM_SOF_MASK:x}"
-               for l in legs if l["regs"]
-               for k, v in _kv(l["regs"]).items()
-               if k in ("fb_w_sof1", "fb_w_sof2", "fb_r_sof1")
-               and v & VRAM_SOF_MASK >= DC_VRAM_CAP]
+    sof_bad = []
+    for l in legs:
+        if not l["regs"]:
+            continue
+        for k, v in _kv(l["regs"]).items():
+            if k not in ("fb_w_sof1", "fb_w_sof2", "fb_r_sof1"):
+                continue
+            masked = v & VRAM_SOF_MASK
+            if masked < DC_VRAM_CAP:
+                continue
+            # Narrow exemption (relocation-map.md ruling A): FB_W_SOF2 stuck
+            # at the BIOS default is exempt only if this leg wrote it exactly
+            # once (no genuine placement re-targeted it) AND this leg never
+            # wrote content above 8m (nz_above8m running max across every
+            # VRAMPROFILE sample, not just the last). Any other register, any
+            # other value, a second SOF2 write, or any above-8m content still
+            # fails — the exemption never widens past this one cell.
+            if (k == "fb_w_sof2" and masked == FB_W_SOF2_BIOS_DEFAULT
+                    and l["sofwr"].get("fb_w_sof2", 0) == 1
+                    and l["prof"].get("vram", {}).get("nz_above8m", 0) == 0):
+                continue
+            sof_bad.append(f"{l['name']}:{k}=0x{masked:x}")
     out.append(("dryrun_vram_below_8m",
                 vram_high < DC_VRAM_CAP and not sof_bad,
                 f"VRAMPROFILE content_high=0x{vram_high:x} (cap 0x{DC_VRAM_CAP:x}); "
                 f"{len(sof_bad)} SOF reg(s) masked above cap {sof_bad[:5]}"))
 
-    prov = collections.Counter((d["src"], d["len"]) for l in legs for d in l["dma"])
+    # Shape (ruling B): the multiset comparison is like-for-like only against
+    # the FIRST leg on the CLI (the dry-run attract leg, same 660 s window as
+    # the anchor) — same "first leg" convention merge() already uses for CLI
+    # order. Any further legs (e.g. the play leg) have no anchor to compare
+    # against — interactive play has no fixed shape — so they're reported
+    # informationally only and never fail this check.
+    shape_leg, *exempt_legs = legs
+    prov = collections.Counter((d["src"], d["len"]) for d in shape_leg["dma"])
     anc = collections.Counter((d["src"], d["len"]) for d in anchor["dma"])
     shape_ok = prov == anc
     if shape_ok:
-        detail = f"{sum(anc.values())} (src,len) events match the anchor leg's multiset"
+        detail = (f"{shape_leg['name']}: {sum(anc.values())} (src,len) events match "
+                  f"the anchor leg's multiset")
+    elif set(prov) == set(anc):
+        # Capture-window truncation can duplicate/drop a repeat count without
+        # changing which (src,len) tuples appear — the plan's own provision:
+        # record set-equality + the boundary explanation, not a FAIL.
+        shape_ok = True
+        detail = (f"{shape_leg['name']}: multiset count differs vs anchor "
+                  f"'{anchor['name']}' but the unique (src,len) set matches exactly "
+                  f"({len(set(prov))} distinct tuples) — capture-window truncation "
+                  f"boundary, not a content mismatch")
     else:
         extra = [(f"0x{s:x}", f"0x{n:x}", c) for (s, n), c in list((prov - anc).items())[:5]]
         missing = [(f"0x{s:x}", f"0x{n:x}", c) for (s, n), c in list((anc - prov).items())[:5]]
-        detail = (f"multiset differs vs anchor '{anchor['name']}': "
+        detail = (f"{shape_leg['name']}: multiset differs vs anchor '{anchor['name']}': "
                   f"provided-only(first5 src,len,count)={extra} "
                   f"anchor-only(first5 src,len,count)={missing}")
+    if exempt_legs:
+        detail += ("; exempt from shape (no anchor for interactive play, caps-only): "
+                   + ", ".join(l["name"] for l in exempt_legs))
     out.append(("dryrun_stream_shape", shape_ok, detail))
     return out
 

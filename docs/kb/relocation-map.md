@@ -473,7 +473,10 @@ Old values verified against `senkosp.dat` byte-for-byte
   only inside the clamp fn `0x8c031b60` (both `mov.w 0x07fc` loaders in the
   whole image are in that function); post-patch the 16 MB guard fails and
   the caller's value stands unclamped. No other reader found — flagged for
-  the Task 12 dry run, not patched.
+  the Task 12 dry run, not patched. **Task 12 confirms the flagged risk is
+  real** for the register value: `FB_R_SOF1`/`FB_W_SOF1` still write
+  `0x800000`/`0xc00000` at unchanged frequency post-patch — see §Dry-run
+  evidence → Open concern.
 - **Bank mapper `FUN_8c035920`** (`0x400000` stride / `0x800000` half
   pools): the upper-half branch is dead once no placement exceeds 8 MB —
   superset logic, no patch needed (same class as the address checker).
@@ -482,15 +485,249 @@ Old values verified against `senkosp.dat` byte-for-byte
 
 ## §Dry-run evidence
 
-**Pending Task 12.** Expected observables when the patched image runs:
+Three legs against `senkosp-reloc.dat` (`md5 a80f03676c0595bcae1bebcc5f16f884`,
+same 251,342,848 B size as `senkosp.dat`; `apply_reloc.py` reported
+`patched 4 words -> senkosp-reloc.dat`, exit 0, matching the 4-entry patch
+set): `captures/phase3/dryrun-attract.log` (660 s unattended, 1,080,610
+lines), `captures/phase3/dryrun-play.log` (operator-played, boot → coin →
+one full match, 2,067,273 lines), and a bonus corroboration leg —
+`captures/phase3/dryrun-attract-2-unattended.log` (1,024,458 lines).
+**Mislabel note (honesty record):** the third leg was launched intending a
+second play session but the operator stepped away before providing input;
+the resulting log is a second unattended-attract capture in substance
+(coin never inserted), originally saved under a play-leg name and renamed
+to `dryrun-attract-2-unattended` to match what it actually captured — see
+`tooling.md` for the exact rename.
 
-- `CARTDMA` dests: zero above `0x0d000000`; corridor spans at the
-  post-patch extents in the table above (same low 24 bits).
-- Heap pressure: watch for the OOM/retry path (~410 KB margin at the
-  campaign-observed peak) and the `"FATAL ERROR Cannot get semaph…"`
-  signature.
-- VRAM (entries 3–4): `SOFWR` values all < `0x800000` (scan-out no longer
-  at `0x800000`/`0xc00000`); `VRAMHIST` above-8m buckets (#32–#55) go to
-  zero; `VRAMREGS` TA bases unchanged. Watch for VRAM-pressure symptoms
-  (missing/garbled textures, the library's out-of-VRAM error path) — the
-  per-moment fit is the open measured question, not the placement.
+### Gate run (Step 4)
+
+```
+python3 scripts/parse_cartlog.py captures/phase3/dryrun-attract.log captures/phase3/dryrun-play.log \
+    --dryrun captures/attract.log > tools/dryrun-parse.txt; echo "exit=$?"
+```
+
+`exit=0`. CHECK lines (verbatim, all Phase 2 CHECKs plus the three dry-run
+CHECKs; full output `tools/dryrun-parse.txt`):
+
+```
+CHECK dest_known: PASS — every DMA dest in a known window (main/vram/aram/ta); 0 outside
+CHECK len_aligned_32: PASS — every DMA len a whole number of 0x20-byte DMA_COUNT units
+CHECK beyond_boot_read: PASS — at least one cart read past the 1 MB boot region (runtime streaming)
+CHECK main_watermark_boot: PASS — main watermark 0xffffa5 >= boot-load end 0x191ff8
+CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)
+CHECK dryrun_main_below_16m: PASS — 0 main DMA(s) with dest+len above 16m; MAINPROFILE high=0xffffa5 (cap 0x1000000)
+CHECK dryrun_vram_below_8m: PASS — VRAMPROFILE content_high=0x756120 (cap 0x800000); 0 SOF reg(s) masked above cap []
+CHECK dryrun_stream_shape: PASS — dryrun-attract: 205 (src,len) events match the anchor leg's multiset; exempt from shape (no anchor for interactive play, caps-only): dryrun-play
+```
+
+Phase 2 regression: flagless re-parse (`captures/*.log --attract-leg
+attract`) still `exit=0`, all Phase 2 CHECKs unchanged, and
+`docs/kb/cart-streaming-map.csv` regenerates byte-identical to the
+committed copy — the ruling-A/B code changes touch only `dryrun_checks()`.
+
+### Watermarks per leg (running-max write-truth, `MAINPROFILE`/`VRAMPROFILE`)
+
+| Leg | MAINPROFILE high | nz_above16m | VRAMPROFILE content_high | content_above8m |
+|---|---|---|---|---|
+| `dryrun-attract` | `0xffffa5` | `0` | `0x5c4ad1` (5.77 MB) | `0` |
+| `dryrun-play` | `0xffffa5` | `0` | `0x756120` (7.34 MB) | `0` |
+| `dryrun-attract-2-unattended` | `0xffffa5` | `0` | `0x5c4ad1` (5.77 MB) | `0` |
+
+Main-RAM headroom at peak: `0x1000000 − 0xffffa5` = 91 B — the patch lands
+the heap's top-down allocations essentially flush against the DC 16 MB
+line (expected: the shift is rigid, and corridor 5, the campaign's highest
+allocation, was already the shallowest below the old 32 MB top).
+
+**Play-leg VRAM watermark answers Task 10b's per-moment-fit open question.**
+`content_high=0x756120` is the *measured*, in-play, single-leg peak (not the
+14-leg campaign union of 5.68 MB from Phase 2) — `0x800000 − 0x756120` =
+`0x6a020` = **696,032 B (~680 KB) of headroom** against the DC 8 MB VRAM cap
+at the highest-pressure moment observed (full match). The two unattended
+attract legs corroborate each other exactly (`0x5c4ad1` both, `content_above8m=0`
+both) — same demo-loop content ceiling, reproduced independently.
+
+### Operator playability report (verbatim)
+
+> Everything looks and plays normal, except on moment. I see lags from time
+> to time, once in ~10s the game hangs for about half of a second. I see
+> this all the time, attract, character selection, real gameplay. I'm not
+> sure if it is because of emulator or not, but I tried the original gdi
+> rom with vanilla flycast and saw no lags.
+
+**Lag root cause: the cartlog instrument's own periodic scan, not the
+patch or the game.** `cartlog_profiles_tick()`
+(`../cleopatra/tools/flycast-src/core/hw/naomi/naomi.cpp:441-448`) samples
+every 600 vblanks — "~10 s" per its own comment (naomi.cpp:440) — matching
+the operator's "once in ~10s" exactly. Each sample byte-scans the full 32 MB
+main-RAM array + 16 MB VRAM array + ARAM + a 4 MB shim-watch window on the
+**emulation thread** (`cartlog_sample()`, naomi.cpp:399-415, calling
+`cartlog_shimwatch()` naomi.cpp:382-397 and `cartlog_vram_profile()`
+naomi.cpp:243-290) — a >50 MB linear scan blocking guest execution, which is
+the half-second stutter. This runs unconditionally, independent of the
+relocation patch: same function, same cadence, in every Phase 1/2/3
+instrumented leg to date (confirmed by code reading — `cartlog_sample()`
+carries no patch-set or dry-run conditional).
+
+**The patch is exonerated by traffic-count comparison**, unpatched
+`captures/attract.log` (Phase 2) vs patched `captures/phase3/dryrun-attract.log`
+(same 660 s window, reproduced from the logs, not copied from any prior
+report):
+
+| Instrument class | Unpatched (attract.log) | Patched (dryrun-attract.log) | Diff |
+|---|---|---|---|
+| `CARTDMA` | 205 | 205 | 0 |
+| `PVRW` | 343,656 | 342,828 | 0.24% |
+| `C2D` | 76,458 | 76,273 | 0.24% |
+| `TAREG` | 76,792 | 76,608 | 0.24% |
+| `SOFWR` | 1,601 | 1,601 | 0 |
+
+Traffic is unchanged within noise — the stutter the operator sees was
+already present in what the instrument measures before the patch; the
+relocation is not adding load. **Control test PENDING** (open item, not yet
+run): a single-variable A/B — same instrumented fork, same
+`senkosp-reloc.dat`, with `FLYCAST_CARTLOG` unset (logging OFF) — to confirm
+directly that disabling the cartlog scan removes the stutter. Awaiting the
+operator's return; record the result here before treating the lag question
+as closed.
+
+### FB_W_SOF2 exemption (`dryrun_vram_below_8m`, ruling A)
+
+The unexempted check FAILs on `dryrun-attract:fb_w_sof2=0xc00000` /
+`dryrun-play:fb_w_sof2=0xc00000` (both legs' final `VRAMREGS` snapshot).
+Full evidence chain, each piece verified independently against the logs:
+
+- **Single pre-init write, byte-identical to the unpatched baseline.** The
+  first (and only) `SOFWR FB_W_SOF2` line in every leg — patched and
+  unpatched alike — is
+  `SOFWR FB_W_SOF2 val=00c00000 was=00000000 pc=0c0558e4 pr=0c045c94`,
+  byte-for-byte identical across `captures/attract.log` (Phase 2,
+  unpatched), `dryrun-attract.log`, `dryrun-play.log`, and
+  `dryrun-attract-2-unattended.log`. `grep -c "^SOFWR FB_W_SOF2"` = **1** in
+  all four logs — FB_W_SOF2 is written exactly once per leg, always the
+  same value, from `was=00000000` (never touched again).
+- **Nothing is ever written above 8 MB.** `nz_above8m=0` in every single
+  `VRAMPROFILE` line of all three dry-run legs (69/139/64 samples
+  respectively; verified `grep VRAMPROFILE | grep -v nz_above8m=0` = 0 lines
+  in each), not just the running-max.
+- **The fork's own source documents `0xc00000` as the never-written BIOS
+  default:** naomi.cpp:256-258 — "FB_W_SOF2 is usually a never-written BIOS
+  default (31 kHz progressive parks the field-2 pointer at 0xc00000);
+  masking it costs nothing when nothing was written there."
+
+**Implementation** (`scripts/parse_cartlog.py`, `dryrun_checks()`): a
+narrow exemption inside the SOF-register scan — `fb_w_sof2 == 0xc00000`
+(masked) is exempt **iff** that leg's `SOFWR` count for `fb_w_sof2` is
+exactly 1 **and** that leg's `VRAMPROFILE` running-max `nz_above8m == 0`.
+Any second SOF2 write, any other masked value, or any other register (incl.
+`fb_w_sof1`/`fb_r_sof1` at the same value) still FAILs — verified by
+`scripts/test_parse_cartlog.py`: the exempt fixture PASSes; a synthetic
+second `FB_W_SOF2` write FAILs; a synthetic `nz_above8m=5` FAILs; a
+synthetic `fb_w_sof1` at the same masked value FAILs (the exemption never
+widens past the one cell). Comment in code cites naomi.cpp:256-258.
+
+**Also checked per the ruling — FB_R_SOF1/FB_R_SOF2 post-init, all three
+legs (see §Open concern below).** Unlike FB_W_SOF2, FB_R_SOF1 does **not**
+stay below 8 MB after a single init write: it oscillates between a
+below-cap pair (`0x20000`/`0x420000`, ~8 writes each) and the `0x800000`/
+`0xc00000` pair (~192 writes each) throughout the entire run, in all three
+patched legs, at counts and PCs (`0c0551c0`/`0c0551d0`) matching the
+*unpatched* `attract.log` almost exactly. This does not trip the coded
+check (which only reads the last `VRAMREGS` snapshot, and that snapshot
+happens to land on a below-cap value in all three legs — see the table
+above), but it does not meet the "stays below 8m after re-init" bar the
+ruling asked to verify. **Flagged, not silently exempted — see §Open
+concern.**
+
+### Stream-shape scoping (`dryrun_stream_shape`, ruling B)
+
+Unscoped (merging both legs' DMA tuples) FAILs: the merged multiset picks
+up `dryrun-play`'s own cart traffic (e.g. `(0x800000, 0x800)`, a directory
+read never issued during attract), which has no counterpart in the 660 s
+attract anchor — expected, since interactive play has no fixed anchor.
+
+**Implementation:** `dryrun_checks()` now judges the shape check against
+only the *first* leg on the CLI (the dry-run attract leg, same "first leg"
+CLI-order convention `merge()` already uses for tuple attribution — Step
+4's command lists `dryrun-attract.log` first). Any further legs are
+reported informationally (caps-only, no shape verdict) and never fail the
+check. Result, scoped to `dryrun-attract` alone vs the Phase 2
+`captures/attract.log` anchor: **exact multiset match**, 205/205 `(src,len)`
+tuples, no truncation-boundary case needed (verified directly, not just via
+the gate's summary line). `dryrun-play` is reported exempt
+("no anchor for interactive play, caps-only") in the CHECK detail; its role
+— proving the caps hold under load — is covered by `dryrun_main_below_16m`
+and `dryrun_vram_below_8m`, which run across all legs unchanged.
+`scripts/test_parse_cartlog.py` adds: a matching first leg + mismatching
+second leg → PASS (second leg's mismatch doesn't fail it); reversed leg
+order → the now-first (mismatching) leg correctly FAILs (order, not name,
+decides the role); and a synthetic capture-truncation case (same unique
+`(src,len)` set, differing multiset counts) → PASS with the boundary
+explanation, per the plan's own provision.
+
+### Open concern: FB_R_SOF1/FB_W_SOF1 spend ~50% of writes above the 8 MB cap, unchanged by the patch
+
+This is **not** one of the two ruled exemptions and is **not** waved
+through — it is recorded here because Ruling A's due-diligence check
+surfaced it, and it bears on whether the VRAM patch (entries 3–4) actually
+does what §Provenance → VRAM/FB claims.
+
+**What was measured** (all three patched legs; `grep "^SOFWR FB_R_SOF1"
+captures/phase3/*.log`, `grep "^SOFWR FB_W_SOF1"`): both registers write a
+below-cap pair (patched: `0x20000`/`0x420000` — the render-target values the
+library recomputed for its native 8 MB mode, as §Provenance predicted) at
+roughly the same frequency as an **above-cap pair — `0x800000`/`0xc00000`,
+still the exact pre-patch values, unmoved by the patch** — for the entire
+run, not a boot-time transient:
+
+| Leg | FB_R_SOF1 below-cap writes | FB_R_SOF1 above-cap writes (`0x800000`/`0xc00000`) |
+|---|---|---|
+| `dryrun-attract` (patched) | 16 (`0x20000`×8, `0x420000`×8) | 384 (`0x800000`×192, `0xc00000`×192) |
+| `dryrun-play` (patched) | 16 | 384 |
+| unpatched `attract.log` (Phase 2) | 16 (`0x2ea000`×8, `0x6ea000`×8) | 384 (identical) |
+
+The above-cap write **counts are identical between the patched and
+unpatched image**, and the values themselves are byte-identical
+(`0x800000`/`0xc00000`) — the patch has made **no measurable difference** to
+how often or to what FB_R_SOF1 (the scan-out pointer) is set above 8 MB.
+`FB_W_SOF1` shows the same pattern (~equal counts across all four values,
+patched and unpatched). This traces to a risk this document already
+flagged before Task 12 ran (§Patch set → Deliberately not patched): "VRAM/FB
+scan-out region hint `state+0x7fc`... post-patch the 16 MB guard fails and
+the caller's value stands unclamped. No other reader found — flagged for
+the Task 12 dry run, not patched." Task 12's dry run confirms the flagged
+risk is real for the *register value*, at least as measured through this
+instrument.
+
+**Why this did not visibly break the dry run:** source-read of the fork's
+write hook (`../cleopatra/tools/flycast-src/core/hw/pvr/pvr_regs.cpp:229-267`)
+shows `FB_R_SOF1`/`FB_R_SOF2` share one case block; `pc=`/`pr=` in the
+`SOFWR` line are `p_sh4rcb->cntx.pc`/`.pr` read live at the actual register
+store (not a stale/replayed value — contra this doc's earlier "unattributable
+sample" hypothesis, which was reasoned from static bytes around the PC, not
+from the hook's own source). The write is genuine. But Flycast's swap path
+(`Renderer_if.cpp:649` `rend_swap_frame`) only calls `Present()` when
+`fb_r_sof == fb_w_cur`, and outside `config::EmulateFramebuffer` mode
+Flycast's 3D path never reads raw VRAM bytes as the displayed image
+(§Provenance → VRAM/FB "Blind spot", already documented) — so this
+emulator, specifically, is insensitive to whether the address is physically
+valid VRAM. That is a plausible reason the operator saw no visual
+corruption in Flycast, and is **not** a reason to believe real DC hardware
+(no host-GPU abstraction; the PVR2 CRTC scans real VRAM bytes from
+`FB_R_SOF1`) is equally insensitive — `0x800000`/`0xc00000` still alias onto
+the TA ISP/OL buffers and the low FB pair under DC's `VRAM_MASK`
+(`.../core/hw/pvr/pvr_mem.cpp:229,313,329`, already cited in this doc's "Why
+it matters on DC").
+
+**Verdict: unresolved, not fundamentally falsified.** Main-RAM relocation
+and VRAM *content* placement (`content_above8m=0` throughout) both hold up
+cleanly under measurement. The specific open question is whether the
+compose-pipeline's scan-out register (`FB_R_SOF1`, and by the same
+mechanism possibly `FB_W_SOF1`) needs its own consumer patched — i.e., an
+iteration on the existing patch set in the sense the playbook's own
+"On FAIL" guidance anticipates ("a consumer still reads the old address"),
+not a rejection of the relocation strategy. **Recommend this block Task 13
+pending controller review**: either identify and patch the unclamped
+`state+0x7fc` consumer (or the display-descriptor pair-B base it feeds), or
+establish affirmatively (real-hardware test, or further Ghidra tracing of
+what actually reads `FB_R_SOF1` for scanout on this title) that it is
+inert. `tooling.md` records the exact commands to reproduce this finding.

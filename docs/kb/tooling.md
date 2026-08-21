@@ -255,3 +255,84 @@ is the **Naomi BIOS resident RTOS kernel** — byte runs match the BIOS ROM
 `0x0c004000`. Not present in `senkosp.dat` (byte-search negative) — on DC,
 Phase 4's loader must account for the game running under this BIOS kernel
 (task/interrupt services), alongside the already-known `0x0c018000` blob.
+
+### Phase 3: relocation dry run (Task 12, 2026-08-20/21)
+
+**Patch + guards.** Same `apply_reloc.py` used for the dry-run image as
+Task 11 (`docs/kb/relocation-map.md` §Patch set); guards checked before
+trusting the output: word-count in the success message equals the patch
+set's length, `old` bytes re-verified byte-for-byte against `senkosp.dat`
+before each write (script's own check, not re-implemented here), and output
+file size equals the input `.dat` size (relocation only overwrites 4
+existing words, never resizes).
+
+```
+python3 scripts/apply_reloc.py senkosp.dat scripts/reloc_patchset.json -o senkosp-reloc.dat
+# -> "patched 4 words -> senkosp-reloc.dat", exit 0
+md5 senkosp-reloc.dat   # a80f03676c0595bcae1bebcc5f16f884
+ls -la senkosp-reloc.dat senkosp.dat   # both 251,342,848 B
+```
+
+**Capture legs** (dynarec on — default, no `Dynarec.Enabled` edit needed;
+contrast the interpreter-only BIOSEXEC gate above):
+
+```
+scripts/capture_leg.sh phase3/dryrun-attract "$PWD/senkosp-reloc.dat" & sleep 660; pkill -9 -f "flycast-src.*Flycast"
+scripts/capture_leg.sh phase3/dryrun-play "$PWD/senkosp-reloc.dat"       # operator: boot -> coin -> one full match -> quit
+```
+
+**Mislabel + rename (honesty record).** A third leg was launched intending
+a second operator-played match, under a play-leg name, but the operator
+stepped away before inserting a coin — the captured traffic is a second
+unattended attract-mode run in substance (no coin-in, demo-loop content
+ceiling matches the first attract leg exactly — see
+`relocation-map.md` §Dry-run evidence). Renamed post-capture to
+`captures/phase3/dryrun-attract-2-unattended.log` so the filename matches
+what was actually captured, rather than discarding a clean 1,024,458-line
+sample over a labeling mistake. No content was altered by the rename.
+
+**Gate:**
+
+```
+python3 scripts/parse_cartlog.py captures/phase3/dryrun-attract.log captures/phase3/dryrun-play.log \
+    --dryrun captures/attract.log > tools/dryrun-parse.txt; echo "exit=$?"
+```
+
+`exit=0` under the two controller rulings implemented in
+`scripts/parse_cartlog.py` `dryrun_checks()` (narrow `FB_W_SOF2` BIOS-default
+exemption; stream-shape scoped to the first/attract leg) — full CHECK lines
+and evidence chain in `relocation-map.md` §Dry-run evidence.
+Self-check: `cd scripts && python3 test_parse_cartlog.py` → `ok`.
+
+**Lag investigation (operator-reported ~half-second stutter every ~10 s).**
+Root cause is the cartlog instrument's own periodic scan
+(`cartlog_profiles_tick()`, `../cleopatra/tools/flycast-src/core/hw/naomi/naomi.cpp:441-448`,
+600-vblank/~10 s cadence per its own comment at line 440), not the patch.
+Commands used to build the traffic-count comparison exonerating the patch
+(same 660 s window, unpatched Phase 2 `captures/attract.log` vs patched
+`captures/phase3/dryrun-attract.log`):
+
+```
+for f in CARTDMA PVRW C2D TAREG SOFWR; do
+  echo -n "$f  unpatched="; grep -c "^$f" captures/attract.log
+  echo -n "$f  patched=";   grep -c "^$f" captures/phase3/dryrun-attract.log
+done
+```
+
+**FB_R_SOF1/FB_W_SOF1 investigation** (open concern, `relocation-map.md`
+§Dry-run evidence → Open concern) — commands used to characterize the
+above-8 MB write pattern per leg:
+
+```
+grep "^SOFWR FB_R_SOF1" captures/phase3/dryrun-attract.log | sed -E 's/.*val=([0-9a-f]+).*/\1/' | sort | uniq -c
+grep "^SOFWR FB_R_SOF1" captures/phase3/dryrun-attract.log | sed -E 's/.*pc=([0-9a-f]+).*/\1/'  | sort | uniq -c
+```
+
+Repeated per leg (`dryrun-attract.log`, `dryrun-play.log`,
+`dryrun-attract-2-unattended.log`) and against the unpatched
+`captures/attract.log` baseline; source cross-check:
+`../cleopatra/tools/flycast-src/core/hw/pvr/pvr_regs.cpp:229-267`
+(`SOFWR` emission — `pc=`/`pr=` are the live SH4 context at the actual
+register store) and `.../core/hw/pvr/Renderer_if.cpp:641-653`
+(`rend_set_fb_write_addr`/`rend_swap_frame` — why Flycast's 3D render path
+doesn't visibly react to the above-cap value).

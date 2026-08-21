@@ -273,4 +273,96 @@ assert "CHECK dryrun_stream_shape: PASS" in out_dr
 
 print("OK dryrun_checks self-check")
 
+# Task 12 ruling A: the narrow FB_W_SOF2 BIOS-default exemption.
+# Base leg: same shape as ANCHOR (so dryrun_stream_shape is not the thing
+# under test here) plus one FB_W_SOF2 SOFWR write and a VRAMREGS snapshot
+# parked at the BIOS default (0xc00000) with nz_above8m=0 throughout.
+EXEMPT_BASE = """\
+CARTDMA src=00100000 dest=0c020000 len=100000
+CARTDMA src=00200000 dest=0c030000 len=200
+CARTDMA src=00200000 dest=0c030200 len=200
+SOFWR FB_W_SOF2 val=00c00000 was=00000000 pc=0c0558e4 pr=0c045c94
+MAINPROFILE high=800000 nz=10 nz_below16m=10 nz_above16m=0 size=2000000
+VRAMPROFILE high=100000 nz=10 nz_below8m=10 nz_above8m=0 content_high=100000 content_below8m=10 content_above8m=0 fb_bytes=1000 fb_masked_nz=1 size=1000000
+VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 fb_w_sof1=100000 fb_w_sof2=c00000 fb_r_sof1=100000
+"""
+
+exempt_leg = P.parse_leg("exempt", EXEMPT_BASE)
+assert exempt_leg["sofwr"]["fb_w_sof2"] == 1
+exempt_rows = P.merge([exempt_leg])
+dr_cks = dict((n, ok) for n, ok, _ in P.dryrun_checks([exempt_leg], exempt_rows, anchor_leg))
+assert dr_cks["dryrun_vram_below_8m"] is True, dr_cks   # exemption applies: all 3 conditions hold
+
+# Direction 1: a second FB_W_SOF2 write (any value) breaks condition 2 -> not exempt.
+SECOND_WRITE = EXEMPT_BASE + "SOFWR FB_W_SOF2 val=00d00000 was=00c00000 pc=0c0558e4 pr=0c045c94\n"
+leg2 = P.parse_leg("second_write", SECOND_WRITE)
+assert leg2["sofwr"]["fb_w_sof2"] == 2
+rows2 = P.merge([leg2])
+dr_cks2 = dict((n, ok) for n, ok, _ in P.dryrun_checks([leg2], rows2, anchor_leg))
+assert dr_cks2["dryrun_vram_below_8m"] is False, dr_cks2   # second write -> exemption void
+
+# Direction 2: nonzero nz_above8m anywhere breaks condition 3 -> not exempt, even
+# with a single FB_W_SOF2 write at the exact BIOS-default value.
+ABOVE8M = EXEMPT_BASE.replace(
+    "VRAMPROFILE high=100000 nz=10 nz_below8m=10 nz_above8m=0 content_high=100000 content_below8m=10 content_above8m=0 fb_bytes=1000 fb_masked_nz=1 size=1000000",
+    "VRAMPROFILE high=900000 nz=15 nz_below8m=10 nz_above8m=5 content_high=100000 content_below8m=10 content_above8m=0 fb_bytes=1000 fb_masked_nz=1 size=1000000")
+leg3 = P.parse_leg("above8m", ABOVE8M)
+assert leg3["prof"]["vram"]["nz_above8m"] == 5
+rows3 = P.merge([leg3])
+dr_cks3 = dict((n, ok) for n, ok, _ in P.dryrun_checks([leg3], rows3, anchor_leg))
+assert dr_cks3["dryrun_vram_below_8m"] is False, dr_cks3   # nz_above8m>0 -> exemption void
+
+# A non-fb_w_sof2 register at the same masked value, or fb_w_sof2 at a
+# different value, is never exempt (narrow to the one cell).
+OTHER_REG = EXEMPT_BASE.replace("fb_w_sof1=100000", "fb_w_sof1=c00000")
+leg4 = P.parse_leg("other_reg", OTHER_REG)
+rows4 = P.merge([leg4])
+dr_cks4 = dict((n, ok) for n, ok, _ in P.dryrun_checks([leg4], rows4, anchor_leg))
+assert dr_cks4["dryrun_vram_below_8m"] is False, dr_cks4   # fb_w_sof1 above cap -> not exempt
+
+print("OK dryrun ruling-A (FB_W_SOF2 exemption) self-check")
+
+# Task 12 ruling B: stream-shape scoped to the first (attract) leg only; any
+# further legs (the play leg) are exempt/informational, never fail the check.
+PLAY_LIKE = """\
+CARTDMA src=00900000 dest=0c040000 len=40
+CARTDMA src=00900040 dest=0c040040 len=40
+MAINPROFILE high=800000 nz=10 nz_below16m=10 nz_above16m=0 size=2000000
+VRAMPROFILE high=100000 nz=10 nz_below8m=10 nz_above8m=0 content_high=100000 content_below8m=10 content_above8m=0 fb_bytes=1000 fb_masked_nz=1 size=1000000
+VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 fb_w_sof1=100000 fb_w_sof2=100000 fb_r_sof1=100000
+"""
+play_leg = P.parse_leg("play_like", PLAY_LIKE)
+shape_rows = P.merge([good_dr, play_leg])
+dr_cks = dict((n, ok) for n, ok, _ in P.dryrun_checks([good_dr, play_leg], shape_rows, anchor_leg))
+assert dr_cks["dryrun_stream_shape"] is True, dr_cks   # play leg's mismatch does not fail the check
+shape_detail = dict((n, d) for n, _, d in
+                    P.dryrun_checks([good_dr, play_leg], shape_rows, anchor_leg))["dryrun_stream_shape"]
+assert "good_dr" in shape_detail and "match the anchor" in shape_detail
+assert "exempt from shape" in shape_detail and "play_like" in shape_detail
+
+# Reversed leg order: the play-shaped leg is now first -> IT is judged
+# against the anchor and correctly fails (order, not name, decides the role).
+dr_cks_rev = dict((n, ok) for n, ok, _ in
+                  P.dryrun_checks([play_leg, good_dr], P.merge([play_leg, good_dr]), anchor_leg))
+assert dr_cks_rev["dryrun_stream_shape"] is False, dr_cks_rev
+
+# Capture-window truncation: multiset counts differ but the unique (src,len)
+# set matches exactly -> PASS with the boundary explanation, not a FAIL
+# (relocation-map.md's own set-equality provision).
+TRUNCATED = """\
+CARTDMA src=00100000 dest=0c020000 len=100000
+CARTDMA src=00200000 dest=0c030000 len=200
+CARTDMA src=00200000 dest=0c030200 len=200
+CARTDMA src=00200000 dest=0c030200 len=200
+"""
+trunc_leg = P.parse_leg("truncated", TRUNCATED)
+dr_cks = dict((n, ok) for n, ok, _ in
+             P.dryrun_checks([trunc_leg], P.merge([trunc_leg]), anchor_leg))
+assert dr_cks["dryrun_stream_shape"] is True, dr_cks
+trunc_detail = dict((n, d) for n, _, d in
+                    P.dryrun_checks([trunc_leg], P.merge([trunc_leg]), anchor_leg))["dryrun_stream_shape"]
+assert "truncation boundary" in trunc_detail
+
+print("OK dryrun ruling-B (stream-shape scoping) self-check")
+
 print("ok")
