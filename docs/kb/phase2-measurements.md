@@ -136,8 +136,16 @@ not only the parser's aggregate — across **all 14 legs**, not just testmenu2.
 >
 > The **shim-or-ignore calls survive** on static grounds (see
 > `docs/kb/boot-binary.md` §RTC / SCIF / watchdog for the replacement evidence
-> and the re-run recipe), but three claims above do **not**:
+> and the re-run recipe), but four claims above do **not**:
 >
+> - The serial (SCIF) row's "**Not touched, in any leg, at runtime**" claim is
+>   **contradicted** for the write path. `FUN_8c02c584` writes `0xc0` to
+>   `SCSPTR2` (`0xffe80020`,
+>   `../flycast4naomi2dreamcast/core/hw/sh4/sh4_mmr.h:406`) on the boot path
+>   (`FUN_8c085b00` → `FUN_8c02c37c` → `FUN_8c02c584`), which every leg runs
+>   at startup — see `docs/kb/boot-binary.md` §SCIF. The shim-or-ignore
+>   verdict still stands: the DC has the same SH-4 SCIF at the same P4
+>   address, so the write lands harmlessly whether or not it fires.
 > - The RTC row's "**Not touched at runtime anywhere in this campaign**" is
 >   unsupported — nothing measured it.
 > - The RTC row's prediction that the static refs would turn out to be

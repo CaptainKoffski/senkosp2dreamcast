@@ -771,8 +771,8 @@ Cross-tabulating PC × value over every `SOFWR FB_R_SOF1`/`FB_W_SOF1` line in
 the leg makes the split absolute: **every** below-cap value is written from
 `pc=8c032140` and **only** that PC; **every** above-cap value is written
 from a disjoint set of boot-path PCs (`0c0551c0`, `0c0551d0`, `0c0551d8`,
-`0c054886`, `0c054c5a`, `0c0558e4`) and **only** those PCs. Two populations,
-never interleaved, never regressing.
+`0c054886`, `0c054c5a`, `0c0558e4`, `0c054e22`) and **only** those PCs. Two
+populations, never interleaved, never regressing.
 
 **(d) The uncapped instrument (`VRAMREGS`, one snapshot per ~10 s profile
 tick, no 800-line budget) settles it.** Above-cap `fb_r_sof1` appears in
