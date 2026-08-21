@@ -45,7 +45,85 @@ referenced, not duplicated — that file is part of this project's method.
   `export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"`. Install recipe +
   headless harness: `../cleopatra/docs/kb/tooling.md` §Ghidra. Not
   exercised in Phase 1; Phase 3 sets up this repo's own project dir +
-  scripts.
+  scripts (below).
+
+#### Phase 3: this repo's Ghidra project (Task 3 onward)
+
+Everything here is driven by the committed wrapper `scripts/ghidra/run.sh`
+(it exports the openjdk PATH itself and defaults
+`GHIDRA_HOME=../cleopatra/tools/ghidra_12.1.2_PUBLIC`; override the env var
+if the install moves). Java in use: **OpenJDK 26.0.1 (Homebrew)**.
+
+**1. The working image — the boot slice.** Static analysis runs on the main
+load only (`.dat` offset 0 → RAM `0x8c020000`, entry `0x8c021000`), not the
+251 MB `.dat`:
+
+```sh
+head -c 1515512 senkosp.dat > tools/boot.bin
+md5 tools/boot.bin      # 07008ad629d628c519635dbc113487f5
+md5 senkosp.dat         # 6283cf5c75d7fc32740a8e8e54d10aa8
+head -c 1515512 senkosp.dat | cmp - tools/boot.bin && echo reproduces
+```
+
+1,515,512 B = the main load size from `game.md` §Parsed .dat header
+(`0x171ff8`). `tools/` is gitignored — `boot.bin` is ROM content, **never
+committed**, always regenerable by the line above.
+
+**2. Import (full auto-analysis, once).** Project dir `tools/ghidra-proj`
+(gitignored — it embeds ROM bytes), program name **`senkosp3`**:
+
+```sh
+scripts/ghidra/run.sh import
+# = analyzeHeadless tools/ghidra-proj senkosp3 -import tools/boot.bin -overwrite \
+#     -processor "SuperH4:LE:32:default" -loader BinaryLoader -loader-baseAddr 0x8c020000
+```
+
+No `-noanalysis` on import — full SH-4 auto-analysis is what follows
+`jmp @rN` through literal pools.
+
+**3. Run a script** (always `-noanalysis`, so the DB is not re-analyzed):
+
+```sh
+scripts/ghidra/run.sh script FindMmioXrefs.java
+scripts/ghidra/run.sh script DisasmRange.java 0x8c029ee8 0x8c029f5c force
+```
+
+Committed scripts (`scripts/ghidra/`, all headlessly re-runnable):
+`FindMmioXrefs` (MMIO literal-pool xref reporter), `ScanBiosTargets`
+(BIOS-range flow refs + pool constants), `DumpEntryChain` (entry walk + SP
+writes), `ScanPlacementConstants` (corridor/VRAM placement constants),
+`Decomp`, `DisasmRange` (`… force` force-disassembles an undefined span),
+`DisasmEntry`, `FindRefsTo`, `WhichFunc`, `ListPoolWords`, `ExportToXML`.
+
+**DB mutation caveat, stated because it affects reproducibility:** the
+`senkosp3` DB carries the *force-disassembly* additions Task 4 made
+(`DisasmRange … force` over the undefined hardware-driver and RTC spans).
+Those are monotonic additions to the listing; they do **not** change what
+`FindMmioXrefs` reports (it counts *defined data*, and `run.sh script` passes
+`-noanalysis`, so nothing promotes the recovered code's pool words to defined
+data — boot-binary.md §Coverage limits documents that exact non-effect).
+
+**Reproduction check (Task 13, exit criterion 4 — 2026-08-22).** Both
+reporting scripts were re-run from the committed harness and diffed
+mechanically, not eyeballed:
+
+```sh
+scripts/ghidra/run.sh script FindMmioXrefs.java  > /tmp/mmio-rerun.txt
+scripts/ghidra/run.sh script DumpEntryChain.java > /tmp/entry-rerun.txt
+# strip the "INFO  <script>.java> " prefix + Ghidra harness banner, then diff
+```
+
+- `FindMmioXrefs`: **73 payload lines identical** to the committed
+  `tools/mmio-xrefs.txt` (72 hits + `TOTAL hits=72`); per-block counts
+  reproduce boot-binary.md's table exactly — `wdt` 43, `maple` 11, `g1dma`
+  10, `rtc` 3, `cart` 3, `scif` 2, `pvr_fb` 0. Only difference in the raw
+  files: the Ghidra/JVM banner (timings, JDK warnings).
+- `DumpEntryChain`: all **35** instruction lines quoted in boot-binary.md
+  §Entry chain match address-for-address and mnemonic-for-mnemonic, and all
+  three `<== writes r15` lines carry the same values (`0xac00f400`,
+  `0x8c00f400`, `0x8c00f000` via `8c170c14`). One documentation fix fell out
+  of this run: the `Stack region: …` line was never script output — it is a
+  derived value, now labelled as such in boot-binary.md §Stack region.
 
 ### senkosp.dat
 
@@ -193,9 +271,17 @@ header".
 - **Visual confirmation:** `screencapture -x .../datboot-visual.png` fired
   ~75 s into the window → `stderr: could not create image from display`
   (screen locked / no active display session; operator asleep, per task
-  instructions). **Visual: pending operator confirmation — machine
-  locked.** Verdict rests on the CARTDMA tuple comparison alone, per the
-  task's operator-asleep ruling — not treated as a FAIL signal.
+  instructions). Verdict at the time rested on the CARTDMA tuple comparison
+  alone, per the task's operator-asleep ruling — not treated as a FAIL
+  signal.
+  **Visual: CLOSED 2026-08-22 (Task 13).** The operator watched the flat-`.dat`
+  vehicle's descendant — the patched `senkosp-reloc.dat`, same flat-`.dat`
+  boot path — through boot → title → attract and a full played match:
+  *"everything looks and plays normal"* (see §Phase 3 relocation dry run →
+  Operator confirmations). Since the patched image differs from the plain
+  `.dat` by exactly 4 words and boots by the identical mechanism, the
+  flat-`.dat` boot path is visually confirmed as well; the deferred item is
+  discharged, not carried into Phase 4.
 - **Verdict: `.dat` boots identically: YES** — nonzero CARTDMA count +
   byte-identical `src`/`dest`/`len` sequence across the entire 79-tuple run
   vs the known-good zip boot. Per the task's Interfaces block, this is the
@@ -322,6 +408,24 @@ for f in CARTDMA PVRW C2D TAREG SOFWR; do
 done
 ```
 
+**Control test — CLOSED 2026-08-22.** The single-variable A/B that the
+traffic-count comparison could not supply on its own: same instrumented
+fork, same `senkosp-reloc.dat`, same machine, with **`FLYCAST_CARTLOG`
+unset** so `cartlog_profiles_tick()` never runs its periodic >50 MB scan.
+`capture_leg.sh` always exports the variable, so this leg is launched
+without the wrapper — Flycast invoked directly on the patched `.dat` with
+the usual macOS launch gotchas (§Instrumented Flycast) and no cartlog
+env. Operator verdict, verbatim: **"no lags anymore, all smooth"**. Logging
+off ⇒ stutter gone; the relocation patch is exonerated and the lag question
+is closed (mirrored in `relocation-map.md` §Dry-run evidence).
+
+**Operator confirmations (2026-08-22), for the record.** Same session, the
+patched image watched through boot → title → attract and a **full played
+match**: *"everything looks and plays normal"* — the operator-observed
+playability leg the spec's §Cross-checks requires ("Playability itself is
+operator-observed"), and the confirmation that also discharges the
+flat-`.dat` leg's deferred visual (§Phase 3 flat-.dat boot control test).
+
 **FB_R_SOF1/FB_W_SOF1 boot-transient investigation** (`relocation-map.md`
 §Dry-run evidence → Boot-transient finding) — commands used to falsify a
 too-hasty first read ("the patch made no difference to the scan-out
@@ -354,3 +458,28 @@ Repeated per leg (`dryrun-attract.log`, `dryrun-play.log`,
 `.../core/hw/pvr/Renderer_if.cpp:641-653` (`rend_set_fb_write_addr`/
 `rend_swap_frame` — the per-frame flip site the handoff write pair
 `pc=8c032140` belongs to).
+
+### Capture-file inventory (all legs, Phases 2–3)
+
+`captures/` is gitignored — these are primary data, never committed, and
+(except the canary class) never deleted. Phase 3 legs live under
+`captures/phase3/` so the Phase 2 glob `captures/*.log` never matches them.
+Sizes/line counts verified 2026-08-22.
+
+| Leg | Lines | Size | What it is |
+|---|---|---|---|
+| `attract.log` | 1,081,979 | 37 MB | Phase 2 **anchor leg**, 660 s unattended attract. The `dryrun_stream_shape` reference and the unpatched baseline for every A/B in Phase 3. |
+| `char-{baek,cuilan,ernula,fabian,karel,lili,mika,sakurako}.log` | — | 24–40 MB ea. | Phase 2 roster coverage, one leg per character. |
+| `2p-stages.log` | — | 42 MB | Phase 2 stage coverage; the leg that moved the largest above-16m span's floor. |
+| `testmenu.log`, `testmenu2.log` | — | 2 / 19 MB | Phase 2 test-menu legs — the only legs with EEPROM `sub=0x0b` traffic. |
+| `input.log` | — | 5 MB | Phase 2 13-control press sequence (`input-map.md`). |
+| `service-retest.log` | — | 5 MB | Phase 2 Service re-test, 4 clean presses. |
+| `phase3/pc.log` | 1,607,839 | 62 MB | **Task 9 PC-capture leg** — interpreter mode, boot → attract → coin → full match → test menu. The dynamic half of targets 1/2/5/6/7. |
+| `phase3/datboot.log` | 181,754 | 7 MB | Task 6 flat-`.dat` boot control test (dynarec) — proved the `.dat` is a valid dry-run vehicle. |
+| `phase3/dryrun-attract.log` | 1,080,610 | 37 MB | **Task 12 dry-run attract leg** on `senkosp-reloc.dat`, 660 s — the shape-check leg. |
+| `phase3/dryrun-play.log` | 2,067,273 | 81 MB | **Task 12 dry-run play leg** — operator-played, boot → coin → one full match; the VRAM high-pressure sample. |
+| `phase3/dryrun-attract-2-unattended.log` | 1,024,458 | 36 MB | Bonus corroboration leg. **Renamed post-capture** (honesty record): launched under a play-leg name, but the operator stepped away before inserting a coin, so it is a second unattended attract run in substance. Renamed to match what it captured; no content altered. |
+
+Deleted by design: `captures/canary-*.log` (BIOSEXEC canaries, Task 6;
+`canary-snapshot` for the RAM snapshot, Task 10b). The canary class is the
+only deletable one — its result is recorded in this file instead.

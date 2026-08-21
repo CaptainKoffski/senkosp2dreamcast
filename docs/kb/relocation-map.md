@@ -584,12 +584,28 @@ report):
 
 Traffic is unchanged within noise — the stutter the operator sees was
 already present in what the instrument measures before the patch; the
-relocation is not adding load. **Control test PENDING** (open item, not yet
-run): a single-variable A/B — same instrumented fork, same
-`senkosp-reloc.dat`, with `FLYCAST_CARTLOG` unset (logging OFF) — to confirm
-directly that disabling the cartlog scan removes the stutter. Awaiting the
-operator's return; record the result here before treating the lag question
-as closed.
+relocation is not adding load.
+
+**Control test CLOSED — the lag is the instrument, and the patch is fully
+exonerated (2026-08-22).** The single-variable A/B was run by the operator:
+same instrumented fork, same `senkosp-reloc.dat`, `FLYCAST_CARTLOG` **unset**
+(cartlog logging OFF, so `cartlog_profiles_tick()` never scans). Operator
+verdict, verbatim:
+
+> no lags anymore, all smooth
+
+One variable changed (logging on → off); the patched image, the fork build
+and the machine were identical to the lagging runs. That isolates the
+~10 s stutter to `cartlog_profiles_tick()`'s >50 MB periodic scan and rules
+out the relocation patch as a cause. Recipe + this closure are mirrored in
+`tooling.md` §Phase 3 relocation dry run.
+
+**Operator visual confirmation — DONE (2026-08-22).** The same session
+watched the patched image through boot → title → attract and a full played
+match: *"everything looks and plays normal"*. Together with the traffic-count
+table above and the caps evidence below, the dry run's operator-observed
+playability leg (spec §Cross-checks: "Playability itself is operator-observed
+— boot → attract → one played match") is satisfied on the patched image.
 
 ### FB_W_SOF2 exemption (`dryrun_vram_below_8m`, ruling A)
 

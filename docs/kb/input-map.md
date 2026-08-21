@@ -39,6 +39,37 @@ Neutral JVS word baseline: `0000` (P1 digital word, all controls released).
 ¹ `MIERESP sub=15` never fires during any button hold in either leg — see
 "Why no MIE sub=15 byte.bit" below for the line-range evidence.
 
+## DC pad layout (Phase 3, user-approved 2026-08-19)
+
+The port's controller binding, decided in the Phase 3 design spec
+(`docs/superpowers/specs/2026-08-19-phase3-reverse-engineering-design.md`
+§9 "Control layout (decided in this design)") and recorded here verbatim.
+Phase 4's loader/shim implements it; the wire bit each row targets is the
+measured one from the table above.
+
+| DC pad | Game control |
+|---|---|
+| D-pad + analog (both) | Stick (8-way) |
+| A | M — Main |
+| X | S — Sub |
+| B | A — Action |
+| Y | Barrage |
+| R trigger | OverDrive |
+| L trigger | unbound (Phase 4 may duplicate Barrage if playtest wants it) |
+| Start | Start |
+
+Coin needs no binding — free-play is baked in per the charter; Start alone
+starts a credit. Test/Service: wire bits known (this file — Test bit 18,
+Service `0x4000`), but the access mechanism (e.g. boot-time combo) is a
+Phase 4 loader decision, not a pad binding.
+
+Notes for the implementer, from the measured rows above: the DC pad has 6
+face/trigger controls for 5 game buttons, which is why L is free; Barrage is
+a **plain single button** on the wire (`0x0080`, one bit flip — not a runtime
+M+S combo, despite its "MAIN+SUB" cabinet label); and OverDrive's final wire
+bit is `0x0020` (`NAOMI_BTN4_KEY`) after senkosp's own descriptor remap — see
+§OverDrive wire.
+
 ## OverDrive wire
 
 Capture-time binding: D → `DC_BTN_Z` ("Button 6" per Flycast's own

@@ -13,6 +13,34 @@ literal-pool word quoted below was cross-checked byte-for-byte against
 In the listings below, everything up to the `;` (or the `<==` flag) is verbatim
 `DumpEntryChain.java` output; text after a `;` is annotation added here.
 
+## The nine targets — answer index (Phase 3 exit criterion 1)
+
+One row per target of the Phase 3 spec
+(`docs/superpowers/specs/2026-08-19-phase3-reverse-engineering-design.md`
+§The nine targets). "Static" = Ghidra/image evidence; "Dynamic" = a probe
+firing in a capture leg. Targets 3 and 4 live in
+`docs/kb/relocation-map.md` and are **not** duplicated here — this row set is
+the index, that file is the answer.
+
+| # | Target | Answer (address / verdict) | Static evidence | Dynamic evidence | Phase 4 implication | Where |
+|---|---|---|---|---|---|---|
+| 1 | BIOS-call verdict | **No BIOS-code call.** 5 static candidates, all resolved: 1 `COMPUTED_JUMP` tooling artifact, 2 coincidental VA-shaped literals, **2 genuine BIOS-ROM *data* reads** — `FUN_8c065ff0` (phys `0x00060000`, 28 KB blob → `0x0c018000`, and it **executes**) and `FUN_8c067084` (phys `0x001ffd00`, BIOS identity string; benign, has a DIP fallback) | `ScanBiosTargets.java`, both halves (flow refs + pool constants); `Decomp.java` on both readers; pool operands re-read from `tools/boot.bin` | `CHECK no_bios_exec: PASS` — 0 `BIOSEXEC` lines over boot→attract→match→test-menu; `PCSAMPLE pc=0c018b4a` proves the copied blob runs | **Mandatory:** loader must place the user's own Naomi-BIOS `0x60000` blob (28,672 B) at phys `0x0c018000`, or reimplement its 8 vectors. `0x001ffd00` needs nothing. | §BIOS-call verdict, §The two BIOS-ROM data reads |
+| 2 | Cart-read function | **`FUN_8c027f54`, `0x8c027f54`–`0x8c027f99`**; kick = `SB_GDST` store at `0x8c027f72`. Dest programmed one frame earlier in `FUN_8c027a66`. PIO path `FUN_8c027d7e` (0 of the logged kicks) | `WhichFunc.java` body bounds; `DisasmRange.java 0x8c027f54 0x8c027f92`; `mov.w` pools `0x8c028014`=`0x0414`/`0x8c028016`=`0x0418` read from the image = `SB_GDEN`/`SB_GDST` | `CHECK dma_pc_in_cart_fn: PASS` — **672/672** `CARTDMAPC` PCs = `8c027f74` (= kick + 2) | The GD-ROM streaming shim's patch boundary. Static candidate ranges are the *register-programming* layer, not the trigger — see the un-promotion note | §Target: cart-read function; §Candidates (un-promotion) |
+| 3 | Placement provenance | **One provenance site for all five corridors** (heap-top seed `0x8c085b50`) + **one for VRAM** (kmInitDevice size pool `0x8c03203c`) → 4-word patch set | — | — | — | **`docs/kb/relocation-map.md` §Provenance, §Patch set** |
+| 4 | Relocation dry run | **PASSED** — 3 legs on `senkosp-reloc.dat`, all three gate CHECKs green, `exit=0`; operator-confirmed playable | — | — | — | **`docs/kb/relocation-map.md` §Dry-run evidence** |
+| 5 | Input-decode function | **`FUN_8c02532a`, `0x8c02532a`–`0x8c025505`**; maple kick = `SB_MDST` store at `0x8c025446`. The per-frame poll is **sub `0x33`**, not sub `0x15` | `WhichFunc.java` body bounds; `mov.l r12,@(0x18,r2)` at `pc-2` read from the image = `SB_MDST`; base pointer supplied by the `0xa05f6c00` accessor `FUN_8c026b30` | **80 392** `MAPLEPC` sub-`0x33` events at `8c025448` (= store + 2), ~50/s = frame rate; `JVSREPORT` 83 220 ≈ `0x33`+`0x15` 83 268 | Phase 4's Maple/JVS shim must serve **sub `0x33`** (the boot-time driver `0x8c0665fe`–`0x8c066b0f` is real but boot-phase only) | §Target: input function; §`MDODMA` |
+| 6 | EEPROM path | **Reads confirmed on the same path** (`FUN_8c02532a`, sub `0x01`/`0x03`). **Write call site NOT identified** — all 16 sub-`0x0b` events carry the vblank-artifact PC `0c03161e` | Static: no separate MMIO path — the `0x0b` frame is a payload on the same maple DMA (no constant of its own to xref) | 16 sub-`0x0b` writes observed (test-menu leg) — first ever seen in this project; PC unattributable by two independent probes (`MAPLEPC`, `MDODMA`) | Free-play forcing must be done by **subcommand filtering in the shim**, not by patching a call site. Naming the site needs a fork probe change (tag `maple_DoDma` caller) — Phase 4 flag | §Target: EEPROM; §Why three checks cannot pass |
+| 7 | Stack-pointer verdict | **Final SP `0x8c00f000`** (phys `0x0c00f000`) — 60 KB above the bottom of RAM. **No SP relocation needed.** senkosp is **multi-stack**: a second (task) stack at `0x8c1d4984`, bounded to static BSS | `DumpEntryChain.java` — three SP writes, the last via pointer indirection `[0x8c021118]`→`[0x8c170c14]`, value byte-verified in `tools/boot.bin` | 672 `CARTDMAPC` SPs in two clusters: 118 in the boot stack (confirms it), 554 at `0x8c1d4984` | No patch. **But** the DC BIOS syscall vector block overlaps the stack region — matters only if the shim needs GD syscalls after SP init | §SP verdict, §Stack region, §SP — two stacks |
+| 8 | RTC / SCIF / watchdog | **All three: ignore, no shim.** RTC = 5 words / 5 functions (2 live readers on a periodic tick, 3 writers behind an **unreferenced** setter `0x8c029b04`); SCIF = 1 boot-path `SCSPTR2` pin write + a crash-dump console on an exception vector; WDT = **0 refs** (all 43 hits are `1.5f`/`-1.5f` floats and CPG `STBCR`) | `FindMmioXrefs.java` + a raw whole-image word scan + `DisasmRange.java … force` to recover the undefined span; every register semantic cited to flycast source | **Static-only by nature** (spec §8: "the code never fires, so only disassembly can rule it dead"). Phase 2's "0 runtime pokes" was **retracted** — a null instrument (`FLYCAST_HWLOG` never set) | Nothing to shim: all three registers exist on DC at the same addresses. Note the live RTC *write* path would set the DC's own clock if ever reached | §RTC / SCIF / watchdog |
+| 9 | Control layout | DC pad bindings, user-approved 2026-08-19 | Decided in the spec, not measured | Wire bits from Phase 2's 13/13 map | Phase 4 loader binds them; Test/Service access mechanism is a loader decision | **`docs/kb/input-map.md` §DC pad layout** |
+
+**Open items carried into Phase 4, in one place** (each argued where cited):
+the BIOS blob at `0x0c018000` (target 1, mandatory); the EEPROM-write call
+site (target 6, needs a fork probe change); the game's restart path, which
+jumps into Naomi BIOS (`relocation-map.md` §Deliberately not patched); and
+the low-RAM syscall-vector overlap (target 7). `00-status.md` §Phase 4 flags
+carries the full list.
+
 ## Entry chain & SP
 
 senkosp's entry is **not** a Cleopatra-style `jmp @rN` trampoline: it is a real
@@ -164,8 +192,15 @@ at `0x8c021104`. The two transient SPs are pools `0x8c021038` and `0x8c0210a4`.
 ### Stack region
 
 ```
-Stack region: 8c000000-8c00f000
+Stack region: 8c000000-8c00f000     (derived here, NOT script output)
 ```
+
+**Provenance note (Task 13 re-run):** unlike every other quoted block in this
+section, this line is **not** `DumpEntryChain.java` output — the script emits
+only the entry/hop headers and the instruction lines with the `<==` SP flag
+(`scripts/ghidra/DumpEntryChain.java:31,41,60`). The region is derived below
+from the SP value the script *does* report, and it is the value passed as
+`--stack 8c000000-8c00f000` to `scripts/parse_cartlog.py`.
 
 Half-open `[LO, HI)` — the stack occupies addresses below HI. Derivation:
 
