@@ -298,11 +298,14 @@ python3 scripts/parse_cartlog.py captures/phase3/dryrun-attract.log captures/pha
     --dryrun captures/attract.log > tools/dryrun-parse.txt; echo "exit=$?"
 ```
 
-`exit=0` under the two controller rulings implemented in
-`scripts/parse_cartlog.py` `dryrun_checks()` (narrow `FB_W_SOF2` BIOS-default
-exemption; stream-shape scoped to the first/attract leg) — full CHECK lines
-and evidence chain in `relocation-map.md` §Dry-run evidence.
-Self-check: `cd scripts && python3 test_parse_cartlog.py` → `ok`.
+`exit=0` under the rulings implemented in `scripts/parse_cartlog.py`
+`dryrun_checks()`: the narrow `FB_W_SOF2` BIOS-default exemption, a mirror
+boot-transient exemption (a register that settles below cap once and never
+regresses, checked across every `VRAMREGS` snapshot in the leg — not just
+the last), and stream-shape scoped to the first/attract leg with a strict
+(no auto-pass) multiset comparison. Full CHECK lines and evidence chain in
+`relocation-map.md` §Dry-run evidence. Self-check:
+`cd scripts && python3 test_parse_cartlog.py` → `ok`.
 
 **Lag investigation (operator-reported ~half-second stutter every ~10 s).**
 Root cause is the cartlog instrument's own periodic scan
@@ -319,20 +322,35 @@ for f in CARTDMA PVRW C2D TAREG SOFWR; do
 done
 ```
 
-**FB_R_SOF1/FB_W_SOF1 investigation** (open concern, `relocation-map.md`
-§Dry-run evidence → Open concern) — commands used to characterize the
-above-8 MB write pattern per leg:
+**FB_R_SOF1/FB_W_SOF1 boot-transient investigation** (`relocation-map.md`
+§Dry-run evidence → Boot-transient finding) — commands used to falsify a
+too-hasty first read ("the patch made no difference to the scan-out
+register") and pin the real pattern (a capped-instrument boot artifact that
+settles once and never regresses):
 
 ```
-grep "^SOFWR FB_R_SOF1" captures/phase3/dryrun-attract.log | sed -E 's/.*val=([0-9a-f]+).*/\1/' | sort | uniq -c
-grep "^SOFWR FB_R_SOF1" captures/phase3/dryrun-attract.log | sed -E 's/.*pc=([0-9a-f]+).*/\1/'  | sort | uniq -c
+# (a) the instrument's own per-register log-line budget (pvr_regs.cpp:241-243,274-276)
+grep -c "^SOFWR FB_R_SOF1" captures/phase3/dryrun-attract.log; grep -c "^SOFWR FB_R_SOF2" captures/phase3/dryrun-attract.log   # sum = 800
+grep -c "^SOFWR FB_W_SOF1" captures/phase3/dryrun-attract.log                                                                 # = 800
+
+# (b) last above-cap-eligible line vs total file length -- not "the whole run"
+grep -n "^SOFWR FB_R_SOF1" captures/phase3/dryrun-attract.log | tail -1
+grep -n "^SOFWR FB_W_SOF1" captures/phase3/dryrun-attract.log | tail -1
+wc -l captures/phase3/dryrun-attract.log
+
+# (c) one-way handoff: cross-tab PC x value over every SOFWR line for the register
+grep "^SOFWR FB_R_SOF1" captures/phase3/dryrun-attract.log | sed -E 's/^SOFWR FB_R_SOF1 val=([0-9a-f]+).*pc=([0-9a-f]+).*/val=\1 pc=\2/' | sort | uniq -c
+
+# (d) the uncapped instrument (VRAMREGS, one line per profile tick): which
+# snapshot indices are above cap
+grep "^VRAMREGS" captures/phase3/dryrun-attract.log | nl | grep "fb_r_sof1=800000\|fb_r_sof1=c00000"
 ```
 
 Repeated per leg (`dryrun-attract.log`, `dryrun-play.log`,
 `dryrun-attract-2-unattended.log`) and against the unpatched
 `captures/attract.log` baseline; source cross-check:
 `../cleopatra/tools/flycast-src/core/hw/pvr/pvr_regs.cpp:229-267`
-(`SOFWR` emission — `pc=`/`pr=` are the live SH4 context at the actual
-register store) and `.../core/hw/pvr/Renderer_if.cpp:641-653`
-(`rend_set_fb_write_addr`/`rend_swap_frame` — why Flycast's 3D render path
-doesn't visibly react to the above-cap value).
+(`SOFWR` emission and the `rsof_lines`/`wsof1_lines` budget counters) and
+`.../core/hw/pvr/Renderer_if.cpp:641-653` (`rend_set_fb_write_addr`/
+`rend_swap_frame` — the per-frame flip site the handoff write pair
+`pc=8c032140` belongs to).

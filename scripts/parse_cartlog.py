@@ -90,9 +90,9 @@ def region_of(dest):
 
 def parse_leg(name, text):
     leg = {"name": name, "dma": [], "pio": set(), "pio_bytes": 0, "wm": {},
-           "prof": {}, "hist": {}, "regs": None, "serial": [], "mie": [],
-           "jvs": [], "hw": {}, "dmapc": [], "pcpairs": [], "maplepc": [],
-           "biosexec": [], "sofwr": collections.Counter()}
+           "prof": {}, "hist": {}, "regs": None, "vramregs": [], "serial": [],
+           "mie": [], "jvs": [], "hw": {}, "dmapc": [], "pcpairs": [],
+           "maplepc": [], "biosexec": [], "sofwr": collections.Counter()}
     for line in text.splitlines():
         m = _DMA.match(line)
         if m:
@@ -134,7 +134,8 @@ def parse_leg(name, text):
             continue
         m = _REGS.match(line)
         if m:
-            leg["regs"] = m.group(1)
+            leg["regs"] = m.group(1)          # last-wins (kept for back-compat)
+            leg["vramregs"].append(m.group(1))   # every snapshot, in order
             continue
         m = _SER.match(line)
         if m:
@@ -301,57 +302,71 @@ def dryrun_checks(legs, rows, anchor):
     vram_high = max((l["prof"].get("vram", {}).get("content_high", 0) for l in legs), default=0)
     sof_bad = []
     for l in legs:
-        if not l["regs"]:
-            continue
-        for k, v in _kv(l["regs"]).items():
-            if k not in ("fb_w_sof1", "fb_w_sof2", "fb_r_sof1"):
+        # Every VRAMREGS snapshot in leg order, not just the last (the old
+        # last-value read was an accidental under-sample: a leg that starts
+        # above cap and settles could still spuriously FAIL or PASS purely
+        # on which sample happened to land last).
+        series_by_reg = {}
+        for snap in l["vramregs"]:
+            for k, v in _kv(snap).items():
+                if k in ("fb_w_sof1", "fb_w_sof2", "fb_r_sof1"):
+                    series_by_reg.setdefault(k, []).append(v & VRAM_SOF_MASK)
+        above8m = l["prof"].get("vram", {}).get("nz_above8m", 0) != 0
+        for k, series in series_by_reg.items():
+            if max(series) < DC_VRAM_CAP:
+                continue   # never above cap for this register in this leg
+            above_idx = [i for i, v in enumerate(series) if v >= DC_VRAM_CAP]
+            below_idx = [i for i, v in enumerate(series) if v < DC_VRAM_CAP]
+            # Ruling A (relocation-map.md): FB_W_SOF2 stuck at the never-
+            # written BIOS default for the WHOLE leg is exempt iff it was
+            # written exactly once (no genuine placement re-targeted it) and
+            # nothing was ever written above 8m. naomi.cpp:256-258.
+            ruling_a = (k == "fb_w_sof2" and set(series) == {FB_W_SOF2_BIOS_DEFAULT}
+                       and l["sofwr"].get("fb_w_sof2", 0) == 1 and not above8m)
+            # Boot-transient ruling (mirrors ruling A): a one-way handoff —
+            # every above-cap snapshot comes strictly before every below-cap
+            # snapshot (settles once, never regresses back above cap) — is
+            # exempt iff nothing was ever written above 8m. Evidence: the
+            # pre-handoff VRAMREGS snapshots are a deterministic boot
+            # artifact (identical file lines across all three dry-run legs)
+            # that a single FB_W_SOF1/FB_R_SOF1 write pair (pc=8c032140)
+            # supersedes for the rest of the leg — see relocation-map.md
+            # §Dry-run evidence. A late/regressed above-cap snapshot (any
+            # above-cap index after the first below-cap one) is NOT exempt.
+            settles = bool(below_idx) and max(above_idx) < min(below_idx)
+            if ruling_a or (settles and not above8m):
                 continue
-            masked = v & VRAM_SOF_MASK
-            if masked < DC_VRAM_CAP:
-                continue
-            # Narrow exemption (relocation-map.md ruling A): FB_W_SOF2 stuck
-            # at the BIOS default is exempt only if this leg wrote it exactly
-            # once (no genuine placement re-targeted it) AND this leg never
-            # wrote content above 8m (nz_above8m running max across every
-            # VRAMPROFILE sample, not just the last). Any other register, any
-            # other value, a second SOF2 write, or any above-8m content still
-            # fails — the exemption never widens past this one cell.
-            if (k == "fb_w_sof2" and masked == FB_W_SOF2_BIOS_DEFAULT
-                    and l["sofwr"].get("fb_w_sof2", 0) == 1
-                    and l["prof"].get("vram", {}).get("nz_above8m", 0) == 0):
-                continue
-            sof_bad.append(f"{l['name']}:{k}=0x{masked:x}")
+            sof_bad.append(f"{l['name']}:{k}=0x{max(series):x} "
+                           f"({len(above_idx)}/{len(series)} snapshots above cap)")
     out.append(("dryrun_vram_below_8m",
                 vram_high < DC_VRAM_CAP and not sof_bad,
                 f"VRAMPROFILE content_high=0x{vram_high:x} (cap 0x{DC_VRAM_CAP:x}); "
-                f"{len(sof_bad)} SOF reg(s) masked above cap {sof_bad[:5]}"))
+                f"{len(sof_bad)} SOF reg(s) above cap and not exempt {sof_bad[:5]}"))
 
     # Shape (ruling B): the multiset comparison is like-for-like only against
     # the FIRST leg on the CLI (the dry-run attract leg, same 660 s window as
     # the anchor) — same "first leg" convention merge() already uses for CLI
     # order. Any further legs (e.g. the play leg) have no anchor to compare
     # against — interactive play has no fixed shape — so they're reported
-    # informationally only and never fail this check.
-    shape_leg, *exempt_legs = legs
-    prov = collections.Counter((d["src"], d["len"]) for d in shape_leg["dma"])
+    # informationally only and never fail this check. A capture-truncation
+    # multiset mismatch is NOT auto-passed here — the plan's own provision
+    # ("record the set-equality result + the boundary explanation... rather
+    # than forcing a re-run loop") is a manual judgment call a human makes
+    # in relocation-map.md on a FAIL, not something the gate silently waves
+    # through.
+    shape_leg = legs[0] if legs else None   # tolerate an empty legs list
+    exempt_legs = legs[1:]
+    shape_name = shape_leg["name"] if shape_leg else "(no legs)"
+    prov = collections.Counter((d["src"], d["len"]) for d in (shape_leg["dma"] if shape_leg else []))
     anc = collections.Counter((d["src"], d["len"]) for d in anchor["dma"])
     shape_ok = prov == anc
     if shape_ok:
-        detail = (f"{shape_leg['name']}: {sum(anc.values())} (src,len) events match "
+        detail = (f"{shape_name}: {sum(anc.values())} (src,len) events match "
                   f"the anchor leg's multiset")
-    elif set(prov) == set(anc):
-        # Capture-window truncation can duplicate/drop a repeat count without
-        # changing which (src,len) tuples appear — the plan's own provision:
-        # record set-equality + the boundary explanation, not a FAIL.
-        shape_ok = True
-        detail = (f"{shape_leg['name']}: multiset count differs vs anchor "
-                  f"'{anchor['name']}' but the unique (src,len) set matches exactly "
-                  f"({len(set(prov))} distinct tuples) — capture-window truncation "
-                  f"boundary, not a content mismatch")
     else:
         extra = [(f"0x{s:x}", f"0x{n:x}", c) for (s, n), c in list((prov - anc).items())[:5]]
         missing = [(f"0x{s:x}", f"0x{n:x}", c) for (s, n), c in list((anc - prov).items())[:5]]
-        detail = (f"{shape_leg['name']}: multiset differs vs anchor '{anchor['name']}': "
+        detail = (f"{shape_name}: multiset differs vs anchor '{anchor['name']}': "
                   f"provided-only(first5 src,len,count)={extra} "
                   f"anchor-only(first5 src,len,count)={missing}")
     if exempt_legs:

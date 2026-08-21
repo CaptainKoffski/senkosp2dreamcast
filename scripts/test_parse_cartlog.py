@@ -346,9 +346,9 @@ dr_cks_rev = dict((n, ok) for n, ok, _ in
                   P.dryrun_checks([play_leg, good_dr], P.merge([play_leg, good_dr]), anchor_leg))
 assert dr_cks_rev["dryrun_stream_shape"] is False, dr_cks_rev
 
-# Capture-window truncation: multiset counts differ but the unique (src,len)
-# set matches exactly -> PASS with the boundary explanation, not a FAIL
-# (relocation-map.md's own set-equality provision).
+# A multiset mismatch (even a same-unique-set capture-truncation case) still
+# FAILs — the plan's set-equality provision is a manual judgment call a
+# human records in relocation-map.md on a FAIL, not an automatic PASS.
 TRUNCATED = """\
 CARTDMA src=00100000 dest=0c020000 len=100000
 CARTDMA src=00200000 dest=0c030000 len=200
@@ -358,11 +358,48 @@ CARTDMA src=00200000 dest=0c030200 len=200
 trunc_leg = P.parse_leg("truncated", TRUNCATED)
 dr_cks = dict((n, ok) for n, ok, _ in
              P.dryrun_checks([trunc_leg], P.merge([trunc_leg]), anchor_leg))
-assert dr_cks["dryrun_stream_shape"] is True, dr_cks
-trunc_detail = dict((n, d) for n, _, d in
-                    P.dryrun_checks([trunc_leg], P.merge([trunc_leg]), anchor_leg))["dryrun_stream_shape"]
-assert "truncation boundary" in trunc_detail
+assert dr_cks["dryrun_stream_shape"] is False, dr_cks
+
+# Empty legs list is tolerated (old merged-Counter code never crashed on it)
+# rather than raising on the leg[0] unpack.
+dr_cks_empty = dict((n, ok) for n, ok, _ in P.dryrun_checks([], P.merge([]), anchor_leg))
+assert dr_cks_empty["dryrun_stream_shape"] is False, dr_cks_empty   # empty vs non-empty anchor
 
 print("OK dryrun ruling-B (stream-shape scoping) self-check")
+
+# New ruling: the boot-transient exemption for dryrun_vram_below_8m mirrors
+# ruling A but is keyed on the FULL VRAMREGS snapshot series, not just the
+# last line — a leg is exempt for a register iff every above-cap snapshot
+# comes strictly before every below-cap one (settles once, never regresses)
+# AND nz_above8m stays 0 throughout.
+TRANSIENT_BASE = """\
+CARTDMA src=00100000 dest=0c020000 len=100000
+CARTDMA src=00200000 dest=0c030000 len=200
+CARTDMA src=00200000 dest=0c030200 len=200
+MAINPROFILE high=800000 nz=10 nz_below16m=10 nz_above16m=0 size=2000000
+VRAMPROFILE high=100000 nz=10 nz_below8m=10 nz_above8m=0 content_high=100000 content_below8m=10 content_above8m=0 fb_bytes=1000 fb_masked_nz=1 size=1000000
+VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 fb_w_sof1=100000 fb_w_sof2=100000 fb_r_sof1=800000
+VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 fb_w_sof1=100000 fb_w_sof2=100000 fb_r_sof1=800000
+VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 fb_w_sof1=100000 fb_w_sof2=100000 fb_r_sof1=100000
+VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 fb_w_sof1=100000 fb_w_sof2=100000 fb_r_sof1=100000
+"""
+transient_leg = P.parse_leg("transient", TRANSIENT_BASE)
+assert len(transient_leg["vramregs"]) == 4
+tr_rows = P.merge([transient_leg])
+dr_cks = dict((n, ok) for n, ok, _ in P.dryrun_checks([transient_leg], tr_rows, anchor_leg))
+assert dr_cks["dryrun_vram_below_8m"] is True, dr_cks   # settles, never regresses -> exempt
+
+# Direction: a late/regressed above-cap snapshot (after it already settled
+# below cap) breaks the strict "before every below-cap sample" ordering ->
+# NOT exempt, still FAILs.
+LATE_REGRESSION = TRANSIENT_BASE + (
+    "VRAMREGS isp_base=400000 isp_limit=6200e0 ol_base=6d5680 ol_limit=6201e0 "
+    "fb_w_sof1=100000 fb_w_sof2=100000 fb_r_sof1=800000\n")
+regressed_leg = P.parse_leg("regressed", LATE_REGRESSION)
+rr_rows = P.merge([regressed_leg])
+dr_cks = dict((n, ok) for n, ok, _ in P.dryrun_checks([regressed_leg], rr_rows, anchor_leg))
+assert dr_cks["dryrun_vram_below_8m"] is False, dr_cks   # regression -> not exempt
+
+print("OK dryrun boot-transient exemption self-check")
 
 print("ok")

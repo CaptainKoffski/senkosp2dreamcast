@@ -473,10 +473,11 @@ Old values verified against `senkosp.dat` byte-for-byte
   only inside the clamp fn `0x8c031b60` (both `mov.w 0x07fc` loaders in the
   whole image are in that function); post-patch the 16 MB guard fails and
   the caller's value stands unclamped. No other reader found — flagged for
-  the Task 12 dry run, not patched. **Task 12 confirms the flagged risk is
-  real** for the register value: `FB_R_SOF1`/`FB_W_SOF1` still write
-  `0x800000`/`0xc00000` at unchanged frequency post-patch — see §Dry-run
-  evidence → Open concern.
+  the Task 12 dry run, not patched. **Task 12 closes this**: `FB_R_SOF1`/
+  `FB_W_SOF1` do briefly carry above-cap values from this or a related
+  pre-handoff path, but only in the deterministic boot window before the
+  first per-frame flip (`pc=8c032140`), which supersedes them for the rest
+  of every leg — see §Dry-run evidence → Boot-transient finding.
 - **Bank mapper `FUN_8c035920`** (`0x400000` stride / `0x800000` half
   pools): the upper-half branch is dead once no placement exceeds 8 MB —
   superset logic, no patch needed (same class as the address checker).
@@ -516,7 +517,7 @@ CHECK beyond_boot_read: PASS — at least one cart read past the 1 MB boot regio
 CHECK main_watermark_boot: PASS — main watermark 0xffffa5 >= boot-load end 0x191ff8
 CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)
 CHECK dryrun_main_below_16m: PASS — 0 main DMA(s) with dest+len above 16m; MAINPROFILE high=0xffffa5 (cap 0x1000000)
-CHECK dryrun_vram_below_8m: PASS — VRAMPROFILE content_high=0x756120 (cap 0x800000); 0 SOF reg(s) masked above cap []
+CHECK dryrun_vram_below_8m: PASS — VRAMPROFILE content_high=0x756120 (cap 0x800000); 0 SOF reg(s) above cap and not exempt []
 CHECK dryrun_stream_shape: PASS — dryrun-attract: 205 (src,len) events match the anchor leg's multiset; exempt from shape (no anchor for interactive play, caps-only): dryrun-play
 ```
 
@@ -614,29 +615,36 @@ Full evidence chain, each piece verified independently against the logs:
   default (31 kHz progressive parks the field-2 pointer at 0xc00000);
   masking it costs nothing when nothing was written there."
 
-**Implementation** (`scripts/parse_cartlog.py`, `dryrun_checks()`): a
-narrow exemption inside the SOF-register scan — `fb_w_sof2 == 0xc00000`
-(masked) is exempt **iff** that leg's `SOFWR` count for `fb_w_sof2` is
-exactly 1 **and** that leg's `VRAMPROFILE` running-max `nz_above8m == 0`.
-Any second SOF2 write, any other masked value, or any other register (incl.
-`fb_w_sof1`/`fb_r_sof1` at the same value) still FAILs — verified by
+**What the coded check actually samples.** `dryrun_checks()` reads **every**
+`VRAMREGS` snapshot in a leg, in order (`leg["vramregs"]`, appended once per
+sample — not just the last line, which was this check's original,
+undocumented design: a leg could spuriously PASS or FAIL depending purely on
+which snapshot happened to land last). For each of `fb_w_sof1`/`fb_w_sof2`/
+`fb_r_sof1`, a register is only a problem if it is above cap in *some*
+snapshot; when it is, one of two exemptions can clear it — no exemption,
+still FAILs.
+
+**Implementation, exemption 1 (ruling A):** `fb_w_sof2` is exempt **iff**
+it reads the BIOS default (`0xc00000`, masked) in *every* snapshot of the
+leg, it was written exactly once (`SOFWR` count), and `nz_above8m == 0`
+throughout. Any second SOF2 write, any other masked value at any point, or
+any above-8m content still FAILs — verified by
 `scripts/test_parse_cartlog.py`: the exempt fixture PASSes; a synthetic
 second `FB_W_SOF2` write FAILs; a synthetic `nz_above8m=5` FAILs; a
 synthetic `fb_w_sof1` at the same masked value FAILs (the exemption never
 widens past the one cell). Comment in code cites naomi.cpp:256-258.
 
-**Also checked per the ruling — FB_R_SOF1/FB_R_SOF2 post-init, all three
-legs (see §Open concern below).** Unlike FB_W_SOF2, FB_R_SOF1 does **not**
-stay below 8 MB after a single init write: it oscillates between a
-below-cap pair (`0x20000`/`0x420000`, ~8 writes each) and the `0x800000`/
-`0xc00000` pair (~192 writes each) throughout the entire run, in all three
-patched legs, at counts and PCs (`0c0551c0`/`0c0551d0`) matching the
-*unpatched* `attract.log` almost exactly. This does not trip the coded
-check (which only reads the last `VRAMREGS` snapshot, and that snapshot
-happens to land on a below-cap value in all three legs — see the table
-above), but it does not meet the "stays below 8m after re-init" bar the
-ruling asked to verify. **Flagged, not silently exempted — see §Open
-concern.**
+**Implementation, exemption 2 (new ruling, mirrors ruling A) — the
+boot-transient handoff:** a register is exempt **iff** every above-cap
+snapshot comes strictly before every below-cap snapshot (it settles once
+and never regresses back above cap for the rest of the leg) **and**
+`nz_above8m == 0` throughout. A synthetic late/regressed above-cap
+snapshot (inserted *after* the register has already settled below cap)
+correctly still FAILs — `scripts/test_parse_cartlog.py` covers both
+directions. This is what clears `fb_r_sof1`/`fb_w_sof1` — see §Boot-transient
+finding below for the evidence this ruling is built on (it replaces an
+earlier, incorrect "Open concern" write-up from this task's first pass,
+which mis-read the same data — corrected here after review).
 
 ### Stream-shape scoping (`dryrun_stream_shape`, ruling B)
 
@@ -652,82 +660,104 @@ CLI-order convention `merge()` already uses for tuple attribution — Step
 reported informationally (caps-only, no shape verdict) and never fail the
 check. Result, scoped to `dryrun-attract` alone vs the Phase 2
 `captures/attract.log` anchor: **exact multiset match**, 205/205 `(src,len)`
-tuples, no truncation-boundary case needed (verified directly, not just via
-the gate's summary line). `dryrun-play` is reported exempt
-("no anchor for interactive play, caps-only") in the CHECK detail; its role
-— proving the caps hold under load — is covered by `dryrun_main_below_16m`
-and `dryrun_vram_below_8m`, which run across all legs unchanged.
-`scripts/test_parse_cartlog.py` adds: a matching first leg + mismatching
-second leg → PASS (second leg's mismatch doesn't fail it); reversed leg
-order → the now-first (mismatching) leg correctly FAILs (order, not name,
-decides the role); and a synthetic capture-truncation case (same unique
-`(src,len)` set, differing multiset counts) → PASS with the boundary
-explanation, per the plan's own provision.
+tuples (verified directly, not just via the gate's summary line) — no
+truncation-boundary judgment call was needed on this run. `dryrun-play` is
+reported exempt ("no anchor for interactive play, caps-only") in the CHECK
+detail; its role — proving the caps hold under load — is covered by
+`dryrun_main_below_16m` and `dryrun_vram_below_8m`, which run across all
+legs unchanged.
 
-### Open concern: FB_R_SOF1/FB_W_SOF1 spend ~50% of writes above the 8 MB cap, unchanged by the patch
+**The multiset comparison stays strict — no auto-pass on a set-equality
+fallback.** An earlier pass of this task's implementation added a code
+branch that auto-PASSed whenever the *unique* `(src,len)` set matched even
+if the multiset counts didn't (meant to implement the plan's truncation-
+boundary provision in code). Review caught that this was a misreading: the
+plan's provision — "record the set-equality result + the boundary
+explanation... rather than forcing a re-run loop" — is a **manual** judgment
+call a human makes and records in this document on a FAIL, not something
+the gate should silently pass. That branch has been reverted; a multiset
+mismatch, including a same-unique-set truncation case, now correctly FAILs
+the check. `scripts/test_parse_cartlog.py` adds: a matching first leg +
+mismatching second leg → PASS (second leg's mismatch doesn't fail it);
+reversed leg order → the now-first (mismatching) leg correctly FAILs (order,
+not name, decides the role); a synthetic capture-truncation case (same
+unique set, differing counts) → still FAILs; and an empty `legs` list is
+tolerated rather than raising (mirrors the old code's tolerance, which the
+`shape_leg, *exempt_legs = legs` unpack had accidentally dropped).
 
-This is **not** one of the two ruled exemptions and is **not** waved
-through — it is recorded here because Ruling A's due-diligence check
-surfaced it, and it bears on whether the VRAM patch (entries 3–4) actually
-does what §Provenance → VRAM/FB claims.
+### Boot-transient finding: FB_R_SOF1/FB_W_SOF1's above-cap writes are a capped boot artifact, not sustained behavior — the patch worked
 
-**What was measured** (all three patched legs; `grep "^SOFWR FB_R_SOF1"
-captures/phase3/*.log`, `grep "^SOFWR FB_W_SOF1"`): both registers write a
-below-cap pair (patched: `0x20000`/`0x420000` — the render-target values the
-library recomputed for its native 8 MB mode, as §Provenance predicted) at
-roughly the same frequency as an **above-cap pair — `0x800000`/`0xc00000`,
-still the exact pre-patch values, unmoved by the patch** — for the entire
-run, not a boot-time transient:
+**Correction note:** this task's first pass mis-read the raw `SOFWR` counts
+as "the patch made no measurable difference to the scan-out register" and
+recorded that as an open, Task-13-blocking concern. Review falsified that
+reading against the same logs on four independent points below. The
+corrected finding is the opposite: this is evidence the VRAM patch **did**
+redirect the compose pipeline below 8 MB — the ruling A due-diligence check
+(verify FB_R_SOF1/FB_R_SOF2 stay below 8 MB after the handoff) **passes**.
 
-| Leg | FB_R_SOF1 below-cap writes | FB_R_SOF1 above-cap writes (`0x800000`/`0xc00000`) |
-|---|---|---|
-| `dryrun-attract` (patched) | 16 (`0x20000`×8, `0x420000`×8) | 384 (`0x800000`×192, `0xc00000`×192) |
-| `dryrun-play` (patched) | 16 | 384 |
-| unpatched `attract.log` (Phase 2) | 16 (`0x2ea000`×8, `0x6ea000`×8) | 384 (identical) |
+**(a) The ~192-per-value counts are the instrument's own log budget, not
+game behavior.** `../cleopatra/tools/flycast-src/core/hw/pvr/pvr_regs.cpp:241-243`
+caps the shared `FB_R_SOF1`/`FB_R_SOF2` case block at `rsof_lines < 800`
+(one counter for both registers — confirmed: `grep -c "^SOFWR FB_R_SOF1"`
+= 400 and `grep -c "^SOFWR FB_R_SOF2"` = 400 in `dryrun-attract.log`, sum
+exactly 800); `:274-276` caps `FB_W_SOF1` at `wsof1_lines < 800`
+(confirmed: exactly 800 lines). Once the shared budget is spent, the
+instrument stops emitting `SOFWR` lines for that register **for the rest
+of the run** — it does not mean the register stopped changing, and it does
+not mean it kept changing above cap. Identical counts between the patched
+and unpatched image are explained entirely by both runs hitting the same
+800-line cap on the same early boot sequence; they are not evidence the
+patch had "no effect."
 
-The above-cap write **counts are identical between the patched and
-unpatched image**, and the values themselves are byte-identical
-(`0x800000`/`0xc00000`) — the patch has made **no measurable difference** to
-how often or to what FB_R_SOF1 (the scan-out pointer) is set above 8 MB.
-`FB_W_SOF1` shows the same pattern (~equal counts across all four values,
-patched and unpatched). This traces to a risk this document already
-flagged before Task 12 ran (§Patch set → Deliberately not patched): "VRAM/FB
-scan-out region hint `state+0x7fc`... post-patch the 16 MB guard fails and
-the caller's value stands unclamped. No other reader found — flagged for
-the Task 12 dry run, not patched." Task 12's dry run confirms the flagged
-risk is real for the *register value*, at least as measured through this
-instrument.
+**(b) The above-cap writes are not "the entire run" — they are the first
+1.5% of it.** In `dryrun-attract.log` (1,080,610 lines total), the *last*
+`SOFWR FB_R_SOF1` line is file line **15,964**; the last `SOFWR FB_W_SOF1`
+line is **27,518**. Both registers stop being logged (budget exhausted)
+well before the run is 3% complete.
 
-**Why this did not visibly break the dry run:** source-read of the fork's
-write hook (`../cleopatra/tools/flycast-src/core/hw/pvr/pvr_regs.cpp:229-267`)
-shows `FB_R_SOF1`/`FB_R_SOF2` share one case block; `pc=`/`pr=` in the
-`SOFWR` line are `p_sh4rcb->cntx.pc`/`.pr` read live at the actual register
-store (not a stale/replayed value — contra this doc's earlier "unattributable
-sample" hypothesis, which was reasoned from static bytes around the PC, not
-from the hook's own source). The write is genuine. But Flycast's swap path
-(`Renderer_if.cpp:649` `rend_swap_frame`) only calls `Present()` when
-`fb_r_sof == fb_w_cur`, and outside `config::EmulateFramebuffer` mode
-Flycast's 3D path never reads raw VRAM bytes as the displayed image
-(§Provenance → VRAM/FB "Blind spot", already documented) — so this
-emulator, specifically, is insensitive to whether the address is physically
-valid VRAM. That is a plausible reason the operator saw no visual
-corruption in Flycast, and is **not** a reason to believe real DC hardware
-(no host-GPU abstraction; the PVR2 CRTC scans real VRAM bytes from
-`FB_R_SOF1`) is equally insensitive — `0x800000`/`0xc00000` still alias onto
-the TA ISP/OL buffers and the low FB pair under DC's `VRAM_MASK`
-(`.../core/hw/pvr/pvr_mem.cpp:229,313,329`, already cited in this doc's "Why
-it matters on DC").
+**(c) It is a one-way handoff, not an oscillation.** Lines 13,931 and
+13,940 of `dryrun-attract.log`:
 
-**Verdict: unresolved, not fundamentally falsified.** Main-RAM relocation
-and VRAM *content* placement (`content_above8m=0` throughout) both hold up
-cleanly under measurement. The specific open question is whether the
-compose-pipeline's scan-out register (`FB_R_SOF1`, and by the same
-mechanism possibly `FB_W_SOF1`) needs its own consumer patched — i.e., an
-iteration on the existing patch set in the sense the playbook's own
-"On FAIL" guidance anticipates ("a consumer still reads the old address"),
-not a rejection of the relocation strategy. **Recommend this block Task 13
-pending controller review**: either identify and patch the unclamped
-`state+0x7fc` consumer (or the display-descriptor pair-B base it feeds), or
-establish affirmatively (real-hardware test, or further Ghidra tracing of
-what actually reads `FB_R_SOF1` for scanout on this title) that it is
-inert. `tooling.md` records the exact commands to reproduce this finding.
+```
+13931:SOFWR FB_W_SOF1 val=00020000 was=00800000 pc=8c032140 pr=8c03bb3a
+13940:SOFWR FB_R_SOF1 val=00020000 was=00c00000 pc=8c032140 pr=8c037396
+```
+
+— a single write pair, at `pc=8c032140` (the KAMUI2 per-frame flip site
+already identified in §Provenance → VRAM/FB), moves both registers from the
+above-cap pair to the relocated below-cap pair. **Zero** above-cap SOF1
+writes occur after line 13,940 (`awk 'NR>13940 && /^SOFWR FB_R_SOF1|^SOFWR
+FB_W_SOF1/'` → 214+215 lines, all `0x20000`/`0x420000`, none above cap).
+Cross-tabulating PC × value over every `SOFWR FB_R_SOF1`/`FB_W_SOF1` line in
+the leg makes the split absolute: **every** below-cap value is written from
+`pc=8c032140` and **only** that PC; **every** above-cap value is written
+from a disjoint set of boot-path PCs (`0c0551c0`, `0c0551d0`, `0c0551d8`,
+`0c054886`, `0c054c5a`, `0c0558e4`) and **only** those PCs. Two populations,
+never interleaved, never regressing.
+
+**(d) The uncapped instrument (`VRAMREGS`, one snapshot per ~10 s profile
+tick, no 800-line budget) settles it.** Above-cap `fb_r_sof1` appears in
+**only** `VRAMREGS` snapshots #1 and #2, at file lines **10,935** and
+**13,861** — byte-identical across all three dry-run legs (deterministic
+pre-handoff boot state, independent of attract/play/duration). Every
+snapshot from #3 onward is below cap: 67/69 samples in `dryrun-attract`,
+137/139 in `dryrun-play`, 62/64 in `dryrun-attract-2-unattended`.
+
+**Consequence for the coded check.** `dryrun_vram_below_8m` now reads every
+`VRAMREGS` snapshot (not just the last — see the FB_W_SOF2 section above
+for why that mattered) and applies a **boot-transient exemption**: a
+register is exempt iff every above-cap snapshot comes strictly before every
+below-cap snapshot (settles once, never regresses) and `nz_above8m == 0`
+throughout. `fb_r_sof1`/`fb_w_sof1` both satisfy this on all three legs —
+PASS, not a silent under-sample. A synthetic late/regressed above-cap
+snapshot still FAILs (`scripts/test_parse_cartlog.py`), so a genuine
+post-handoff regression would be caught, not masked by this exemption.
+
+**Verdict: the relocation strategy is validated, not open.** Main-RAM
+relocation, VRAM content placement, and the compose-pipeline's scan-out
+register all move below the DC 8 MB cap and stay there for the entire
+run past a single deterministic boot transient. This closes the concern
+this document's §Deliberately-not-patched bullet had flagged pending Task
+12 — the "unclamped `state+0x7fc`" caller's value, whatever it resolves to
+during that brief pre-handoff window, is superseded by the same
+`pc=8c032140` flip every other frame uses, and never recurs.
