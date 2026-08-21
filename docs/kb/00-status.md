@@ -1,7 +1,8 @@
 # Project status
 
 **Updated:** 2026-08-22 (Phase 3 Reverse Engineering — DONE; gate green with
-one criterion met in substance, see the Phase 3 checklist)
+**two** criteria met in substance rather than literally — 2 and 4, see the
+Phase 3 checklist)
 
 ## What this is
 
@@ -76,8 +77,9 @@ Charter + Phase 1 spec:
 Mirrors
 `docs/superpowers/specs/2026-08-19-phase3-reverse-engineering-design.md`
 §Exit criteria, one box per criterion, each with the file + line that earns
-it. Criterion 2 is checked **in substance, not literally** — the honest
-detail is in its own row; nothing else is qualified.
+it. **Criteria 2 and 4 are `[~]`: met in substance, not literally** — each
+row states exactly what is missing and what would close it. Criteria 1, 3, 5
+and 6 are `[x]`, unqualified.
 
 - [x] **1 — All nine targets answered** with static + dynamic evidence where
       runtime-reachable (RTC/SCIF/WDT static-only by nature).
@@ -108,7 +110,8 @@ detail is in its own row; nothing else is qualified.
       instead by 80 392 sub-`0x33` events at a confirmed guest store.
       **FAIL: `sp_consistent`** — a real finding, not a bad range: senkosp is
       multi-stack (§SP — two stacks), and the second stack is bounded to
-      static BSS in §Task 10 resolution.
+      static BSS by the "Task 10 resolution" paragraph closing that same
+      section.
       **What would close it:** a one-line fork change tagging
       `maple_DoDma()`'s caller (`maple_SB_MDST_Write` vs `maple_vblank`) plus
       an `r15` water-mark probe — both outside this repo. Carried as a Phase 4
@@ -122,21 +125,32 @@ detail is in its own row; nothing else is qualified.
       **re-run 2026-08-22 against the same three logs, `exit=0`, CHECK lines
       identical**; `scripts/test_parse_cartlog.py` → `ok`; the four patch
       `old` words re-verified in `senkosp.dat` and the artifact md5 re-checked.
-      Operator-observed playability: boot → title → attract → **one full
-      played match**, verbatim *"everything looks and plays normal"*
-      (2026-08-22). The reported ~10 s stutter is **closed as the
-      instrument's own periodic scan** by a single-variable control test
-      (`FLYCAST_CARTLOG` unset → *"no lags anymore, all smooth"*) — the patch
-      is exonerated.
-- [x] **4 — Ghidra scripts re-run headlessly and reproduce.** Re-run
+      Operator-observed playability, in two dated parts: **2026-08-21** the
+      operator played a full match on the patched image and reported it
+      visually normal *with* a ~10 s stutter caveat (full quote:
+      `relocation-map.md` §Operator playability report — its opening clause
+      must not be quoted alone), and **2026-08-22** a single-variable control
+      test (`FLYCAST_CARTLOG` unset → *"no lags anymore, all smooth"*) closed
+      that caveat as **the instrument's own periodic scan** — the patch is
+      exonerated.
+- [~] **4 — Ghidra scripts re-run headlessly and reproduce — proven against
+      the existing project DB, NOT yet from a fresh checkout.** Re-run
       2026-08-22 from the committed harness `scripts/ghidra/run.sh` and
       diffed mechanically: `FindMmioXrefs.java` → 73 payload lines identical
-      to `tools/mmio-xrefs.txt` (`TOTAL hits=72`; per-block counts reproduce
-      boot-binary.md's table exactly); `DumpEntryChain.java` → all 35
-      instruction lines quoted in §Entry chain match, all three SP writes
+      to the previously reported output (`TOTAL hits=72`; per-block counts
+      reproduce boot-binary.md's table exactly); `DumpEntryChain.java` → all
+      35 instruction lines quoted in §Entry chain match, all three SP writes
       identical. Recipe + result: `docs/kb/tooling.md` §Phase 3: this repo's
       Ghidra project (incl. the `boot.bin` slice command and md5
       `07008ad629d628c519635dbc113487f5`).
+      **The gap:** the spec says "re-run headlessly **from a fresh checkout**
+      (given the gitignored ROM)". This re-run used the existing `senkosp3`
+      DB, which carries Task 4's force-disassembly additions. The fresh path
+      — `scripts/ghidra/run.sh import` then the same two scripts — is
+      recorded but **untested**, and a fresh checkout has no reference copy
+      of `tools/mmio-xrefs.txt` (gitignored) to diff against; it would
+      regenerate it from the same script. Same one standard as criterion 2:
+      met in substance, box not fully checked.
 - [x] **5 — Control layout recorded.** `docs/kb/input-map.md` §DC pad layout
       (Phase 3, user-approved 2026-08-19) — table verbatim from the spec §9,
       plus the Coin (free-play) and Test/Service (Phase 4 loader decision)
@@ -205,8 +219,9 @@ detail is in its own row; nothing else is qualified.
     | `0x1af894` | `0x4028cb8e` → `0x4028cb8d` | Test image: verbatim copy of the same seed, so test mode uses the same 16 MB heap top. |
     | `0x1203c` | `0x01000000` → `0x00800000` | Main image `0x8c03203c`: kmInitDevice's VRAM-size seed 16 MB → 8 MB. Moves **every above-8m VRAM placement**. |
     | `0x183bb4` | `0x01000000` → `0x00800000` | Test image: same VRAM-size seed for the service/test menu. |
-    Note the **two `dat_offset` conventions**: boot-image entries are
-    `P1 − 0x8c020000`; test-image entries are raw `.dat` offsets.
+    Every `dat_offset` is a **raw `.dat` offset**; for boot-image entries
+    that happens to equal `P1 − 0x8c020000`, since the boot image starts at
+    `.dat` offset 0.
   - **Corridor provenance: one site, not five.** No corridor destination
     exists as a constant anywhere (exhaustive scans over boot image and the
     251 MB `.dat`). All five are **computed by the game's single syMalloc
@@ -308,10 +323,13 @@ Each is argued where it is cited; this is the index, not the argument.
    placement — written once per leg from `was=00000000`, identical patched
    and unpatched. The dry-run gate exempts exactly that cell, narrowly.
    Don't chase it as a VRAM leak. `relocation-map.md` §FB_W_SOF2 exemption.
-7. **The patch set carries two `dat_offset` conventions** — boot-image
-   entries are `P1 − 0x8c020000`, test-image entries are raw `.dat` offsets.
-   Any Phase 4 patch-table format must preserve that distinction or
-   recompute it. `relocation-map.md` §Patch set.
+7. **`dat_offset` is uniformly a raw `.dat` offset** — all four entries. The
+   boot-image ones merely *coincide* with `P1 − 0x8c020000` because the boot
+   image sits at `.dat` offset 0 (checked: `0x8c085b50 − 0x8c020000` =
+   `0x65b50`, `0x8c03203c − 0x8c020000` = `0x1203c`). A Phase 4 patch table
+   can use one raw-offset schema; only the *derivation* of a boot-image
+   address from its P1 form needs the subtraction.
+   `relocation-map.md` §Patch set.
 8. **Low RAM is the Naomi BIOS's resident RTOS kernel.**
    `0x0c000600`–`0x0c007xxx` is byte-identical to the BIOS ROM at ROM
    offset − `0x800` (VBR+0x600 stub, INTEVT dispatcher `0x0c001cba`, 0x200-byte

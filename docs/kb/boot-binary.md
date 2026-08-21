@@ -1260,8 +1260,10 @@ CHECK eeprom_write_seen: FAIL — 16 sub=0b PCs vs eeprom fn
 CHECK sp_consistent: FAIL — 672 SPs vs static stack region
 ```
 
-The three remaining `FAIL`s are the two findings above — the maple-trigger
-probe limitation and the second stack — not unresolved range errors. Both need
+The four remaining `FAIL`s (`input_pc_in_input_fn`, `eeprom_read_seen`,
+`eeprom_write_seen`, `sp_consistent`) are the two findings above — the
+maple-trigger probe limitation, which accounts for three of them, and the
+second stack, which accounts for the fourth — not unresolved range errors. Both need
 work outside this repo (a fork probe change; an `r15` water-mark probe) before
 a green line is honest. **`tools/pc-parse.txt` is left in place regardless: the
 `PCPAIR` data it carries comes from the cart path, which is fully confirmed.**

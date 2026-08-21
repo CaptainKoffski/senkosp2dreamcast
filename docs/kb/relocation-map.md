@@ -600,12 +600,35 @@ and the machine were identical to the lagging runs. That isolates the
 out the relocation patch as a cause. Recipe + this closure are mirrored in
 `tooling.md` §Phase 3 relocation dry run.
 
-**Operator visual confirmation — DONE (2026-08-22).** The same session
-watched the patched image through boot → title → attract and a full played
-match: *"everything looks and plays normal"*. Together with the traffic-count
-table above and the caps evidence below, the dry run's operator-observed
-playability leg (spec §Cross-checks: "Playability itself is operator-observed
-— boot → attract → one played match") is satisfied on the patched image.
+**Operator visual confirmation — complete, in two dated parts.** The spec's
+operator-observed playability leg (§Cross-checks: "Playability itself is
+operator-observed — boot → attract → one played match") is satisfied by two
+separate observations, and neither is a 2026-08-22 fresh viewing:
+
+- **(a) The played match, 2026-08-21** (Task 12, the §Operator playability
+  report above — quoted there in full). The operator watched the patched
+  image through boot/attract/character-selection and real gameplay. Its
+  opening clause is the visual verdict — *"Everything looks and plays normal,
+  except on moment…"* — and the sentence does **not** end there: the "except"
+  is the ~10 s lag caveat, which is why that clause must never be quoted
+  alone. Content, colour, geometry and playability: normal. One caveat:
+  periodic stutter.
+- **(b) The caveat's closure, 2026-08-22** (the control test immediately
+  above): *"no lags anymore, all smooth"* — the stutter was the instrument,
+  not the image.
+
+(a) covers what the eye sees, (b) removes the only reservation (a) carried.
+Together with the traffic-count table above and the caps evidence below, the
+playability leg is satisfied on the patched image.
+
+> **Provenance correction (Task 13 review).** An earlier pass of this
+> section dated the visual confirmation 2026-08-22 and quoted
+> *"everything looks and plays normal"* as a standalone verbatim verdict
+> from the control-test session. Both were wrong: `git log -S` puts that
+> sentence in commit `902f9e3` (2026-08-21, Task 12), it is the **opening
+> clause** of the report above rather than a whole sentence, and the
+> control-test session produced only the lag quote. Corrected here, in
+> `tooling.md` and in `00-status.md`.
 
 ### FB_W_SOF2 exemption (`dryrun_vram_below_8m`, ruling A)
 

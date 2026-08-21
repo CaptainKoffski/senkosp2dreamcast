@@ -98,10 +98,24 @@ writes), `ScanPlacementConstants` (corridor/VRAM placement constants),
 **DB mutation caveat, stated because it affects reproducibility:** the
 `senkosp3` DB carries the *force-disassembly* additions Task 4 made
 (`DisasmRange … force` over the undefined hardware-driver and RTC spans).
-Those are monotonic additions to the listing; they do **not** change what
-`FindMmioXrefs` reports (it counts *defined data*, and `run.sh script` passes
-`-noanalysis`, so nothing promotes the recovered code's pool words to defined
-data — boot-binary.md §Coverage limits documents that exact non-effect).
+Those are monotonic additions to the listing. Their non-effect is argued for
+**`FindMmioXrefs` only**: it counts *defined data*, and `run.sh script`
+passes `-noanalysis`, so nothing promotes the recovered code's pool words to
+defined data — boot-binary.md §Coverage limits documents that exact
+non-effect (re-running the scan after the force-disassembly still reported
+`rtc` = 3). **No equivalent argument is made for `DumpEntryChain`**: it walks
+disassembled instructions, so a DB with more disassembly *could* in principle
+walk further. Its output reproduced exactly here, but that is an observation
+on this DB, not a proof of DB-independence.
+
+**Fresh-checkout status — untested, stated plainly.** The spec's exit
+criterion 4 asks for a re-run *from a fresh checkout* (given the gitignored
+ROM). That path is: regenerate `tools/boot.bin` (step 1), `run.sh import`
+(step 2, full auto-analysis), then the scripts (step 3) — **it has not been
+exercised**. Two things a fresh checkout would not have: the Task 4
+force-disassembly state, and any reference output to diff against
+(`tools/` is gitignored, so `tools/mmio-xrefs.txt` does not exist until the
+scan regenerates it). `00-status.md` criterion 4 carries this as a `[~]`.
 
 **Reproduction check (Task 13, exit criterion 4 — 2026-08-22).** Both
 reporting scripts were re-run from the committed harness and diffed
@@ -113,8 +127,10 @@ scripts/ghidra/run.sh script DumpEntryChain.java > /tmp/entry-rerun.txt
 # strip the "INFO  <script>.java> " prefix + Ghidra harness banner, then diff
 ```
 
-- `FindMmioXrefs`: **73 payload lines identical** to the committed
-  `tools/mmio-xrefs.txt` (72 hits + `TOTAL hits=72`); per-block counts
+- `FindMmioXrefs`: **73 payload lines identical** to the copy of its own
+  earlier output kept at `tools/mmio-xrefs.txt` — **gitignored, not
+  committed** (it is derived ROM content; the scan above is what regenerates
+  it) — 72 hits + `TOTAL hits=72`; per-block counts
   reproduce boot-binary.md's table exactly — `wdt` 43, `maple` 11, `g1dma`
   10, `rtc` 3, `cart` 3, `scif` 2, `pvr_fb` 0. Only difference in the raw
   files: the Ghidra/JVM banner (timings, JDK warnings).
@@ -274,14 +290,17 @@ header".
   instructions). Verdict at the time rested on the CARTDMA tuple comparison
   alone, per the task's operator-asleep ruling — not treated as a FAIL
   signal.
-  **Visual: CLOSED 2026-08-22 (Task 13).** The operator watched the flat-`.dat`
-  vehicle's descendant — the patched `senkosp-reloc.dat`, same flat-`.dat`
-  boot path — through boot → title → attract and a full played match:
-  *"everything looks and plays normal"* (see §Phase 3 relocation dry run →
-  Operator confirmations). Since the patched image differs from the plain
-  `.dat` by exactly 4 words and boots by the identical mechanism, the
-  flat-`.dat` boot path is visually confirmed as well; the deferred item is
-  discharged, not carried into Phase 4.
+  **Visual: CLOSED (recorded Task 13; the observations are dated 2026-08-21
+  and 2026-08-22).** The operator watched the flat-`.dat` vehicle's
+  descendant — the patched `senkosp-reloc.dat`, same flat-`.dat` boot path —
+  through boot, attract and a full played match on **2026-08-21**
+  (*"Everything looks and plays normal, except on moment…"*, quoted in full
+  in `relocation-map.md` §Operator playability report), and its one caveat,
+  the ~10 s stutter, was closed by the **2026-08-22** control test — see
+  §Phase 3 relocation dry run → Operator confirmations. Since the patched
+  image differs from the plain `.dat` by exactly 4 words and boots by the
+  identical mechanism, the flat-`.dat` boot path is visually confirmed as
+  well; the deferred item is discharged, not carried into Phase 4.
 - **Verdict: `.dat` boots identically: YES** — nonzero CARTDMA count +
   byte-identical `src`/`dest`/`len` sequence across the entire 79-tuple run
   vs the known-good zip boot. Per the task's Interfaces block, this is the
@@ -419,11 +438,16 @@ env. Operator verdict, verbatim: **"no lags anymore, all smooth"**. Logging
 off ⇒ stutter gone; the relocation patch is exonerated and the lag question
 is closed (mirrored in `relocation-map.md` §Dry-run evidence).
 
-**Operator confirmations (2026-08-22), for the record.** Same session, the
-patched image watched through boot → title → attract and a **full played
-match**: *"everything looks and plays normal"* — the operator-observed
-playability leg the spec's §Cross-checks requires ("Playability itself is
-operator-observed"), and the confirmation that also discharges the
+**Operator confirmations, for the record — two dated parts, not one
+session.** The spec's operator-observed playability leg is satisfied by:
+**(a) 2026-08-21** (Task 12) — the patched image watched through boot,
+attract, character selection and a **full played match**; verdict quoted in
+full in `relocation-map.md` §Operator playability report, opening
+*"Everything looks and plays normal, except on moment…"* — visually normal,
+**with** the ~10 s stutter caveat that the same sentence goes on to
+describe. **(b) 2026-08-22** — the control test above closes that caveat
+(*"no lags anymore, all smooth"*). Do not quote (a)'s opening clause on its
+own; it is not the whole sentence. Together these also discharge the
 flat-`.dat` leg's deferred visual (§Phase 3 flat-.dat boot control test).
 
 **FB_R_SOF1/FB_W_SOF1 boot-transient investigation** (`relocation-map.md`
