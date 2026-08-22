@@ -18,6 +18,11 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+# The main/test boundary comes from the header the generator itself parses --
+# never a second copy of the number (Task 11 review minor 12).
+TEST_DAT_OFF = int(re.search(
+    r"#define\s+TEST_DAT_OFF\s+(0x[0-9a-fA-F]+)",
+    (ROOT / "shims/include/shim_iface.h").read_text()).group(1), 16)
 GEN = ROOT / "scripts" / "build_patch_table.py"
 HDR = ROOT / "build" / "patch_table.h"
 DAT = ROOT / "senkosp.dat"
@@ -61,7 +66,7 @@ for off, img, ln, old, _new in rows:
         f"old mismatch @dat:{off:#x}: header has {old.hex()}, "
         f"senkosp.dat has {dat[off:off + ln].hex()}")
     assert img in (0, 1), (off, img)
-    assert img == (1 if off >= 0x171ff8 else 0), f"img tag wrong @dat:{off:#x}"
+    assert img == (1 if off >= TEST_DAT_OFF else 0), f"img tag wrong @dat:{off:#x}"
     if img == 1:
         test_img_rows += 1
 assert test_img_rows, "no test-image rows emitted"

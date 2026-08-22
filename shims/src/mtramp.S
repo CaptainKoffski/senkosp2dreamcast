@@ -22,6 +22,13 @@
 ! `jmp`, never `jsr`: FUN_8c0665fe's prologue saves r8-r14 but NOT PR, so a
 ! jsr in its body would destroy its return address to 0x8c066aea (KB :1257).
 !
+! INTEGER-ONLY, deliberately: GBR, FPSCR, FPUL and fr0-fr15 are NOT saved. The
+! service is integer C (no float, no store-queue, no GBR-relative access), and
+! the five swallowed windows are integer stores plus one `tst` -- so nothing on
+! either side of the detour touches those. If the service ever grows a float or
+! a GBR user, this body has to grow `sts.l fpul` / `sts.l fpscr` / `fmov.s` for
+! fr0-fr7 (the caller-saved half) and `stc.l gbr` too.
+!
 ! Per-site stubs exist only because the RESUME address differs; r2 is free
 ! (the original clobbers it), so each stub loads its resume address into r2
 ! and falls into the shared body, which pushes r2 first and pops it last.

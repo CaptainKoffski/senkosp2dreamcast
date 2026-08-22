@@ -4,11 +4,10 @@ OBJCOPY = /opt/toolchains/dc/sh-elf/bin/sh-elf-objcopy
 CFLAGS = -ml -m4-single-only -ffreestanding -nostdlib -Os -Wall -Wextra -fno-tree-loop-distribute-patterns -Iinclude
 CFLAGS += $(DEFS)   # debug toggles, e.g. make DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
 B = build
-# Phase 4 Task 6: no embedded MIE/EEPROM data blobs yet -- main.c's service
-# ladder that consumed them (Cleopatra's mie_subXX/mie_jvsXX/eeprom_img) is
-# #if 0'd (Cleopatra-address bodies, Tasks 10-12 re-enable). Cleopatra's
-# DATA_SRCS + xxd-embed rules return here once senkosp captures its own
-# blobs.
+# Task 11: the MIE reply blobs ARE embedded now, but as generated C
+# ($(B)/mie_blobs.c below), not Cleopatra's xxd-embedded .bin blobs -- they
+# are captured traffic, so they are regenerated at build time and never
+# committed.
 # gdstack.S deleted in Task 10: it trampolines into the DC BIOS GD syscall
 # vector, and this port's runtime disc path is raw ATA by design (the kernel
 # slice the loader places lands on the BIOS's own low-RAM GD state -- see
@@ -29,9 +28,15 @@ test:
 # MIE reply blobs: captured traffic, so they are GENERATED at build time from a
 # capture log (never committed -- same rule as bios_data.bin in loader/Makefile).
 # Task 11; provenance note in docs/kb/phase4-conversion.md §Attract.
-$(B)/mie_blobs.c: ../scripts/extract_mie_blobs.py ../captures/phase4/pc2.log
+CAPTURE = ../captures/phase4/pc2.log
+$(B)/mie_blobs.c: ../scripts/extract_mie_blobs.py $(CAPTURE)
 	mkdir -p $(B)
 	python3 ../scripts/extract_mie_blobs.py
+# Fresh clone: captures/ is gitignored (same rule as senkosp.dat in
+# scripts/build_patch_table.py). Say so instead of make's "no rule to make".
+$(CAPTURE):
+	$(error $(CAPTURE) missing -- recapture a Naomi-profile leg with \
+	  scripts/capture_leg.sh, docs/kb/tooling.md §Phase 2 capture harness)
 
 $(B)/shim.elf: $(SRCS) shim.ld include/shim_iface.h
 	mkdir -p $(B)

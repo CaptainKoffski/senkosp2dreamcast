@@ -216,6 +216,12 @@ static void maple_frame(u32 desc, u32 rcv, u32 plen, u32 bus) {
         put1(rcv, 0xffffffffu);
         return;
     }
+    /* Replies below that hardcode the `00 20` sender/recipient pair (the 0x80
+     * and 0x82 cases) copy BaseMIE::reply()'s literal `w8(code); w8(0x00);
+     * w8(0x20); w8(sizew)` -- it hardcodes them too. Safe here only because of
+     * the gate above: the sole recipient that reaches this switch is 0x20, the
+     * MIE, and its sender is the host (0). The `echo` form is used wherever
+     * Flycast itself echoes (`resp | sender << 8 | reci << 16`). */
     switch (cmd) {
     case 0x01: put1(rcv, 0x05u | echo); break;   /* DeviceRequest -> status, 0 words */
     case 0x02: put1(rcv, 0x06u | echo); break;   /* AllStatusReq */

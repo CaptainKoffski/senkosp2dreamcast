@@ -98,6 +98,8 @@ def harvest(path):
             continue
         if not line.startswith("MIERESP"):
             continue
+        if outlen is None:
+            sys.exit("MIERESP with no preceding rawdma_ret -- log out of order")
         m = re.match(r"MIERESP sub=(\S+) addr=(\S+) data=(\S+)", line)
         sub, data = int(m.group(1), 16), m.group(3)
         # NB `sub` is the fork logger's `p_data[4]` (maple_if.cpp:299), which
@@ -119,9 +121,11 @@ def harvest(path):
                 sys.exit(f"UNSTABLE {key}: {prev.hex()} @{prevlen:#x}\n"
                          f"          vs {raw.hex()} @{outlen:#x}")
         if key == ("sub", 0x33) and raw[4] != 0x16:
+            outlen = None
             continue                      # cold (0x32) variant: not replayed
         classes[key] = (raw, outlen)
         seen[key] = seen.get(key, 0) + 1
+        outlen = None               # one length per reply; never latch a stale one
     return classes, seen
 
 
@@ -178,11 +182,17 @@ def rebuild_sub03(raw):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv = sys.argv[1:]
     out_dir = os.path.join(REPO, "shims/build")
-    if "--out" in sys.argv:
-        out_dir = sys.argv[sys.argv.index("--out") + 1]
-    log = args[0] if args else DEFAULT_LOG
+    if "--out" in argv:
+        i = argv.index("--out")
+        out_dir = argv[i + 1]
+        del argv[i:i + 2]          # else the DIR is read back as the log path
+    log = argv[0] if argv else DEFAULT_LOG
+    if not os.path.exists(log):
+        sys.exit(f"{log} missing (captures/ is gitignored -- recapture with "
+                 f"scripts/capture_leg.sh on the Naomi profile, "
+                 f"docs/kb/tooling.md §Phase 2 capture harness)")
     classes, seen = harvest(log)
 
     blobs = {}

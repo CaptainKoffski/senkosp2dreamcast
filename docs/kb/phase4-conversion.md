@@ -2838,10 +2838,10 @@ Generated detour bytes, verified against the table above per site per image
 
 ```
 old  72 2e 72 25 52 62 28 22 fc 8b c2 2e   = 2e72 2572 6252 2228 8bfc 2ec2
-new  01 d2 2b 42 09 00 09 00 00 10 01 8c   = d201 422b 0009 0009 .long 8c011000
+new  01 d2 2b 42 09 00 09 00 cc 10 01 8c   = d201 422b 0009 0009 .long 8c0110cc
 ```
 
-All 118 generated entries (59 per image) pass their old-byte verify against
+All 120 generated entries (60 per image) pass their old-byte verify against
 `senkosp.dat`.
 
 ### Leg chain
@@ -2916,12 +2916,30 @@ CLEO-ARMRST(w) VREG=03 ARMRST=00 ram0=ea00003e ram4=ea000089   (AICA ARM booted)
 ```
 
 And the streams are *attract's* streams, not arbitrary ones: of the 83 cart
-transfers in `attract7`, **82 match a `(cart_offset, length)` pair the Phase 2
-Naomi capture recorded** and 54 of them appear in the Phase 2 **attract** leg
-specifically (`docs/kb/cart-streaming-map.csv`). 72 of the 83 land in the
-relocated above-16 MB corridors. The tail of the sequence is the attract demo
+transfers in `attract3` (and the identical 83 in `attract6`), **82 match a
+`(cart_offset, length)` pair the Phase 2 Naomi capture recorded** and 54 of
+them appear in the Phase 2 **attract** leg specifically
+(`docs/kb/cart-streaming-map.csv`); 72 of the 83 land in the relocated
+above-16 MB corridors. The longer legs extend the same sequence rather than
+diverging from it — `attract4`/`attract7` reach 89 streams, 87 matched, 57 in
+the attract leg, the same 72 in-corridor. The tail of the sequence is the attract demo
 battle's asset load (`0x0b496800 len=0x3be800` → `0x0c7b8d40`, corridor 1's
 `0x0c271000`, etc.).
+
+**And the picture.** `docs/kb/img/phase4-dc-attract.png`, grabbed from leg
+`attract11-shot` (release configuration, unattended, no input): senkosp's
+attract **DEMONSTRATION** running on the DC profile — both mechs, both
+health / OD / MAX gauges, the 99 timer, the button-legend overlay with its
+Japanese barrier tutorial text, `PRESS 1P OR 2P START BUTTON`, and
+**`FREE PLAY`** on the bottom line (the captured EEPROM's coin byte reaching
+the attract credit display, which answers half of Task 12's free-play question
+before it is asked). Capture method: macOS `screencapture` is TCC-blocked in
+this session, so the frame comes from the fork's own headless
+framebuffer→PNG dump (`$FLYCAST_SHOT` + `kill -USR1`, `gui_dumpFramebuffer`,
+`../flycast4naomi2dreamcast/core/ui/gui.cpp:510-545`) — the Task 8 precedent,
+which reads the GL offscreen buffer and needs no screen-capture permission.
+That leg is otherwise identical to `attract10-release`: 11,009 frames rendered
+post-handoff, **0** `MDODMA` from any game PC.
 
 ### Findings worth carrying forward
 
@@ -2985,5 +3003,7 @@ grep -c '^MS n='      /tmp/a.txt     # steady-service heartbeats, must keep clim
 # no real maple DMA may come from a game PC (Cleopatra's lesson (b))
 grep 'MDODMA enter' captures/phase4/attractN.log | sed 's/.*pc=\([0-9a-f]*\).*/\1/' \
   | sort -u          # only loader/KOS PCs, and only before the handoff line
-                     # (MMUCRWR val=00000000 pc=8c01057c)
+                     # (the loader's own MMUCR=0 store: `grep MMUCRWR` and take
+                     #  the LAST 8c01xxxx one -- its PC moves with the loader
+                     #  build, 8c01057c diagnostic / 8c010580 release)
 ```

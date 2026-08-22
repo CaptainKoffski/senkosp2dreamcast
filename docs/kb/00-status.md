@@ -315,8 +315,10 @@ the `I/O BD IS NOT CONNECTED` / `DOES NOT FULFILL THE GAME SPECS` gate passes
 and never fires again. In the release configuration the game renders 12,739
 frames with 8,353 large display lists and streams attract assets whose
 `(offset, length)` pairs match the Phase 2 Naomi attract capture, with **zero**
-real maple DMA from any game PC. Evidence:
-`docs/kb/phase4-conversion.md` §Attract, legs `captures/phase4/attract*`.
+real maple DMA from any game PC — and the attract DEMONSTRATION on screen,
+`docs/kb/img/phase4-dc-attract.png` (headless framebuffer grab, unattended
+leg). Evidence: `docs/kb/phase4-conversion.md` §Attract, legs
+`captures/phase4/attract*`.
 
 **Next: Task 12 — steady input + free-play** (live pad through `dc_to_jvs`,
 TESTBIT-INJECT offsets, baked EEPROM): criteria 2, 3 and 5.
