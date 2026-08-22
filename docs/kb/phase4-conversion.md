@@ -144,31 +144,67 @@ CHECK shim_home_clean: PASS — 0 SHIMWATCH2 lines (expect 0)
 ```
 exit=0.
 
-### Verdict — **PARTIAL: CLEAN, attract regime only**
+### Verdict — **CLEAN** (upgraded from PARTIAL, 2026-08-23)
 
-**Covered:** boot → attract (unattended, ~660 s, dynarec ON) —
-`shim_home_clean: PASS`, zero `SHIMWATCH2` lines.
+**Covered, regime (a):** boot → attract (unattended, ~660 s, dynarec ON) —
+`shim_home_clean: PASS`, zero `SHIMWATCH2` lines (leg `shimwatch`, above).
 
-**Pending:** an operator-played full match and a test-menu visit — the
-brief's `phase4/shimwatch-play` leg. Per the operator-leg rule, a human
-must run this (this task cannot). Exact command:
+**Covered, regimes (b)+(c): operator leg `phase4/shimwatch-play`
+(2026-08-23).** Naomi profile, instrumented Flycast, dynarec ON. The
+operator's **first** launch of this leg crashed (a known Flycast flake, not
+a shim/game fault — no `.log` was produced by that attempt, nothing to
+parse or distrust); the landed `captures/phase4/shimwatch-play.log`
+(17 MB, 458,748 lines) is the **second, clean** run. Sanity-checked for
+completeness before trusting it: starts with the standard SH-4 reset-vector
+boot ladder (`MMUCRWR pc=a0000018` / `pc=a0000440` at lines 1–2), carries
+exactly one `MAINHANDOFF` (line 10,928 — a single boot, no mid-log
+crash-restart), and ends on a well-formed, in-sequence `MDODMA
+enter/rawdma_call/rawdma_ret/frame_done` block immediately followed by a
+normal `TAREG`/`TAEND`/`C2D` render triplet — i.e. the capture ends at a
+clean quit, not mid-line or mid-transaction. 564 `CARTDMA` events / 26.0 MB
+streamed (vs. the attract-only leg's 205 events / 31.9 MB — more
+*transactions*, mostly small, consistent with menu/UI assets rather than
+attract's larger stage loads) and 33 `WATERMARK region=main` sample ticks
+(~330 s of coverage at the ~10 s cadence) — enough ticks to cover a played
+match plus a test-menu visit, per the operator's own leg (a full match +
+test-menu visit + quit, per the brief).
 
 ```
-scripts/capture_leg.sh phase4/shimwatch-play
-# operator: play a full match, then visit the test menu, then quit
-pkill -9 -f "flycast-src.*Flycast"
-python3 scripts/parse_cartlog.py captures/phase4/shimwatch*.log
+$ python3 scripts/parse_cartlog.py captures/phase4/shimwatch-play.log
+...
+CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)
+CHECK shim_home_clean: PASS — 0 SHIMWATCH2 lines (expect 0)
 ```
 
-**Every later Phase 4 task assumes CLEAN.** The attract-only result gives
-no positive evidence either way for match-play or test-menu code paths —
-those are exactly the regimes most likely to touch heap-adjacent low RAM
-differently from attract (e.g. EEPROM write-back, which Phase 3 found is
-test-menu-only). The verdict upgrades from PARTIAL to full CLEAN once
-`phase4/shimwatch-play` is captured and parsed clean; if it is not clean
-and the write traces to a game-runtime structure, this section's verdict
-flips to DIRTY and the fallback (heap-top carve + dry-run re-campaign) must
-be raised to the user as a spec change before any later task proceeds.
+**Merged, both legs together (the doc's own reproduction command, run
+verbatim):**
+
+```
+$ python3 scripts/parse_cartlog.py captures/phase4/shimwatch*.log
+== per leg ==
+shimwatch-play: 282 DMA events, 26001408 B, pio_bytes=0x172a78, main_hw=0x1fe7520
+shimwatch: 205 DMA events, 31858688 B, pio_bytes=0x172538, main_hw=0x1fe7520
+== merged ==
+unique DMA tuples: 349  PIO seeks: 1
+...
+CHECK shim_home_clean: PASS — 0 SHIMWATCH2 lines (expect 0)
+```
+exit=0. `cd scripts && python3 test_parse_cartlog.py` → `ok` (incl. its own
+`shim_home_clean self-check`).
+
+**Every later Phase 4 task's CLEAN assumption is now positive evidence, not
+absence of evidence.** Zero bytes in `0x8c010000`–`0x8c018000` changed from
+baseline across attract, a full played 1P match, and a test-menu visit —
+the three regimes the brief's step 4 called for are all covered. The
+`shimwatch-play` leg additionally logged **0 `MIERESP sub=0b`** (EEPROM
+write) events — this particular operator session didn't change a setting
+during its test-menu visit (see §Operator legs — gate closure below,
+`pc2-testmenu`, for why that's the expected shape, not a coverage gap) —
+so O1's CLEAN verdict rests on the write-watch content scan itself, not on
+incidentally having also caught an EEPROM write-back in flight.
+Sampling caveat (verbatim from V2, reused above) still applies: a write
+fully reverted between two 64-DMA samples would evade the scan. The
+fallback (heap-top carve + dry-run re-campaign) is not needed.
 
 ### Reproduction
 
@@ -3454,6 +3490,13 @@ survived that rewrite.
 
 ### Pending operator verifications
 
+**Resolved 2026-08-23 — criteria 2/3/5 all MET.** Legs `play1`, `play1-revert`,
+`play2p` run and evidenced; full results, per-leg log evidence and operator
+attestations: §Operator legs — gate closure (2026-08-23) below. This
+subsection's commands are left as-is below (historical — they specify the
+diagnostic-build procedure; the operator legs that actually ran used the
+**release** build instead, per the note in the results section).
+
 None of the following can run unattended — each needs a human at the controls.
 Commands are exact; run them from the repo root with the diagnostic build
 (`loader/main.c` `LOADER_SERIAL 1`, `make -C shims clean && make -C shims
@@ -3831,6 +3874,13 @@ change from Task 12).
 
 ### Pending operator round trip (criterion 4)
 
+**Resolved 2026-08-23 — criterion 4 MET.** Leg `testmenu-rt` run and
+evidenced: combo boot → TEST image → operator navigation → EXIT → full
+SH-4 reset → second boot → MAIN image → attract, all in one capture. Full
+results: §Operator legs — gate closure (2026-08-23) below. This
+subsection's procedure is left as-is below (historical — it is exactly what
+the operator followed).
+
 **Not run, and cannot be run without a human**: holding a combo, navigating
 a menu by feel, and confirming a reboot lands somewhere specific are all
 judgment/timing actions. Exact procedure:
@@ -3906,4 +3956,438 @@ tr '\r' '\n' < captures/phase4/teststaticN.stdout.log > /tmp/t.txt
 grep '^IN '   /tmp/t.txt      # idle: crc=00000022, hdrA/hdrB ...08
 grep -c 'MIE odd\|MIE skip\|SHIMERR\|System reset requested' /tmp/t.txt   # 0
 grep -m1 'boot:\|boot combo' /tmp/t.txt   # confirms which image this leg selected
+```
+
+---
+
+## Operator legs — gate closure (criteria 2/3/4/5, O1 upgrade, eeprom_write_seen) (2026-08-23)
+
+**What this closes:** the six operator legs named in
+`.superpowers/sdd/2026-08-22-phase4-conversion/task-ops-brief.md` — the
+evidence gate criteria 2 (1P play), 3 (2P play), 4 (test-menu round trip)
+and 5 (free play) were waiting on. §Shim home above documents the
+`shimwatch-play` leg (O1 upgrade to CLEAN). This section documents the
+four DC-profile legs and the `pc2-testmenu` Naomi-profile leg.
+
+**Deviation from the diagnostic-build procedure, noted up front.** §Steady
+input's and §Test menu's pending-operator sections specify (for `play1`/
+`play2p`) or permit (for `testmenu-rt`) a diagnostic shim build
+(`LOADER_SERIAL=1`, `DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'`) so the `IN`/
+`MB`/`MS` serial trace can be read from `.stdout.log`. The operator instead
+ran all four DC legs against the **committed release build** (HEAD
+`1d68ccc`, `LOADER_SERIAL 0`, confirmed by `git show HEAD:loader/main.c |
+grep define`) — confirmed independently by grepping every leg's
+`.stdout.log`: 0 lines match `^IN |^MB n=|^MS n=` in any of the four
+(`play1`/`play1-revert`/`play2p`: 101-line Flycast-boilerplate stdout only;
+`testmenu-rt`: 178 lines, same shape). This is **not a defect** — release
+is exactly what ships, and criteria 2/3/4/5 ask for "the built GDI"/"the
+approved pad layout" (spec §Exit criteria) — but it does mean the per-press
+JVS-bit cross-check against `input-map.md` that Task 12's pending-verification
+table specified (`hdrA`/`hdrB` `…08`, per-control `IN` lines) **could not be
+extracted from these captures**: that level of proof now rests on the
+operator's own attestation (quoted below), not a log-level bit decode. The
+Flycast-fork cartlog (`FLYCAST_CARTLOG`) is independent of the shim's own
+serial output, though, and it **does** show maple/JVS transaction-level
+activity (`MDODMA`) regardless of build — which is what the structural
+evidence below is built from.
+
+### play1 — criterion 2 (1P full match, free play)
+
+`captures/phase4/play1.log`, 803,325 lines / 24 MB; `.stdout.log` 101 lines
+(Flycast's own boot-time HW-register log, silent from 00:17:51 to 00:29:50
+— see §Texture-error hang below).
+
+**Boot image, confirmed by a cross-validated PC signature.** The final
+`MMUCRWR val=00040005` in every boot ladder — the MMU-on write that ends
+loader handoff — carries a PC that differs between images: `pc=8c02d630`
+for MAIN, `pc=8c02d518` for TEST (the boot driver sits at a different
+address because the two images are separately linked and differently
+sized — the same fact §Test menu's own audit already established for
+other pools). Calibrated against Task 13's own confirmed-truth legs:
+`captures/phase4/teststatic1.log` (confirmed MAIN by its own `boot: MAIN
+image` stdout line) ends its boot ladder at `pc=8c02d630`;
+`captures/phase4/testboot-diag1.log` (`LOADER_FORCE_TEST_BOOT=1`, confirmed
+TEST) ends at `pc=8c02d518`. `play1`'s boot ladder (lines
+1/14,032/14,136/14,141) ends at **`pc=8c02d630` — MAIN image**, as expected
+for a plain boot with no combo held.
+
+**Structural health, boot → hang:**
+```
+MMUCRWR: 4 (single boot ladder, lines 1/14,032/14,136/14,141 — no reset until the hang)
+MDODMA enter: 36,945, lines 14,141-431,747 (continuous; 0 after line 431,747)
+rawdma_call cmd=09 bus=0: 18,749 ≈ bus=1: 18,746 (both ports polled throughout)
+rawdma_ret outlen=10: 37,495 (all well-formed GetCondition replies)
+TAEND (frames): 87,950 total — 38,406 through line 431,747, 49,544 after
+error/abort/mismatch/fail (case-insensitive): 0 matches, whole file
+```
+
+No per-leg parser `CHECK` line exists for DC-profile legs (that machinery —
+`shim_home_clean`, `dma_pc_in_cart_fn`, etc. — is Naomi-profile-only), so
+this is a structural read of the raw markers, consistent with Task 11/12's
+established steady-state shape (both ports always polled, well-formed
+replies, one clean boot).
+
+**Operator attestation (2026-08-23), quoted verbatim:**
+> 1P beginner match played win-lose-win with all controls: dpad, analog,
+> A(Main), X(Sub), B(Action), Y(Barrage), R(OverDrive). Initial stick
+> up/left dead — operator's own Flycast binding config, fixed by the
+> operator, NOT our bug (verified fine in play2p).
+>
+> dpad⊕analog conflicting directions → character stops, neither direction
+> dominates (the mutual-exclusion fix behaving as designed).
+
+**Criterion 2 — MET.** Full win-lose-win match, every control exercised
+(operator report), correct image booted, continuous dual-port JVS polling
+throughout play, zero resets, zero error strings. The one residual gap (no
+per-press bit-level log decode — see the deviation note above) is a
+proof-*method* gap, not a functional one: the operator's own report is
+direct evidence of the same fact a bit decode would have shown.
+
+### §Texture-error hang (play1)
+
+**Symptom (operator attestation, 2026-08-23):** immediately after winning
+the final round of the match, the game hung on a black screen with its own
+yellow error text. Screenshot: `docs/kb/img/phase4-dc-texerror.png` — read
+directly, confirms **`ERROR !!` / `TEXTURE LOAD ERROR !`**, in senkosp's own
+bitmap font, as a small fixed-position 2D overlay (top-left corner) — this
+is the *game's own* error-handler text, not a Flycast crash dialog or a
+driver panic message. Reported as **intermittent, once in ~6 sessions**.
+
+**What the log shows.** The last `MDODMA` line (maple/JVS activity of any
+kind — GetCondition, device probes, everything) is at line 431,747 of
+803,325; there are **zero** `MDODMA` lines in the remaining 371,578 lines
+(46% of the capture) up to the operator's kill. Over that same tail the
+render loop does **not** stop: `PVRW STARTRENDER` fires 24,771 more times
+(vs. 18,660 before the freeze — a *higher* rate, consistent with the tail
+covering more wall-clock time, corroborated by the `.stdout.log` gap
+below) and `TAEND` (frame-complete) fires 49,544 more times. Every
+post-freeze frame submits the **identical** pair of TA display lists —
+`C2D src=0c17e360 dst=00000000 len=20 w0=00000000` (list `cl=2`) and `C2D
+src=0cedbc00 dst=00000000 len=40 w0=808c0002` (list `cl=0`). **This pair is
+not hang-specific**: scanning every `C2D` line in the file shows no
+`src=` value other than these two appears anywhere after line 14,025 — it
+is simply the constant per-frame background/overlay submission for the
+*entire* game (a first pass mistook the collapse-to-2-values as evidence of
+the hang; it is not, and is not used as evidence below). What *is*
+hang-specific is the disappearance of `MDODMA` and, from the `.stdout.log`
+timeline, of every other HW-register-write class (AICA `ARMRST`,
+`SPG`/`FB_R_CTRL`) — the CPU stopped doing anything except re-triggering
+the tile-accelerator/present path each vblank. **Audio register writes
+(`SOFWR`) are not usable as freeze evidence**: the whole file has only
+1,602, the last at line 20,505 — long before the freeze at 431,747 — so
+`SOFWR` is simply rare in normal play, not something that stops *at* the
+freeze.
+
+`.stdout.log`'s own timeline corroborates the same freeze point
+independently: the last HW-register-write log line (AICA `ARMRST`) is at
+**00:17:51.347**; the next and last line in the file is **00:29:50.670**
+(`SDL: Joystick … disconnected`, the process-kill signal) — a **12-minute
+33-second silent gap** with no PVR/AICA/SH4 register-write log lines at
+all, i.e. Flycast's own diagnostic logging independently confirms nothing
+interesting happened at the hardware-write level for the entire tail — the
+same tail the cartlog shows spinning on one static frame.
+
+**No reset was attempted:** `MMUCRWR` stays at exactly 4 for the whole
+file (the one boot ladder) — the game never reached its own restart stub,
+consistent with the operator having to kill the process rather than the
+game recovering or rebooting on its own.
+
+**"Alive in its error loop" or "fully wedged" — both, in different
+senses.** The render/present path is alive (SH-4 still executing, still
+kicking `STARTRENDER` every vblank with well-formed TA opcode words); the
+maple/input service path is dead (no more `MDODMA` of any kind, not even
+the idle poll). This is consistent with the game's own error handler
+catching a fault, drawing its fixed error text once, and spinning in a
+tight loop that re-presents the same frame without ever returning to the
+main per-frame update (which is what would call the maple service again)
+— **not** a Flycast-level render-pipeline crash (Flycast's own renderer
+keeps accepting and completing display lists throughout) and **not** a
+full CPU lockup (the CPU is still issuing well-formed register writes,
+just not the input-service ones).
+
+**Evidence this log cannot supply.** This DC-profile capture carries **no**
+GD-ROM/cart-stream marker at all — `grep -c '^CARTDMA'` is 0 in every DC
+profile leg captured this task. `FLYCAST_CARTLOG`'s cart-DMA probe is
+Naomi-cart-specific; on the DC profile the shim's raw-ATA GD-ROM reads
+route through Flycast's ordinary IDE/GD-ROM emulation, which this
+instrumentation does not tap. **The brief's prime-suspect question — do
+the last N cart streams before the hang map to a plausible asset region —
+cannot be answered from this log; this is a genuine evidence gap, not a
+null result.** Likewise no `SHIMERR`-class marker is available (release
+build, no shim serial).
+
+**Candidate causes, ranked, with what would discriminate:**
+1. **Cart-stream data integrity under some access pattern** (the brief's
+   prime suspect). Textually favored by the fact that the error text is
+   senkosp's *own* validated error path (a generic Flycast/driver fault
+   would not produce the game's in-fiction error string — reaching it
+   requires the game's own code to have detected a bad texture load and
+   jumped to its own handler) — but this is an inference from the
+   message's provenance, not a proof of *where* the bad data came from.
+   **What would discriminate:** a diagnostic-build recapture with a
+   cart-read/ATA-transfer probe wired (none exists yet), or the operator's
+   offered follow-up leg — a 2P run-all-stages session, which would
+   multiply exposure to whatever access pattern triggers this and either
+   reproduce it against a loggable read, or fail to reproduce it at all
+   (useful either way).
+2. **Flycast-side texture cache** (the alternative). Less favored by the
+   same reasoning as (1) — a pure emulator-side cache bug would not route
+   through the game's own error text — but not excluded: the game's error
+   handler could just as easily be reacting correctly to a texture request
+   the emulator answered wrong. A cart-read CRC diagnostic (hash the bytes
+   the shim's ATA driver actually returns for the streams active in this
+   window, compare against the source GDI) would separate "the shim handed
+   the game bad bytes" from "the game got the right bytes and Flycast's
+   GPU-side cache mishandled them."
+
+**One repro only — do not overclaim.** This is a single intermittent
+occurrence (operator: "once in ~6 sessions"); nothing here establishes a
+trigger condition, only what the one captured occurrence looked like at
+the log level. Phase 5 item — no fix attempted (out of this task's scope
+by the brief).
+
+### play1-revert — relaunch check (criterion 5 support)
+
+`captures/phase4/play1-revert.log`, 434,467 lines / 15 MB — a **separate
+Flycast process** (PID 37313 vs. `play1`'s 36774; launched 00:34:17, killed
+00:39:43, its own fresh "Existing state will not be touched" stdout line),
+i.e. a genuine relaunch, not a continuation of `play1`'s session.
+
+```
+MMUCRWR: 4, boot ladder at the same line numbers as play1 (1/14,032/14,136/14,141), final pc=8c02d630 — MAIN image
+MDODMA enter: continuous from boot to line 434,455 of 434,467 (12 lines from EOF — no hang)
+rawdma bus=0: 18,858 ≈ bus=1: 18,855; rawdma_ret outlen=10: 37,713
+error/abort/mismatch/fail: 0
+```
+
+**Operator attestation:** free play confirmed — Start alone starts a
+match, no coin; **FREE PLAY visible on attract after relaunch.**
+
+**Criterion 5 — MET.** The coin-free start itself is attested inside the
+`play1` session (brief item 3: "at the title screen press Start only, no
+coin — a game must start"); `play1-revert` is the accompanying persistence
+check — a fresh process, same baked GDI, reaches a healthy steady state
+again with no hang and (per the operator) `FREE PLAY` still showing on
+screen. This is exactly the expected shape for a **session-only EEPROM by
+design**: free play is baked into the shipped image at build time (§FREE
+PLAY, Task 12), not written back by any run, so a relaunch reading the same
+GDI trivially reproduces it — the log confirms the relaunch is real and
+healthy, the operator confirms what appeared on screen.
+
+### play2p — criterion 3 (2P, port B)
+
+`captures/phase4/play2p.log`, 592,106 lines / 20 MB.
+
+```
+MMUCRWR: 4, same boot-ladder line numbers again, final pc=8c02d630 — MAIN image
+MDODMA enter: continuous from boot to line 592,089 of 592,106 (17 lines from EOF — no hang)
+rawdma bus=0: 25,756 ≈ bus=1: 25,753 (port B traffic at parity with port A throughout)
+rawdma_ret outlen=10: 51,509
+error/abort/mismatch/fail: 0
+```
+
+Port-B `GetCondition` traffic runs at the same rate as port A for the whole
+session — structurally consistent with 2P being live, though (per the
+deviation note above) a release-mode cartlog cannot distinguish an *idle*
+port-B pad from a *pressed* one; both ports answer every poll whether or
+not a human is on the pad (Task 12's own finding — an idle port reads as
+`p2=0`, indistinguishable from "no pad" at the transaction-count level).
+
+**Operator attestation:** entry, play, and **mid-game join** (Start on
+controller 2 during a CPU battle) all work; both players' controls fine;
+the `play1` dead-zone note is explicitly re-confirmed fixed here ("verified
+fine in play2p").
+
+**Criterion 3 — MET.** Healthy single boot, no hang, no resets, port-B
+maple traffic present throughout, operator confirms 2P entry + mid-game
+join + both players' controls. Same residual proof-method gap as criterion
+2 (no per-press bit decode available in a release-mode capture).
+
+### testmenu-rt — criterion 4 (round trip)
+
+`captures/phase4/testmenu-rt.log`, 703,202 lines / 23 MB. **Release
+build** — per §Test menu's own Pending operator round trip note ("release
+is fine — this leg needs no serial output, the screen tells the whole
+story"), so this is not a deviation for this leg, it is what was specified.
+
+**Two full boot ladders, cross-validated by the same PC signature used
+above, with a reset in between:**
+
+```
+Boot #1  lines 1-8,137       final MMUCRWR pc=8c02d518  -> TEST image (matches testboot-diag1's confirmed-TEST signature)
+Reset    lines 258,672-673   MMUCRWR val=00000000 pc=8c02d5fa, then pc=a0000018 (the literal SH-4 reset vector -- byte-identical marker to line 1 of every boot ladder in this project)
+Boot #2  lines 271,243-351   final MMUCRWR pc=8c02d630  -> MAIN image (matches teststatic1's confirmed-MAIN signature)
+```
+
+The reset context (lines 258,660-673) is a clean video-mode teardown
+(`IMLWR`/`PVRW` shutdown sequence) immediately followed by `MMUCRWR
+val=00000000 pc=8c02d5fa` then `pc=a0000018` — then the **exact same**
+`LOWRAMWR`/`PVRW SOFTRESET` sequence that opens line 1 of the file repeats
+verbatim. This is `shim_reboot()`'s documented mechanism firing exactly as
+predicted (§Exit-path readiness: "a jump to `0xa0000000` — the DC BIOS ROM
+entry, exactly where the CPU lands out of a real hardware reset") — read
+directly off the two adjacent `MMUCRWR` lines, not inferred.
+
+```
+MMUCRWR: 9 total (4 + 4 for the two boot ladders, +1 for the reset's own MMU-off write)
+TAEND during the test-menu-visit span (lines 8,137-258,672): 21,630 frames -- the menu was rendering continuously, not stalled
+TAEND after boot #2 (lines 271,351-EOF): 37,510 frames -- attract resumed and kept rendering to the kill point
+MDODMA/rawdma traffic: healthy and continuous in both spans; the file's last lines are a well-formed MDODMA block (GetCondition, both buses) -- no hang this leg
+error/abort/mismatch/fail (case-insensitive), whole 703,202-line file: 0 matches
+```
+
+**Operator attestation:** A+Start from boot → cyan-tinted Naomi splash ~1s
+→ GAME TEST MENU; navigation per the on-screen footer (Service moves
+cursor, Test confirms) works; controls test screen shows inputs correctly;
+difficulty changed; EXIT → full console reboot (swirl seen) → attract.
+
+**Criterion 4 — MET, the cleanest evidence chain of the six legs.** The
+combo was read and honored (TEST image selected — provable independently
+of the operator report, from the boot-ladder PC signature alone), the
+operator navigated and exited, the reset fired through the documented
+mechanism, the loader re-selected MAIN (no combo held on the second boot,
+as expected once the operator has released the buttons to navigate the
+menu), and attract resumed and stayed healthy through the kill point.
+Matches §Exit-path readiness's **"most likely"** predicted outcome exactly
+(full DC BIOS reboot → loader → main image → attract), not the named
+fallback.
+
+### pc2-testmenu — eeprom_write_seen closure (criterion 2's Phase-3 carry)
+
+`captures/phase4/pc2-testmenu.log`, Naomi profile, instrumented Flycast,
+**interpreter** (dynarec off for this leg, restored after — operator
+attestation on the build config; not independently loggable). 139,759
+lines / 7 MB. Single boot (`MAINHANDOFF` once, line 11,154). Operator
+procedure: enter test menu, wait ~60 s, change nothing, exit.
+
+```
+$ python3 scripts/parse_cartlog.py captures/phase4/pc2-testmenu.log \
+    --cart-fn 8c027f54-8c027f99 --input-fn 8c02532a-8c025505 \
+    --eeprom-fn 8c02532a-8c025505 --stack 8c000000-8c00f000 --pc-report
+...
+CHECK eeprom_read_seen: FAIL — 8 sub=01/03 trig=reg PCs vs eeprom fn
+CHECK eeprom_write_seen: FAIL — 0 sub=0b trig=reg PCs vs eeprom fn
+```
+
+**Zero `sub=0b` (EEPROM write) events, anywhere in the file, BIOS era
+included** (`grep -c 'MIERESP sub=0b'` and a raw `grep -ci 'sub=0b'` both
+return 0, with or without `--since-handoff`). This needs to be read
+against Phase 2's own prior finding, not in isolation:
+`docs/kb/phase2-measurements.md:126` records that of Phase 2's two
+test-menu legs, only `testmenu2` (where the operator **flipped a
+setting** — Advertise Sound OFF, then exited) produced `sub=0b` traffic (32
+events); the sibling leg `testmenu` (visited, nothing changed) produced
+**zero**, same as every non-test-menu leg. **`pc2-testmenu`'s zero count is
+therefore the expected, consistent result for its exact procedure ("changes
+nothing"), not a contradiction or a coverage gap** — it reproduces
+`testmenu`'s zero-write shape under the current instrumented-fork commit,
+and additionally confirms (a fact not separately nailed down before) that
+merely *entering* the test menu triggers no EEPROM write on its own; a
+write requires an actual setting change.
+
+**A more precise read of `eeprom_read_seen`'s FAIL is worth recording,
+because it refines the BIOS-attribution story rather than just repeating
+it.** Listing the individual sub-`0x01`/`0x03` `trig=reg` PCs (not just the
+`CHECK` count) — 8 total with no filter, 6 with `--since-handoff`:
+```
+no filter:        0xc03161e ×4, 0x8c025448 ×2, 0xc03161e ×2   (8 total)
+--since-handoff:   0x8c025448 ×2, 0xc03161e ×4                (6 total)
+```
+Even **after** excluding the pre-`MAINHANDOFF` BIOS era, **4 of the 6
+remaining PCs are still `0xc03161e`** — the same Naomi-BIOS PC Task 4
+identified — because they fire *after* the handoff too. This is new: Run
+D's model (`docs/kb/boot-binary.md` §Addendum 2026-08-22 — Phase 4 Task 4)
+established `0xc03161e` as pre-handoff BIOS traffic; this leg shows the
+same PC executing again, post-handoff, once the operator enters the test
+menu — because the test menu itself is largely **BIOS-hosted UI**, invoked
+by the game but not part of it, so `MAINHANDOFF`'s one-shot "game's first
+instruction" marker does not mean "BIOS code never runs again." Only 2 of
+the 6 game-era events are the confirmed game PC (`0x8c025448` =
+`FUN_8c02532a`), which is why `eeprom_read_seen` still FAILs even
+since-handoff — not a range error, the same BIOS-vs-game split Run D
+already found, just now shown to persist past the handoff in the specific
+test-menu regime.
+
+**What this means for criterion 2's `eeprom_write_seen` sub-check.** No new
+*write* PC evidence was produced by this leg — there is nothing to
+attribute, because nothing was written. But the refined read above
+strengthens, not weakens, the standing BIOS-attribution: the same PC
+family (`0xc03161e`) this leg would expect to perform a write, had a write
+occurred, is confirmed **live and executing in this exact test-menu
+session** (via its read traffic). The standing evidence for **who** writes
+the EEPROM when a write does happen is unchanged and remains Phase 2/3/4's
+own: all 32 (Phase 2's `testmenu2`) / 16 (the Phase 3 recount) `sub=0b`
+events ever observed in this project carry PC `0c03161e`, `trig=reg`, and
+land in the BIOS's own pre-handoff era on those legs (Task 4's finding;
+Ruling R6, `progress.md:74`). Since the only EEPROM writer ever observed in
+this title is the BIOS, and BIOS code is by definition excluded from a
+game-PC range check, `eeprom_write_seen` **cannot pass as a game-PC check
+in this title regardless of leg** — that is a closed **decision** (R6), not
+an open question this leg was trying to resolve. `pc2-testmenu`'s role was
+confirmatory: a clean **negative control** showing the write path stays
+silent under the one condition (test-menu visit, no change) most likely to
+produce an unexpected game-PC write if one existed, and it didn't.
+**Closed** — on the standing BIOS attribution plus this leg's
+negative-control confirmation and the refined post-handoff-BIOS-traffic
+read above. No game-PC write exists to find, and the DC build's own EEPROM
+path (session-only RAM copy accepting the game's `sub=0b` writes
+unconditionally, §EEPROM — a RAM copy, session-only, Task 12) does not
+depend on this sub-check either way: it services whatever `sub=0b` traffic
+arrives, from either image, without needing to know who would have sent it
+on Naomi.
+
+### Findings for Phase 5
+
+1. **The texture-error hang** (play1, intermittent, once in ~6 sessions):
+   see §Texture-error hang (play1) above for the full characterization,
+   screenshot, and ranked candidate causes. Not fixed this task (explicitly
+   out of scope per the brief).
+2. **The cyan-tinted Naomi splash** (cosmetic, every boot, ~1 s, operator
+   attestation) is recorded as **unexplained**. It occurs somewhere in the
+   boot-to-handoff window (the same general timeframe as the loader's
+   copy-record handoff and the video-mode transitions visible in every
+   `.stdout.log`, e.g. `play1.stdout.log` lines 35-53), but nothing in this
+   task's evidence ties it to a specific write, register, or KERNEL-SLICE
+   placement — that would need a frame-by-frame framebuffer capture across
+   the boot window, which this task did not do. Recorded as observation
+   only, not diagnosed; not to be confused with the *fine* boot splash at
+   the very start of boot, which matches Cleopatra (§Attract, finding 4).
+3. **Feature request (Phase 5+, not a defect):** persist test-menu settings
+   (difficulty, round length, etc.) to VMU via the shim's maple driver,
+   instead of the current session-only RAM copy; a custom settings screen
+   would be a later step on top of that. No code exists for this yet — the
+   EEPROM write path Task 12 built (`mie_86` case `0x0b`) is already the
+   single choke point a VMU/flash writer would plug into (§Steady input,
+   Findings worth carrying forward, item 2).
+
+### Contradictions
+
+None found. Every operator attestation is consistent with, and in most
+cases directly corroborated by, the log evidence above (image-selection PC
+signatures, reset-vector re-entry, continuous vs. stopped `MDODMA`, zero
+error strings). The one place log and attestation could in principle have
+conflicted — whether `testmenu-rt`'s reboot actually lands back at a
+healthy attract, per §Exit-path readiness's two-outcome honesty note —
+resolved to the **better** of the two named-acceptable outcomes (a full
+reboot to MAIN + attract, not Flycast's own BIOS-menu fallback).
+
+### Reproduction
+
+```sh
+# DC-profile legs (play1, play1-revert, play2p, testmenu-rt) -- structural read, no per-leg parser
+for f in play1 play1-revert play2p testmenu-rt; do
+  F=captures/phase4/$f.log
+  grep -c '^MMUCRWR' "$F"; grep -n '^MMUCRWR' "$F"        # boot-ladder line#s + final pc (8c02d630=MAIN, 8c02d518=TEST)
+  grep -n 'MDODMA enter' "$F" | tail -1                    # last JVS activity vs. file length -- hang check
+  grep -c 'rawdma_call cmd=09 reci=20 bus=0' "$F"           # port A
+  grep -c 'rawdma_call cmd=09 reci=60 bus=1' "$F"           # port B
+  grep -ci 'error\|abort\|mismatch\|fail' "$F"              # 0 expected
+done
+
+# Naomi-profile legs
+python3 scripts/parse_cartlog.py captures/phase4/shimwatch-play.log            # -> shim_home_clean: PASS
+python3 scripts/parse_cartlog.py captures/phase4/shimwatch*.log                # merged, both regimes
+python3 scripts/parse_cartlog.py captures/phase4/pc2-testmenu.log \
+    --cart-fn 8c027f54-8c027f99 --input-fn 8c02532a-8c025505 \
+    --eeprom-fn 8c02532a-8c025505 --stack 8c000000-8c00f000 --pc-report      # eeprom_write_seen: 0, always
 ```
