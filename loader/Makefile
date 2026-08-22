@@ -1,7 +1,7 @@
 # Requires: source ../cleopatra/tools/kos/environ.sh (KOS reused from the
 # Cleopatra port -- this repo has no local KOS checkout; docs/kb/tooling.md).
 TARGET = loader.elf
-OBJS = main.o handoff.o shim_blob.o bios_data.o splash_blob.o
+OBJS = main.o handoff.o gd.o shim_blob.o bios_data.o splash_blob.o
 CFLAGS += -I../shims/include -I../build
 BIOS = ../bios/naomi/epr-21576h.ic27   # Naomi Japan bios0 (gitignored ROM)
 all: ../build/1ST_READ.BIN
@@ -15,6 +15,15 @@ $(TARGET): $(OBJS)
 # would silently keep the stale values (bit Cleopatra in B5: CART_FAD change
 # didn't take until an unrelated main.c edit).
 main.o: ../build/patch_table.h ../shims/include/shim_iface.h
+# The shim's raw-ATA GD driver, built into the loader as well so the loader can
+# rehearse the exact runtime disc path before handoff (freestanding C, no shim
+# dependencies). Explicit rule, not the KOS %.o pattern: the object must land
+# here, not in shims/src, and GD_LOADER_BUILD=1 drops the driver's SHIM_ERR
+# store -- SHIM_ERR (0x8c014000) is inside this loader's own image (KOS naomi
+# LOAD_OFFSET == SHIM_BASE == 0x8c010000), so writing it would corrupt the
+# loader that is about to draw the error screen.
+gd.o: ../shims/src/gd.c ../shims/include/shim_iface.h
+	kos-cc $(CFLAGS) $(CPPFLAGS) -DGD_LOADER_BUILD=1 -c $< -o $@
 # Phase 4 Task 6 stub: zero patches, mechanism kept (patch_t / PATCH_COUNT /
 # apply_patches loop all live in loader/main.c unchanged). Task 9 replaces
 # this rule with the real generator (scripts/build_patch_table.py, resolving

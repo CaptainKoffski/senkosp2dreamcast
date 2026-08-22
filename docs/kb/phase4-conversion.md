@@ -1965,3 +1965,160 @@ assert all(w >= 0x0c018000 for w in ws)
 print("KERNEL-SLICE + BLOB-CHECK pins verified")
 EOF
 ```
+
+## GD driver — raw-ATA runtime path (Task 7)
+
+**Question (plan Task 7):** the shim cannot use the DC BIOS GD syscall — the
+loader places the Naomi RTOS kernel slice over `0x8c000600`–`0x8c003800`
+(§Low-RAM placements), which is the BIOS's own low-RAM home for the GD driver
+state and syscall vectors. So the shim drives the GD-ROM's ATA task file
+directly. **Which registers, which packet, and what does the DRQ/BSY handshake
+actually look like in the emulator that will run this code?**
+
+Everything below was read out of the sources, not a wiki. Implementation:
+`shims/src/gd.c` (same citations, in-line). Emulator = the fork this port runs
+(`../flycast4naomi2dreamcast`); KOS = the tree `../cleopatra/tools/kos`.
+
+### Register map (verified twice, independently)
+
+| addr | read | write | flycast `gdromv3.h` | KOS `g1ata.c` |
+| --- | --- | --- | --- | --- |
+| `0xa05f7018` | alt status | device control | `:321-322` | `:83-84` |
+| `0xa05f7080` | data (16-bit only) | data (16-bit only) | `:324` | `:85` |
+| `0xa05f7084` | error / sense | features (bit0 = DMA) | `:326-327` | `:86-87` |
+| `0xa05f7088` | interrupt reason | sector count / xfer mode | `:329-330` | `:88-89` |
+| `0xa05f7090` | byte count low | byte count low | `:334` | `:90` (`LBA_MID`) |
+| `0xa05f7094` | byte count high | byte count high | `:335` | `:91` (`LBA_HIGH`) |
+| `0xa05f7098` | device select | device select | `:337` | `:96` |
+| `0xa05f709c` | status (**acks INTRQ**) | command | `:339-340` | `:97-98` |
+
+The brief's register sketch was correct in full. Two properties that are not in
+the sketch and that the driver depends on:
+
+- **`0x709c` is not `0x7018`.** Reading the status register cancels the GD
+  interrupt (`gdromv3.cpp:1046-1047`, `asic_CancelInterrupt(holly_GDROM_CMD)`);
+  reading alternate status does not (`:1054-1056`, a pure read). So all polling
+  goes through `0x7018` and the single end-of-command verdict read goes through
+  `0x709c` — which also leaves nothing latched.
+- **Device select must name the master.** Flycast returns `0` from the status
+  register whenever bit 4 of device select is set (`:1048-1050`, "slave drive
+  doesn't exist") — a selected slave is indistinguishable from a hung drive.
+  `0xa0` is the reset default (`:1410`) and what the driver writes.
+
+Status bits `CHECK=0x01 / DRQ=0x08 / BSY=0x80`: `gdromv3.h:39-46`.
+`ATA_SPI_PACKET=0xa0`: `gdromv3.h:347`. `SPI_CD_READ=0x30`: `gdromv3.h:366`.
+
+### The SPI packet (command `0x30`, 2048-byte data sectors)
+
+Written as **six little-endian 16-bit words** to `0xa05f7080`: flycast
+accumulates exactly 6 words into the `u8[12]`/`u16[6]` union and only then
+executes the command (`gdromv3.cpp:1139-1145`); the byte order inside a word is
+the one KOS uses for every task-file word (`g1ata.c:541`,
+`word = ptr[0] | (ptr[1] << 8)`).
+
+| byte | value | why (source) |
+| --- | --- | --- |
+| 0 | `0x30` | `SPI_CD_READ` (`gdromv3.cpp:747`) |
+| 1 | `0x20` | bit5 `data`=1 → 2048-byte sectors; bit0 `prmtype`=0 → FAD, not MSF (bitfield `gdromv3.h:148-155`; type selection `gdromv3.cpp:753-761`; `GetFAD` `:762` + `:357-363`) |
+| 2–4 | start FAD, MSB first | `GetFAD` non-MSF branch, `gdromv3.cpp:362` |
+| 5–7 | `0` | unused |
+| 8–10 | sector count, MSB first | `gdromv3.cpp:764` |
+| 11 | `0` | unused |
+
+Byte 1 = `0x20` exactly: with `head/subh/other=0` and `expdtype=0`, both the
+2340 and the 2352 branches fall through and `sector_type` stays `2048`
+(`gdromv3.cpp:753-761`) — matching track04's 2048-byte data sectors in the B5
+GDI layout. The count field is what separates `0x30` from `0x31`
+(`SPI_CD_READ2` reads a 16-bit count at bytes 6–7, `gdromv3.cpp:766`), so the
+command byte and the count field have to agree; they do.
+
+`FEATURES=0` selects PIO: flycast branches to DMA only on `Features.CDRead.DMA
+== 1` (`gdromv3.cpp:770`, bit0 per `gdromv3.h:75`).
+
+### DRQ/BSY handshake — two corrections to the brief's sketch
+
+1. **A DRQ block is not a sector.** The brief sketched "per sector: wait DRQ,
+   read 1024 u16". Flycast delivers **up to 31 sectors (63,488 B) per DRQ
+   block** — `maxSectors = (PioBuffer::Capacity - 1) / sector_type` with a 64 KB
+   buffer (`gdromv3.cpp:255-266`) — and publishes the block's size in the byte
+   count registers (`:229`, `ByteCount.full = pio_buff.getSize()`), ignoring the
+   limit the host wrote. Real hardware honours the host's 2048-byte limit
+   instead. The driver therefore **reads the byte count at the top of every
+   block and consumes exactly that many bytes**, which is correct on both. It
+   samples the count once per block because flycast decrements it by 2 on every
+   data read (`:1079`).
+2. **The status register is stale for ~400 ns after a phase change** (ATA
+   requirement; flycast is synchronous and never shows it). Polling DRQ
+   immediately after writing the command, or right after the last word of a
+   block, samples the *previous* phase's DRQ — on real hardware that reads the
+   data FIFO before the drive has filled it. The driver discards four alternate
+   status reads (>100 ns each on the G1 bus) before every DRQ poll. Free on
+   flycast (`gdromv3.cpp:1054-1056`: a pure read).
+
+Command completion raises the GD interrupt on every block and at the end
+(`gdromv3.cpp:237,297`). That is `SB_ISTEXT` bit 0 (`holly_intc.h:43`,
+`holly_GDROM_CMD = holly_ext | 0x00`), so the driver masks it once in
+`SB_IML2/4/6EXT` = `0x5f6914/24/34` (`sb.h:87,94,101`) — the game runs with its
+Naomi-legacy ASIC handler armed and no concept of a GD-ROM drive. Cleopatra hit
+the same class with the *GD-DMA* interrupt (`ISTNRM` bit 14) on real hardware,
+where masking it was what made cart streaming work.
+
+### Brief-vs-source: KOS `cdrom.c` is not a packet-protocol reference
+
+The task brief asked for a cross-check of the packet protocol against KOS
+`kernel/arch/dreamcast/hardware/cdrom.c`. **In this KOS, `cdrom.c` never
+touches the task file**: it is a BIOS-syscall driver
+(`syscall_gdrom_send_command` / `syscall_gdrom_exec_server`, `cdrom.c:96-100`) —
+i.e. exactly the path this port cannot use after handoff. KOS's raw task-file
+driver is `g1ata.c` (plain ATA for the IDE/HDD mod, not ATAPI packets), and it
+is the citation used above for the register map, the 16-bit word order, and the
+polled-PIO shape (`g1ata.c:190-197` wait macros, `:539` word packing).
+
+### Failure sites
+
+The driver never spins unbounded: every wait is capped at 50M polls (each poll
+an uncached G1 read, >200 ns on hardware → a >10 s ceiling, far past any GD
+seek; flycast answers in one poll). Every failure records the same site number
+in three places — the negative return value, `gd_last_err` as
+`0xda<site><ALTSTAT><ERROR>`, and `SHIM_ERR` as code `0x6<site>` with the FAD in
+`e[1]` (field order per `util.c shim_die`). `cart.c`'s `gd_or_die` then paints
+the red screen with `shim_die(4, fad, gd_last_err)`, so the TV shows the site
+and the drive's own status/sense bytes.
+
+| site | meaning |
+| --- | --- |
+| 1 | drive never went idle before the command |
+| 2 | `PACKET` accepted but DRQ for the 12 command bytes never came |
+| 3 | DRQ for a data block never came (seek/read failed, or media) |
+| 4 | drive offered an impossible byte count for a block |
+| 5 | transfer done but the drive never went idle |
+| 6 | drive raised `CHECK`; the `ERROR` register holds the sense key |
+| 7 | caller bug (null dest / zero sectors) |
+| 8 | `gd_read_cart` request runs past `CART_SIZE` |
+
+The `SHIM_ERR` store is compiled out of the **loader's** copy of `gd.c`
+(`-DGD_LOADER_BUILD=1`, `loader/Makefile`): KOS's naomi `LOAD_OFFSET` is
+`0x8c010000` — the same address as `SHIM_BASE` — so `SHIM_ERR` (`0x8c014000`)
+and `SHIM_BOUNCE` (`0x8c015800`) sit *inside the running loader's own image*
+(`loader.elf .text` = `0x8c010000`–`0x8c03ab18`). The loader reads the negative
+return value and `gd_last_err` instead, and rehearses `gd_read_fad` only
+(never `gd_read_cart`, which uses the bounce buffer).
+
+### Verification status
+
+Host-tested: the pure splitter `gd_plan` (`shims/test/test_gd_math.c`, wired
+into `make test`) — the FAD/offset/alignment math, including zero length, both
+partial paths, and the `CART_SIZE` boundary. The MMIO half cannot be exercised
+until a disc exists: **the first end-to-end proof is Task 8's boot**, where the
+loader's raw-ATA rehearsal reads `CART_FAD` and byte-compares it against the
+same sector read through KOS. Reproduce the source claims with:
+
+```
+F=../flycast4naomi2dreamcast/core/hw/gdrom
+sed -n '321,340p' $F/gdromv3.h        # register map
+sed -n '747,777p' $F/gdromv3.cpp      # SPI_CD_READ parsing (FAD, count, sector type)
+sed -n '244,268p' $F/gdromv3.cpp      # PIO blocks: up to 31 sectors each
+sed -n '1135,1145p' $F/gdromv3.cpp    # 6x u16 packet write
+sed -n '1041,1060p' $F/gdromv3.cpp    # 0x709c acks INTRQ, 0x7018 does not
+sed -n '83,98p'  ../cleopatra/tools/kos/kernel/arch/dreamcast/hardware/g1ata.c
+```

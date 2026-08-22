@@ -28,9 +28,9 @@ void cart_split(u32 off, u32 len, split_t *s) {
 #ifndef HOST_TEST
 void shim_die(u32, u32, u32);
 void *xmemcpy(void *, const void *, u32);
-int gd_read_sectors(void *dst, u32 fad, u32 n);
+int gd_read_fad(unsigned fad, void *dst, unsigned sectors);  /* gd.c: raw-ATA PIO read */
 #if SHIM_GD_DMA
-int gd_read_sectors_dma(u32 phys, u32 fad, u32 n);          /* gd.c: G1-DMA body reads */
+int gd_read_fad_dma(unsigned fad, u32 phys, unsigned sectors); /* gd.c: G1-DMA body reads (not written yet) */
 #endif
 void scif_puts(const char *); void scif_puthex(u32);
 void shim_mark(u32 slot, unsigned short color);   /* util.c: real-HW breadcrumb HUD */
@@ -71,14 +71,19 @@ void loadbar_paint(unsigned int fill);                      /* util.c: 320-px ba
 static u32 pb_left = PB_TOTAL;         /* .data non-zero init (house style) */
 #endif
 
-extern u32 gd_last_err;                       /* gd.c: raw CHECK status of last failure */
+extern u32 gd_last_err;                       /* gd.c: 0xda<site><status><error> of last failure */
+/* ponytail: cart_split + cart_read below duplicate gd.c's gd_plan/gd_read_cart
+ * (the same head/body/tail decomposition). Task 7 reconciled the CALL SITES to
+ * the new interface only -- collapsing cart_read into a single gd_read_cart()
+ * call is Task 10's job, when the SHIM_GD_DMA body split and this file's
+ * instrumentation get re-enabled and can be re-decided together. */
 static void gd_or_die(void *dst, u32 rel_fad, u32 n) {
-    int r = gd_read_sectors(dst, CART_FAD + rel_fad, n);
+    int r = gd_read_fad(CART_FAD + rel_fad, dst, n);
     if (r < 0) shim_die(4, rel_fad, gd_last_err);
 }
 #if SHIM_GD_DMA
 static void gd_or_die_dma(u32 phys, u32 rel_fad, u32 n) {   /* body via G1-DMA (32-aligned phys) */
-    int r = gd_read_sectors_dma(phys, CART_FAD + rel_fad, n);
+    int r = gd_read_fad_dma(CART_FAD + rel_fad, phys, n);
     if (r < 0) shim_die(4, rel_fad, gd_last_err);
 }
 #endif
@@ -88,7 +93,7 @@ static void gd_or_die_dma(u32 phys, u32 rel_fad, u32 n) {   /* body via G1-DMA (
  * semantics, matching the original FUN_8c03bc12 which does NO cache op. So the
  * bytes must land in RAM with nothing stale left in the D-cache. We therefore
  * write the dest through the P2 UNCACHED alias (0xa0......): the xmemcpy head/
- * tail stores AND the gd_read_sectors PIO body stores all go straight to RAM,
+ * tail stores AND the gd_read_fad PIO body stores all go straight to RAM,
  * bypassing the cache, so the game's P2 read (or a downstream DMA) sees current
  * data on real hardware. (Via P1 cached the bytes would sit in D-cache while RAM
  * stayed stale -> garbage graphics on real DC; Flycast has no cache so it masked

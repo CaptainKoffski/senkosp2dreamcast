@@ -7,6 +7,10 @@ extern uint8 shim_bin[];        /* objcopy-embedded shim.bin, see Makefile */
 extern uint8 shim_bin_end[];
 extern uint8 bios_data[];       /* objcopy-embedded: [BIOS60000_LEN][KERNEL_A/B/C_LEN], see shim_iface.h offsets */
 extern void handoff(uint32 src, uint32 dst, uint32 len, uint32 entry);
+/* ../shims/src/gd.c, compiled into the loader too (Makefile) -- the loader
+ * rehearses the shim's runtime raw-ATA read before handoff. */
+extern int gd_read_fad(unsigned fad, void *dst, unsigned sectors);
+extern unsigned int gd_last_err;
 extern uint8 handoff_end[];     /* end-of-stub label in handoff.S (stub is PIC) */
 
 /* Whole-sector ceiling: MAIN_LEN (1,515,512 B) is not sector-aligned (739
@@ -110,6 +114,38 @@ int main(void) {
         halt("BAD IMAGE (KOS READ)");
     }
     say("cart read OK (KOS)");
+
+    /* Rehearse the shim's exact runtime GD path before handing the game to it
+     * (replaces Cleopatra's syscall rehearsal -- our runtime path is raw ATA,
+     * because the kernel slice this loader places lands on the BIOS's low-RAM
+     * GD state; see shims/src/gd.c's header). Same sector KOS just read, so a
+     * mismatch is the driver's fault, not the disc's. Runs BEFORE
+     * apply_patches, which mutates `stage`. */
+    {
+        static uint8 rawbuf[2048] __attribute__((aligned(32)));
+        char msg[64];
+        /* The driver writes rawbuf through its P2 (uncached) alias. KOS's
+         * startup zeroed this .bss buffer through the CACHED alias, so its
+         * lines may still be in the D-cache and dirty -- invalidate (discard,
+         * no write-back: a write-back would land stale zeroes on top of the
+         * incoming sector) so the memcmp below reads what the drive delivered. */
+        dcache_inval_range((uintptr_t)rawbuf, sizeof(rawbuf));
+        /* KOS is live here: its cdrom driver pumps the BIOS GD server from a
+         * vblank handler whenever a DMA is outstanding (KOS cdrom.c:691-708).
+         * None is outstanding after a blocking cdrom_read_sectors, but a raw
+         * task-file transaction must not be interleaved with one under any
+         * timing -- so take the whole ~1 ms transfer with IRQs off. */
+        irq_mask_t old = irq_disable();
+        int r = gd_read_fad(CART_FAD, rawbuf, 1);
+        irq_restore(old);
+        if (r != 0) {
+            sprintf(msg, "RAW-ATA READ FAIL r=%d err=%08lx", r, (unsigned long)gd_last_err);
+            halt(msg);                    /* err = 0xda<site><status><error>, gd.c */
+        }
+        if (memcmp(rawbuf, stage, 2048))
+            halt("RAW-ATA MISMATCH VS KOS READ");
+        say("cart read OK (raw ATA)");
+    }
 
     if (apply_patches(stage))   /* verify old bytes then patch; abort on mismatch (0 patches, Task 6) */
         halt("PATCH ABORT");

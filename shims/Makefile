@@ -18,6 +18,9 @@ test:
 	mkdir -p $(B)
 	cc -DHOST_TEST -Iinclude -o $(B)/test_host test/test_host.c && $(B)/test_host
 	cc -Iinclude -o $(B)/test_iface test/test_shim_iface.c && $(B)/test_iface
+	# gd.c compiles its MMIO half out under HOST_TEST -- the test links the real
+	# gd_plan the shim runs, so a divergence is a link/assert failure, not a copy.
+	cc -DHOST_TEST -Iinclude -o $(B)/test_gd_math test/test_gd_math.c src/gd.c && $(B)/test_gd_math
 $(B)/shim.elf: $(SRCS) shim.ld include/shim_iface.h
 	mkdir -p $(B)
 	$(CC) $(CFLAGS) -Wl,-T,shim.ld -Wl,-Map,$(B)/shim.map.tmp -o $@ $(SRCS)
