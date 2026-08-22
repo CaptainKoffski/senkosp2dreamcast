@@ -579,18 +579,19 @@ Phase 4 legs live under `captures/phase4/` (own subdirectory, same reason as
 | `phase4/steady4.log`(`+.stdout.log`) | 137,000+ | 5.7 MB | **Task 12 review-fix regression leg** — diagnostic build after the opposed-direction mutual exclusion went into `dc_cond_to_pressed`. Idle behaviour byte-for-byte unchanged: the same single `IN p1=00000000 p2=00000000 crc=00000022 hdrA=03230008 hdrB=03634008` line, 345 boot transactions, enumeration ending at sub-`0x33`, 6,719 GetConditions per port all `outlen=10`, 0 `EE WR`, 0 tripwires, 0 resets, and every post-handoff `MDODMA` PC a shim symbol. `docs/kb/phase4-conversion.md` §Steady input. |
 | `phase4/teststatic1.log`(`+.stdout.log`) | 79,138 | 3.0 MB | **Task 13 regression leg** — diagnostic build with the test-mode `mie_poll` branch added, but a NORMAL (no-combo) boot, so `SHIM_STATE[0]==0` and the `else` path (Task 12's unmodified line) runs. `boot: MAIN image`, `IN p1=00000000 p2=00000000 crc=00000022 hdrA=03230008 hdrB=03634008`, 345 boot transactions, 0 tripwires, 49 `CART off=` streams, 5,594 `TAEND` (frames), 2,820 GetConditions per port equal (0 retries), every post-handoff `MDODMA` PC a shim symbol. Byte-for-byte the same idle line as `steady1`/`steady4`. `docs/kb/phase4-conversion.md` §Test menu. |
 | `phase4/testboot-diag1.log`(`+.stdout.log`) | 163,903 | 6.0 MB | **Task 13 test-image diagnostic leg** — transient `LOADER_FORCE_TEST_BOOT=1` (reverted before commit, `LOADER_SERIAL` precedent), no operator. `boot combo: TEST image`, all 60 test-image patches applied (`patch table: … applied: test`), `SHIM_STATE[0]==1` live (`IN` line under the test-mode branch, `crc=00000022`, unchanged from idle-normal-mode), 345 (`0x159`) boot transactions — same count as the main image — 6,656 (`0x1a00`) steady maple services, 0 tripwires, 0 resets in the whole cartlog, 12,982 `TAEND`, 6,492 GetConditions per port equal. `FLYCAST_SHOT` + one `kill -USR1` mid-leg captured `docs/kb/img/phase4-dc-testmenu.png` — senkosp's own **GAME TEST MENU**, instruction line `SELECT WITH SERVICE BUTTON AND PRESS TEST BUTTON`, confirming the Start→Test/A→Service mapping from the game's own on-screen text. `docs/kb/phase4-conversion.md` §Test menu. |
+| `phase4/play1.log`(`+.stdout.log`) | 803,325 | 24 MB | **Operator session 2026-08-23, criterion 2** — 1P full match, all controls exercised, free play confirmed. One intermittent finding: game-rendered `ERROR !! TEXTURE LOAD ERROR !` after a won match (once in ~6 sessions), screenshot `docs/kb/img/phase4-dc-texerror.png`, carried to Phase 5. `docs/kb/phase4-conversion.md` §Operator legs → `play1`, §Texture-error hang. |
+| `phase4/play1-revert.log`(`+.stdout.log`) | 434,467 | 14 MB | **Operator session 2026-08-23, criterion 5 support** — relaunch/EEPROM-revert check (session-only EEPROM as designed). `docs/kb/phase4-conversion.md` §Operator legs → `play1-revert`. |
+| `phase4/play2p.log`(`+.stdout.log`) | 592,106 | 20 MB | **Operator session 2026-08-23, criterion 3** — 2P entry, play, mid-game Start-join on port B, all confirmed. `docs/kb/phase4-conversion.md` §Operator legs → `play2p`. |
+| `phase4/testmenu-rt.log`(`+.stdout.log`) | 703,202 | 23 MB | **Operator session 2026-08-23, criterion 4** — combo boot → GAME TEST MENU → navigate → controls test screen → difficulty change → `SYSTEM MENU EXIT` → full console reboot → attract; the round-trip leg the Task 13 report left pending. `docs/kb/phase4-conversion.md` §Operator legs → `testmenu-rt`. |
+| `phase4/shimwatch-play.log` | 458,748 | 17 MB | **Operator session 2026-08-23** — played a full match + test-menu visit + quit under the `SHIMWATCH2`-emitting fork; upgrades `shim_home_clean` PARTIAL → full CLEAN (0 `SHIMWATCH2` across match + testmenu + quit). `docs/kb/phase4-conversion.md` §Shim home (V2s). |
+| `phase4/pc2-testmenu.log` | 139,759 | 7.0 MB | **Operator session 2026-08-23** — interpreter mode, ~60 s test-menu visit, no changes, exit; the `eeprom_write_seen` negative control (0 sub-`0x0b` events, confirms the BIOS-only attribution). Dynarec restored to `yes` after. `docs/kb/phase4-conversion.md` §Operator legs → `pc2-testmenu`. |
+| `phase4/final.log`(`+.stdout.log`) | 193,248 | 6.5 MB | **Task 14 gate-closure verification leg** — release configuration, unattended, no input, ~155 s (`scripts/capture_dc_leg.sh phase4/final`, killed by PID per the plan-amendment kill pattern — the plan's `pkill -9 -f "flycast-src.*Flycast"` does not match the real process name). 0 `System reset requested`, 0 `SHIMERR`, 16,177 `MDODMA enter` events (561 pre-handoff at known loader/KOS PCs, 15,616 post-handoff at known shim PCs — zero at any other PC), 17,682 `TAEND` (frames), boot ladder reaches `MMUCRWR pc=8c02d630` (MAIN image's own MMU enable). `docs/kb/phase4-conversion.md` §Gate audit → `phase4/final`. |
 
-**Pending:** `phase4/pc2-testmenu` — an operator ~60s test-menu visit (Task 1
-step 4 / operator-leg rule), needed to re-observe an EEPROM write under the
-trig-tagged fork. Not yet captured — see `docs/kb/boot-binary.md` §Target:
-EEPROM's 2026-08-22 update and the Task 1 report for the exact command.
-
-**Pending:** `phase4/shimwatch-play` — an operator-played full match, then a
-test-menu visit, then quit (Task 2 step 4 / operator-leg rule), needed to
-close the `shim_home_clean` verdict from PARTIAL to full CLEAN. Command:
-`scripts/capture_leg.sh phase4/shimwatch-play` (dynarec stays ON), then
-`pkill -9 -f "flycast-src.*Flycast"` after the operator quits. Parse with
-`python3 scripts/parse_cartlog.py captures/phase4/shimwatch*.log`.
+Both prior "Pending" operator legs (`phase4/pc2-testmenu`, `phase4/shimwatch-play`)
+were captured in the 2026-08-23 operator session, along with `play1`,
+`play1-revert`, `play2p` and `testmenu-rt` above — see the OPS finalization
+entries in `.superpowers/sdd/2026-08-22-phase4-conversion/progress.md` for
+the session record.
 
 A 45s scratchpad diagnostic capture (per-PC `MDODMA` `sp=` correlation,
 `docs/kb/boot-binary.md` §SP — two stacks addendum's table) was written
@@ -688,3 +689,47 @@ from the Cleopatra port, same pattern as the Ghidra/Flycast entries above.
     minutes, not seconds, for a DC-profile screenshot in this environment;
     `docs/kb/phase4-conversion.md` §First DC boot has the full account and
     the resulting (torn-frame) evidence.
+
+### Clean-checkout build proof (Task 14, gate criterion 7, 2026-08-23)
+
+`make gdi` needs **six** gitignored inputs, not just the three `.gitignore`
+groups (`senkosp.dat`, `bios/`, the `*.7z` donor) that earlier tasks called
+out — this task's clean clone hit two undocumented ones on the first two
+build attempts, both now fixed by symlink and recorded here so a future
+fresh checkout doesn't have to rediscover them the same way:
+
+- `tools/ram-snapshot.bin` (34 MB, §Phase 3: RAM snapshot) — `loader/Makefile`
+  reads it directly for the `bios_data.bin` kernel-slice recipe.
+- `loader/splash.png` (12 KB, BIOS-rendered logo frame, gitignored same
+  category as the BIOS ROM) — `loader/Makefile`'s `splash.bin` target.
+- `captures/phase4/pc2.log` (14 MB, §Phase 4 leg inventory, Task 1's
+  PC-capture leg) — `shims/Makefile` extracts the MIE reply blobs
+  (`mie_blobs.c`) from it at build time; a fresh clone without it fails with
+  a clear `make` error naming the missing file, not a silent bad build.
+
+Recipe, run against a clone that is **not** a sibling of `../cleopatra` (a
+scratch directory), so the top-level `Makefile`'s `. ../cleopatra/tools/kos/
+environ.sh` needs the same relative path to resolve — fixed with one
+parent-directory symlink rather than editing the (tracked) Makefile:
+
+```sh
+git clone -b phase4-conversion /Users/captainkoffski/AntigravityProjects/senkosp2dreamcast <scratch>/senkosp-clean
+ln -sfn /Users/captainkoffski/AntigravityProjects/cleopatra <scratch>/cleopatra   # so ../cleopatra resolves
+cd <scratch>/senkosp-clean
+ln -sf /Users/captainkoffski/AntigravityProjects/senkosp2dreamcast/senkosp.dat senkosp.dat
+mkdir -p bios/naomi tools captures/phase4
+ln -sf /Users/captainkoffski/AntigravityProjects/senkosp2dreamcast/bios/naomi/epr-21576h.ic27 bios/naomi/epr-21576h.ic27
+ln -sf /Users/captainkoffski/AntigravityProjects/senkosp2dreamcast/tools/ram-snapshot.bin tools/ram-snapshot.bin
+ln -sf "/Users/captainkoffski/AntigravityProjects/senkosp2dreamcast/[GDI] Dolphin Blue.7z" "[GDI] Dolphin Blue.7z"
+ln -sf /Users/captainkoffski/AntigravityProjects/senkosp2dreamcast/loader/splash.png loader/splash.png
+ln -sf /Users/captainkoffski/AntigravityProjects/senkosp2dreamcast/captures/phase4/pc2.log captures/phase4/pc2.log
+source ../cleopatra/tools/kos/environ.sh && make gdi
+```
+
+Result: `exit=0` on the first attempt once all six were in place. Every
+produced disc file (`build/track01.iso`, `track02.raw`, `track03.iso`,
+`track04.iso`, `disc.gdi`) is md5-identical to the same-session main-checkout
+`make gdi` output — full table: `docs/kb/phase4-conversion.md` §Gate audit →
+Criterion 7. Symlinks (not copies) are deliberate: `senkosp.dat` alone is
+251 MB, and nothing in the build reads these paths in a way that requires a
+real copy (all are read-only inputs).

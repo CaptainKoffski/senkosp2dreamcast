@@ -1,14 +1,15 @@
 # Project status
 
-**Updated:** 2026-08-22 (Phase 4 Task 13 — **the test image's own GAME TEST
-MENU renders on the Dreamcast profile**, reached by a transient diagnostic
-boot (no operator), with Start/A mapped to Test/Service in the synthesized
-JVS frame. Gate criterion 4's boot+render half is proven unattended; the
-combo-hold → navigate → exit → reboot round trip still needs the operator.
-Task 11: gate criterion 1 met (attract). Task 12: live pad input + free-play
-wired, criteria 2/3/5 pending the operator. Phase 3 — DONE; gate green with
-**two** criteria met in substance rather than literally — 2 and 4, see the
-Phase 3 checklist)
+**Updated:** 2026-08-23 (Phase 4 Task 14 — **gate closed, all eight exit
+criteria evidenced.** Criteria 1-5 (attract, 1P, 2P, test-menu round trip,
+free-play) banked by the 2026-08-23 operator session (§Phase 4 checklist);
+criterion 6 (VMU-safety static scan) closed this task with every literal
+hit individually classified (82 + 1, three buckets, zero write-class finds
+outside the already-patched-and-mirrored set); criterion 7 (clean-checkout
+build) closed with a fresh `git clone` + documented gitignored inputs +
+`make gdi` producing byte-identical disc tracks to the main checkout;
+criterion 8 (this file, advanced to Phase 5) closed by this update. Phase
+4 — **DONE**. Real hardware (Phase 5) is untested — see §Honest limit.)
 
 ## What this is
 
@@ -44,7 +45,7 @@ Charter + Phase 1 spec:
 1. **Foundation — DONE 2026-08-13** (repo, KB, tooling records, .dat, boot verification)
 2. **Instrumented analysis — DONE 2026-08-19** (streaming/input/memory ground truth; the high-address DMA map)
 3. **Reverse engineering — DONE 2026-08-22** (touchpoint addresses; relocation strategy proven by dry run)
-4. Conversion (loader + shim + patch table → bootable GDI)
+4. **Conversion — DONE 2026-08-23** (loader + shim + patch table → bootable GDI; gate green, all eight criteria)
 5. Real-hardware testing & fit
 6. Safety tripwires & release
 
@@ -195,6 +196,82 @@ and 6 are `[x]`, unqualified.
 - [x] **6 — This file advanced to Phase 4** (below: key facts, Phase 4
       inputs, and the accumulated Phase 4 flags).
 
+## Phase 4 checklist (gate — all eight spec exit criteria, audited 2026-08-23)
+
+Mirrors
+`docs/superpowers/specs/2026-08-22-phase4-conversion-design.md`
+§Exit criteria, one box per criterion, each with the file + evidence that
+earns it. All eight are `[x]`, unqualified — full detail and command output
+for criteria 6/7 and the final verification leg:
+`docs/kb/phase4-conversion.md` §Gate audit — criteria 6/7/8; criteria 1-5:
+§Attract, §Steady input, §Test menu, §Operator legs.
+
+- [x] **1 — The built GDI boots in Flycast's DC profile to attract.**
+      `docs/kb/img/phase4-dc-attract.png` (Task 11, release configuration,
+      unattended, `FLYCAST_SHOT`); 12,739 frames rendered, 8,353 large
+      display lists, asset stream matches the Phase 2 Naomi attract capture,
+      **zero** real maple DMA from any game PC, 345 boot transactions (the
+      Naomi count exactly), 0 resets. `phase4-conversion.md` §Attract.
+- [x] **2 — Full 1P match played with the approved pad layout.** Operator
+      session 2026-08-23, leg `captures/phase4/play1.log`: every control
+      exercised, free play confirmed (Start alone starts a match), dpad⊕
+      analog mutual exclusion behaving. One intermittent finding carried to
+      Phase 5, not blocking (§Findings for Phase 5 item 1 — texture-load-error
+      hang, once in ~6 sessions). `phase4-conversion.md` §Operator legs →
+      `play1`.
+- [x] **3 — 2P match entry and play.** Leg `captures/phase4/play2p.log`:
+      2P entry, play, and mid-game Start-join on port B all confirmed by the
+      operator. `phase4-conversion.md` §Operator legs → `play2p`.
+- [x] **4 — Test-menu round trip: combo boot → navigate → exit → reboot
+      lands in a main boot.** Leg `captures/phase4/testmenu-rt.log`:
+      A+Start combo boot → GAME TEST MENU (own on-screen instruction text
+      confirms the Start/A → Test/Service convention) → navigation via the
+      on-screen footer → controls test screen → difficulty changed → `SYSTEM
+      MENU EXIT` → full console reboot (swirl) → attract. Session-only
+      EEPROM is by design (§EEPROM — a RAM copy, session-only).
+      `phase4-conversion.md` §Test menu, §Operator legs → `testmenu-rt`.
+- [x] **5 — Free-play: Start alone credits and starts.** Confirmed on-screen
+      (`FREE PLAY` + `PRESS 1P OR 2P START BUTTON`,
+      `docs/kb/img/phase4-dc-steady.png`) and by the operator's own 1P/2P
+      sessions (Start alone starts a match, no coin needed). Coin byte `[9] =
+      0x1a` = setting 27 (free-play), two independent layout sources, CRC
+      valid. `phase4-conversion.md` §FREE PLAY — the evidence chain.
+- [x] **6 — VMU-safety preview: the static maple-literal scan runs clean.**
+      `python3 scripts/test_maple_literals.py` → `exit=0`. Every literal hit
+      (82 in `senkosp.dat` + 1 in `build/bios_data.bin`) individually
+      classified into three justified buckets (36 already-patched
+      maple-mirror words, 4 entries in a read-only SDK exception-dump table
+      — Ghidra-confirmed, not a maple-frame builder — + its 1 BIOS-blob
+      twin, 42 streamed-asset statistical noise). Zero write-class literals
+      found outside the already-patched set. Loader objects (`main.o`/
+      `handoff.o`) gate the build unconditionally: zero unclassified vmu/
+      maple references. `phase4-conversion.md` §Gate audit → Criterion 6.
+- [x] **7 — One-command reproducible build (`make gdi`) from a clean
+      checkout plus gitignored ROM/BIOS.** Fresh `git clone -b
+      phase4-conversion` + the six gitignored inputs `tooling.md` documents
+      (`senkosp.dat`, `bios/naomi/epr-21576h.ic27`, `tools/ram-snapshot.bin`,
+      the GDI donor 7z, `loader/splash.png`, `captures/phase4/pc2.log`) +
+      `source ../cleopatra/tools/kos/environ.sh && make gdi` → `exit=0`,
+      first attempt once inputs were supplied. All five produced disc files
+      (`track01-04`, `disc.gdi`) md5-identical to the main checkout's build.
+      `phase4-conversion.md` §Gate audit → Criterion 7.
+- [x] **8 — This file advanced to Phase 5, honest limit carried verbatim**
+      (below, §Honest limit, and the phase list above).
+
+### Honest limit (spec, verbatim)
+
+> Real hardware is Phase 5; the honest limit from Phase 3 carries forward
+> verbatim — emulator-green proves nothing about real hardware.
+
+Every criterion above is proven in Flycast's DC profile. None of it has run
+on a real Dreamcast + GDEMU-class ODE yet. Two findings already flag the
+kind of gap only real hardware can expose or close: the unthrottled
+blocking pad-poll latency (free in Flycast, real time on the wire — remedy
+already sitting `#if 0`'d, `phase4-conversion.md` §Steady input finding 5)
+and the once-observed texture-load-error hang (intermittent, uncharacterized
+root cause). Full Phase 5 findings list: `phase4-conversion.md` §Findings
+for Phase 5.
+
 ## Key facts so far
 
 - `senkosp` = the 2006 arcade back-port of the X360 Rev.X set; only member
@@ -301,9 +378,19 @@ and 6 are `[x]`, unqualified.
 
 ## Next step
 
-**Phase 4 — conversion** (loader + shim + patch table → bootable GDI), in
-progress. Spec + plan exist (`docs/superpowers/specs/` and `plans/`); tasks
-1–12 are done, except Task 12's operator-driven playtest legs (below).
+**Phase 5 — real-hardware testing & fit.** Phase 4 (loader + shim + patch
+table → bootable GDI) is **DONE 2026-08-23** — gate green, all eight exit
+criteria evidenced (§Phase 4 checklist above). Everything below this line is
+the Phase 4 build narrative, kept for its citations; Phase 5 has no spec/plan
+yet. Starting inputs for Phase 5: the shipped disc (`build/disc.gdi`,
+reproducible from a clean checkout — criterion 7), the Phase 4 findings list
+carried forward (`docs/kb/phase4-conversion.md` §Findings for Phase 5 — pad-
+poll latency, the texture-load-error hang, the cyan splash, the VMU-settings
+feature request), and the honest limit above: none of Phase 4's evidence has
+touched real silicon.
+
+**Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
+kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.
 
 **State as of Task 11 (2026-08-22): the game reaches ATTRACT on the DC
 profile — gate criterion 1.** Every maple register constant in both images is
@@ -366,14 +453,11 @@ from shim PCs only). Evidence: `docs/kb/phase4-conversion.md` §Test menu,
 legs `captures/phase4/teststatic1`, `captures/phase4/testboot-diag1`,
 `docs/kb/img/phase4-dc-testmenu.png`.
 
-**Pending — needs the operator at the controls (criteria 2, 3, 4, 5):** a 1P
-playtest pressing every control, a 2P leg on port B, Start-with-no-credit at
-the title screen, and the criterion-4 round trip itself (hold A+Start at
-boot, navigate the now-confirmed-rendering test menu with Test/Service,
-SYSTEM MENU EXIT, confirm the reboot lands back at attract). Exact commands
-and the evidence each yields: `docs/kb/phase4-conversion.md` §Steady input →
-Pending operator verifications (criteria 2/3/5) and §Test menu → Pending
-operator round trip (criterion 4).
+**Closed 2026-08-23 (was "pending — needs the operator," criteria 2, 3, 4,
+5):** the operator session ran the 1P playtest, the 2P leg on port B, and
+the criterion-4 round trip (combo boot → test menu → `SYSTEM MENU EXIT` →
+reboot → attract) — all four banked, see §Phase 4 checklist above and
+`docs/kb/phase4-conversion.md` §Operator legs.
 
 **State as of Task 10 (2026-08-22): senkosp's own code runs on a Dreamcast
 and streams from the disc.** The loader stages everything high and a

@@ -123,7 +123,7 @@ static void cart_stream(void) {
                 | (m[M_DMA_OFFL / 4] & 0xffffu)) & 0x0fffffffu;
     u32 len  = m[M_GDLEN / 4];               /* SB_GDLEN is the sole length source */
     /* Game programs SB_GDSTAR P1-aliased -> physical; hardware then transfers
-     * to `SB_GDSTAR & 0x1FFFFFE0` (naomi.cpp:517), so round down the same way.
+     * to `SB_GDSTAR & 0x1FFFFFE0` (naomi.cpp:507), so round down the same way.
      * A no-op on every request observed so far (all 0x20-aligned). */
     u32 dest = m[M_GDSTAR / 4] & 0x1fffffe0;
 

@@ -2710,7 +2710,7 @@ bodies return early on it, so dying there would be a regression, not a catch.
 Also folded in, matching the hardware more exactly (no-ops on every request
 observed so far, all 32-byte aligned): `dest` is rounded down with
 `& 0x1fffffe0` on the DMA paths (`SB_GDSTARD = SB_GDSTAR & 0x1FFFFFE0`,
-`naomi.cpp:517`) and `SB_GDLEND` completes at `(len + 31) & ~31` rather than
+`naomi.cpp:507`) and `SB_GDLEND` completes at `(len + 31) & ~31` rather than
 `len` (`naomi.cpp:131-134` — the engine moves whole 32-byte bursts). The PIO
 hook gets neither: its native loop stores half-words at whatever address it is
 handed.
@@ -2728,10 +2728,25 @@ CART off=03456000 len=0000d800 dst=0ce7dc00 n=0000001b     (26th, identical to e
 
 and the strongest form of "the live path was not disturbed": `entry2.log` and
 `entry5.log` have **identical cartlog class histograms** (`diff <(awk '{print
-$1}' entry2.log | sort | uniq -c) <(… entry5.log …)` → no output) and diverge
-on exactly one field in 79,205 lines — a KOS-side maple descriptor address,
-`mdstar=0c0f0b40` vs `0c0f0bc0`, shifted because the shim blob grew 140 bytes
-(2,912 → 3,052 B) and moved a loader-side allocation.
+$1}' entry2.log | sort | uniq -c) <(… entry5.log …)` → no output).
+**Corrected at Task 14 (2026-08-23): the earlier "exactly one divergent
+field/140 bytes" claim overstated it — re-measured directly against both
+79,205-line logs:**
+```sh
+diff captures/phase4/entry2.log captures/phase4/entry5.log | grep -c '^[<>]'   # -> 382 (191 changed lines each side)
+diff captures/phase4/entry2.log captures/phase4/entry5.log | grep '^[<>]' | grep -vc mdstar   # -> 134 (non-mdstar lines)
+python3 -c "print(0x0c0f0bc0 - 0x0c0f0b40)"   # -> 128 (0x80)
+```
+191 lines differ (382 total `<`/`>` marks across 186 change hunks), all of
+them carrying a `pc=`/`pr=` field — the bulk (per-line samples: `IMLWR`,
+`SOFWR`, …) is scheduling/timing jitter between two independently-timed runs
+(same class as the benign `CARTDMAPC` reordering noted in `tooling.md` §Phase
+3 flat-.dat boot control test), not a content change; `src=`/`dest=`/`len=`
+values are unaffected everywhere. The one *semantic* divergence is the
+KOS-side maple descriptor address, `mdstar=0c0f0b40` vs `0c0f0bc0` — an exact
+**0x80 (128-byte)** shift, not the previously-cited 140-byte shim-blob-growth
+figure (the two numbers were conflated; the blob did grow 2,912 → 3,052 B,
+but that is not what the descriptor address moved by).
 
 ---
 
@@ -3284,7 +3299,7 @@ the baked image already carries free play, and the DC build already shows it.
    > cannot settle which it means, so **this KB does not treat it as
    > independent confirmation of the word "free-play"** — only of the encoding.
    > What settles the meaning is `naomi.md`'s explicitness, its
-   > game-side mechanism (item 3), and item 7: `FREE PLAY` on the target's own
+   > game-side mechanism (item 3), and item 4: `FREE PLAY` on the target's own
    > screen.
    senkosp's image decodes cleanly against that layout regardless: serial
    `"BMP0"` at `[3..6]`, `0x10` attract-sound-on at `[2]`, `0x10` = 2P cabinet +
@@ -4363,6 +4378,18 @@ on Naomi.
    EEPROM write path Task 12 built (`mie_86` case `0x0b`) is already the
    single choke point a VMU/flash writer would plug into (§Steady input,
    Findings worth carrying forward, item 2).
+4. **Real-hardware pad-poll latency (Task 14 gate-audit cross-check
+   against the SDD ledger, `.superpowers/sdd/2026-08-22-phase4-conversion/
+   progress.md`):** `mie_poll` issues two **blocking** `GetCondition` DMAs
+   per sub-`0x33`, unconditionally — free in Flycast (instant maple), but
+   real ~1–2 ms of blocking per 16.6 ms frame on the wire (measured rate:
+   13,283 polls / 15,202 frames = 0.87 polls/frame × 2 ports). Cleopatra hit
+   this exact issue on real hardware ("2P mode very slow on real HW only");
+   its fix — a TCNT0-keyed ~8 ms cache — is already sitting `#if 0`'d in
+   `shims/src/main.c`, not applied here (no leg in this phase can observe
+   the cost it would fix). Full writeup, code, and rationale: §Steady input
+   → Findings worth carrying forward, item 5. First thing to try if the
+   Phase 5 hardware round reports input lag or a slow 2P.
 
 ### Contradictions
 
@@ -4395,3 +4422,271 @@ python3 scripts/parse_cartlog.py captures/phase4/pc2-testmenu.log \
     --cart-fn 8c027f54-8c027f99 --input-fn 8c02532a-8c025505 \
     --eeprom-fn 8c02532a-8c025505 --stack 8c000000-8c00f000 --pc-report      # eeprom_write_seen: 0, always
 ```
+
+---
+
+## Shipped architecture (final) — Task 14 gate close-out
+
+Status: **Phase 4 DONE (2026-08-23)** — boots, runs attract, playable 1P+2P
+with free-play, test-menu round trip, all **Flycast-confirmed** (DC profile);
+real hardware is Phase 5, untested (see §Honest limit below). Branch
+`phase4-conversion`, 28 commits over BASE `f584e06`..`23dc758` (Tasks 1-13) +
+this task. **120 patches** (`scripts/build_patch_table.py`, 60 per image,
+ROM-old-byte-verified against `senkosp.dat` on every build — ~30 values
+byte-checked by hand across three independent reviews, 0 mismatches). Loader
+`build/1ST_READ.BIN` 878,896 B; shim `shims/build/shim.bin` 5,896 B. Everything
+below is a summary of the chronological sections above (§Integration v1
+through §Operator legs), which carry the primary evidence and citations —
+consult those, not this section, for the "why".
+
+**A. Loader — KOS `1ST_READ.BIN`** (`loader/main.c`, `handoff.S`, `gd.c`).
+Reads the game image off the GDI via a **from-scratch raw-ATA driver**
+(`shims/src/gd.c`, byte-level G1/ATA register protocol per `gdromv3.cpp`) —
+**not** the DC BIOS's GD syscall Cleopatra used, because KOS's own `cdrom.c`
+is itself syscall-based and offered no register-level path to cross-check
+against; `g1ata.c` served as the audit reference instead (§First DC boot).
+Reads pad 1 once, before the handoff, to test the boot combo (**A+Start** on
+DC pad 1 → the *test* patch set; anything else → *main*) via KOS's own maple
+scan (`_maple_wait_scan`/`_maple_enum_type`/`_maple_dev_status`, the three
+symbols criterion 6's static scan whitelists). Applies the chosen 60-entry
+patch set (old-byte-verified, aborts on mismatch); copies the shim to
+`SHIM_BASE 0x8c010000` — **low RAM, not Cleopatra's high `0x8cfc0000`**,
+because senkosp's relocated heap (`docs/kb/relocation-map.md` §Provenance)
+now occupies Cleopatra's old shim home (`tooling.md` §sh-elf/KOS toolchain,
+the KOS-load-address collision finding); places the three-piece
+`bios_data.bin` (Naomi BIOS `0x60000` 28 KB vector-table library blob +
+RAM-snapshot-sourced kernel slice, `tools/ram-snapshot.bin`) via the
+copy-record handoff walker (`handoff.S`); jumps to `GAME_ENTRY 0x8c021000`.
+
+**B. Cart-read shim — G1 register mirror + raw-ATA service**
+(`shims/src/cart.c`, `gd.c`; 13 pool-word repoints + entry hooks on the
+steady wait, `FUN_8c027e34`, and the boot DMA/PIO paths). The cart
+descriptor base and 12 G1-timing literals are repointed to `G1_MIRROR`
+(P2 `0xac014800`), so no game G1/cart access reaches the DC's real GD-ROM
+ATA registers. `cart_stream()` is the one place a mirrored DMA becomes a
+disc read: fences `(off, dest, len)` against the streamed-region and
+destination bounds (`fence_or_die`, closing two Task-10-review latent bugs —
+a dropped high-half offset base on the never-yet-fired boot hooks, and a
+missing destination fence there) and writes the destination **uncached via
+P2**, matching the original DMA-semantics path. Destination rounds down
+`& 0x1fffffe0` matching real hardware's own `SB_GDSTARD` masking
+(`naomi.cpp:507`, corrected from a stale `:517` citation — Task 14 minor).
+
+**C. Async-Maple MIE service — boot enumeration + steady input/EEPROM**
+(`shims/src/maple.c`, `main.c`, `jvs.c`; 18 pool-word repoints × 2 images +
+5 self-contained `jmp`-detour hooks + MAPLE-KICK-HOOK's steady fn-ptr
+repoint + TESTBIT-INJECT). The runtime maple-base pool word is repointed to
+`MAPLE_MIRROR` (P2 `0xac015000`), so the boot driver's five kick+poll
+windows and the steady engine's kick both land in shim RAM, not real
+controller DMA. The five boot detours needed a **hook kind beyond
+Cleopatra's pool/ptr/hook set** — self-contained 10-12 byte windows with an
+embedded literal, because `FUN_8c0665fe` does not save `PR` (byte-verified),
+so the trampoline contract is preserve r0-r7/PR/MACL/MACH + reproduce the
+swallowed instruction's semantics in place. `shim_maple_boot` replays the
+345-transaction MIE firmware-upload/JVS-enumeration ladder from blobs
+**extracted at build time** from a captured Naomi-profile leg
+(`scripts/extract_mie_blobs.py` + `captures/phase4/pc2.log`, never
+committed — same "captured traffic, regenerated not shipped" rule as
+`bios_data.bin`). `shim_maple_steady` services sub-`0x33` (**not** sub-`0x15`
+— the per-frame poll, not the boot-phase subcommand, `boot-binary.md`
+§Target: input function) via two real DC `GetCondition` calls (ports A+B),
+normalizes the reply through `dc_to_jvs`, writes both player words at the
+pinned frame offsets, and recomputes the JVS checksum. EEPROM is a
+session-only RAM copy that accepts the game's own sub-`0x0b` writes
+unconditionally (no need to know a write call site — Task 4 found EEPROM
+writes originate from the Naomi *BIOS*, not the game, and Task 12's shim
+services whichever image issues them regardless). `SHIM_STATE[0]`, seeded by
+the loader's boot-combo read, gates `TESTBIT-INJECT` in `mie_poll`: DC
+Start → Test (frame `+0x1f` bit 7) and DC A → Service (`0x4000`) for P1 only
+when the test image is running; every other control and P2 keep the live
+`dc_to_jvs()` mapping unconditionally.
+
+**D. Relocation + forcing patches** (`scripts/reloc_patchset.json`,
+`RESET-PATCH`). The **four-word relocation seed patch** (one heap-top
+constant, one VRAM-size constant, × 2 images) moves all five above-16 MB
+main-RAM corridors and every above-8 MB VRAM placement under the DC's caps
+in one shot (`docs/kb/relocation-map.md` §Patch set) — proven by dry run in
+Phase 3, proven at runtime in Phase 4 (26 relocated-corridor cart streams
+per boot cycle, §Integration v1). `RESET-PATCH` (both images) replaces the
+test-menu-exit stub's jump into Naomi BIOS with a DC hard reboot — Phase 4
+**owns restart** rather than trying to shift BIOS addresses (`relocation-map.md`
+§Deliberately not patched) — proven by the operator's own combo-boot →
+navigate → `SYSTEM MENU EXIT` → reboot → attract round trip (§Operator legs,
+`testmenu-rt`). Free-play needed **no forcing patch at all**: the captured
+EEPROM image the shim serves has its own coin byte at offset 9 (`0x1a` =
+setting 27, free-play, two independent layout sources) and the game reads
+that directly — unlike Cleopatra, which pinned a per-frame settings-struct
+flag (`docs/kb/phase4-conversion.md` §FREE PLAY — the evidence chain).
+**IP.BIN identity fields: `IP_VERSION` stays Cleopatra's placeholder
+`"V1.000"`** — Ruling R12 (2026-08-23): a generic first-release version
+string is correct for this port, not Cleopatra-specific data; no code
+change needed.
+
+### Honest limit (spec, verbatim)
+
+> Real hardware is Phase 5; the honest limit from Phase 3 carries forward
+> verbatim — emulator-green proves nothing about real hardware.
+
+Every criterion above is proven in Flycast's DC profile (screenshots, logs,
+operator play sessions against the emulator). None of it has run on a real
+Dreamcast + GDEMU-class ODE. Two known findings already flag exactly the
+kind of gap real hardware could expose that Flycast cannot (§Findings for
+Phase 5): the unthrottled blocking pad poll (free in Flycast, real time on
+the wire) and the once-observed texture-load-error hang (an intermittent
+failure mode no emulator determinism guarantees would reproduce or fail to
+reproduce the same way on silicon).
+
+## Gate audit — criteria 6/7/8 (Task 14, 2026-08-23)
+
+Mirrors `docs/superpowers/specs/2026-08-22-phase4-conversion-design.md`
+§Exit criteria. Criteria 1-5: evidenced in §Attract, §Steady input, §Test
+menu and §Operator legs above (banked per the SDD ledger,
+`.superpowers/sdd/2026-08-22-phase4-conversion/progress.md`). Criteria 6-8
+below.
+
+### Criterion 6 — VMU-safety static scan
+
+```sh
+python3 scripts/test_maple_literals.py
+```
+
+Every hit the scan finds against `senkosp.dat` (md5
+`6283cf5c75d7fc32740a8e8e54d10aa8`) and `build/bios_data.bin` — 82 + 1 — is
+now individually classified into `scripts/test_maple_literals.py`'s
+`CART_BASELINE`/`BIOS_DATA_BASELINE` (three buckets, justified in the source
+comments directly above each set):
+
+1. **36 = 18 main + 18 test: already-patched maple-mirror literals.**
+   Cross-matched byte-for-byte against `build/patch_table.h`'s pre-patch
+   `old` words (36/36 exact `(dat_off, value)` matches) — these are the same
+   `MAPLE-BASE`/`MAPLE-BOOT`/init-pair entries §Maple-patch sites already
+   inventories, already gated by `test_build_patch_table.py`'s old-byte
+   fidelity check.
+2. **4 = 2 main + 2 test: a previously-uncatalogued SDK diagnostic table.**
+   `SB_MDSTAR`/`SB_MDTSEL` appear as two entries inside a **69-word hardware
+   register-dump table** (SH-4 on-chip regs, G1, maple, cart addresses)
+   walked by `FUN_8c02c5ec`, an SH-4 address/bus-error exception handler —
+   confirmed by Ghidra:
+   ```sh
+   scripts/ghidra/run.sh script FindRefsTo.java 0x8c02c884
+   # -> REF to=8c02c884 from=8c02c7a6 fn=FUN_8c02c5ec@8c02c5ec type=READ : mov.l 0x8c02c884,r3
+   scripts/ghidra/run.sh script Decomp.java 0x8c02c5ec
+   # -> prints CPU regs (FR/R/MAC/VBR/GBR/DBR/PR/PC/SR), walks PTR_DAT_8c02c884's
+   #    table for 0x45 (69) iterations doing *puVar11 (a READ) + print, waits for '\r'
+   ```
+   The string `"ADDRESS CHECKER TRAP"` sits right next to the table in both
+   images (dat `0x13c7db` / `0x1b2607`) — this is Sega's own SDK exception
+   dump utility, read-only (PIO reads for a crash printout, never a
+   maple-frame build), fires only on an actual CPU bus/address-error fault
+   this port has never observed. Not patched (reads the real HW register,
+   not the mirror) — acceptable because it never *writes*, and the DC's own
+   Holly exposes the same register block at the same address for a harmless
+   read. `bios_data.bin`'s one hit (offset `0x14d4`, inside the Naomi BIOS
+   `0x60000` library blob) carries the identical byte signature immediately
+   before it — same table, high confidence, one notch below
+   Ghidra-xref-confirmed since this project's Ghidra DB covers the boot
+   image only, not the raw BIOS ROM.
+3. **42: streamed asset-data statistical noise**, all at `dat_offset >=
+   0x1bfc38` (past both boot images). The scan's mask matches 2048/2³²
+   possible u32 values (~4.77e-7 per aligned word); ~249.5 MB of streamed
+   texture/audio/model content predicts ~30 chance hits by that rate alone,
+   42 observed is the same order of magnitude. Spot-checked 4 samples
+   byte-for-byte: ordinary compressed-asset bytes on both sides, no
+   register-table structure (contrast bucket 2).
+
+**Result:**
+
+```
+OK   cart: 82 literals match baseline
+OK   bios_data.bin: 1 literals match baseline
+OK   loader main.o/handoff.o: no unclassified vmu/maple references
+     (allowed, boot-combo controller reads only: _maple_dev_status, _maple_enum_type, _maple_wait_scan)
+```
+
+`exit=0`. The loader-objects check (the spec's literal wording — "runs clean
+over every loader/shim object") was already gating and green before this
+task; the cart/bios_data buckets stay **informational** by the script's own
+documented design (a future ROM re-dump or asset change could shift the
+streamed-noise bucket, and gating on that would make `make test` red for a
+reason nobody could act on — the exact failure mode the tripwire exists to
+prevent) — but every single hit behind that informational flag is now named
+and justified, which is what this criterion actually asks for. **No
+write-class (maple-frame-building) literal was found anywhere outside the
+already-patched-and-mirrored bucket.**
+
+### Criterion 7 — clean-checkout build proof
+
+```sh
+git clone -b phase4-conversion /Users/captainkoffski/AntigravityProjects/senkosp2dreamcast <scratch>/senkosp-clean
+# gitignored inputs, symlinked from the main checkout (tooling.md documents each):
+#   senkosp.dat, bios/naomi/epr-21576h.ic27, tools/ram-snapshot.bin,
+#   "[GDI] Dolphin Blue.7z", loader/splash.png, captures/phase4/pc2.log
+# sibling symlink so ../cleopatra resolves from the clone (it is not a sibling
+# of the scratch directory the way it is of the real checkout):
+ln -sfn /Users/captainkoffski/AntigravityProjects/cleopatra <scratch>/cleopatra
+cd <scratch>/senkosp-clean
+source ../cleopatra/tools/kos/environ.sh && make gdi
+```
+
+`exit=0` on the first attempt once all six gitignored inputs were supplied
+(two of them — `captures/phase4/pc2.log` and `loader/splash.png` — were not
+previously called out anywhere as *build* prerequisites, only as analysis/
+capture artifacts; `tooling.md` §Capture-file inventory now flags both).
+md5 of every produced disc file, clean clone vs. this session's main-checkout
+`make gdi` re-run (also `exit=0`, run after this task's doc/comment edits to
+confirm nothing changed the build):
+
+| file | clean clone | main checkout |
+|---|---|---|
+| `track01.iso` | `681fa4c8daa058ce2df8ea1b604d6e91` | `681fa4c8daa058ce2df8ea1b604d6e91` |
+| `track02.raw` | `03c796f60db2e9ef0b65a42a47a9d321` | `03c796f60db2e9ef0b65a42a47a9d321` |
+| `track03.iso` | `b05c578ec5bbe6e39731848b99df73e8` | `b05c578ec5bbe6e39731848b99df73e8` |
+| `track04.iso` | `89ccb3e02522a8bd802f762ee1f74a2f` | `89ccb3e02522a8bd802f762ee1f74a2f` |
+| `disc.gdi` | `c527f1ec937b56caa65084d436f8c0a0` | `c527f1ec937b56caa65084d436f8c0a0` |
+
+All five byte-identical. One command, a clean checkout, and the gitignored
+inputs `tooling.md` documents reproduce the exact shipped disc.
+
+### `phase4/final` — unattended DC-profile verification leg (this task)
+
+```sh
+scripts/capture_dc_leg.sh phase4/final & LEGPID=$!; sleep 150; \
+FPID=$(pgrep -f "Flycast.app/Contents/MacOS/Flycast" | head -1); kill -USR1 $FPID; \
+sleep 5; kill -9 $FPID 2>/dev/null; wait $LEGPID 2>/dev/null; true
+```
+
+Release configuration (committed defaults — no `LOADER_SERIAL`, no
+`SHIM_TRACE`), unattended, no input, ~155 s. `captures/phase4/final.log`:
+193,248 lines / 6.5 MB.
+
+```
+grep -c "System reset requested" captures/phase4/final.log   -> 0
+grep -c SHIMERR captures/phase4/final.log                    -> 0
+grep -c 'MDODMA enter' captures/phase4/final.log              -> 16,177
+grep -c '^TAEND' captures/phase4/final.log                    -> 17,682 (frames)
+grep -n '^MMUCRWR' captures/phase4/final.log | tail -1         -> pc=8c02d630 (MAIN image's own MMU enable)
+```
+
+A release build emits no `MB n=`/`CART off=` serial trace (those are
+`SHIM_TRACE`-gated, same as every prior release-configuration leg —
+`attract10-release`, `steady3-release`) so this leg's boot-ladder proof is
+the **PC classification** of every `MDODMA enter`, split at the game's own
+MMU-enable line (14,141): 561 pre-handoff events, all at loader/KOS PCs
+(`8c015300`×11, `8c015588`×1, `8c0c10ae`×549 — the same three PCs
+`docs/kb/phase4-conversion.md` §Steady input's `steady1` leg already names
+as the loader's own boot-combo pad read, criterion 6's `LOADER_MAPLE_ALLOW`
+set); 15,616 post-handoff events, all at shim PCs inside
+`SHIM_BASE`-`SHIM_BASE+0x8000` (`8c010fe4`×2, `8c01105c`×14,826,
+`8c01109c`×788). **Zero MDODMA from any PC outside those two known-good
+sets** — no unpatched game code reached real maple on this leg either. The
+log is still active at the kill point (steady `MDODMA` activity in the last
+lines before EOF, not stalled). No screenshot was requested for this leg —
+`kill -USR1` without `FLYCAST_SHOT` set is a harmless no-op
+(`gui.cpp:527-528`); the existing `docs/kb/img/phase4-dc-attract.png`
+(Task 11) already documents the visual.
+
+### Criterion 8 — status file advanced
+
+`docs/kb/00-status.md`: full eight-criterion Phase 4 checklist with evidence
+lines, phase list advanced to **5**, spec's honest limit carried verbatim
+(§Honest limit above). See that file directly; not duplicated here.
