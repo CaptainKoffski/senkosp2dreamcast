@@ -1638,3 +1638,303 @@ is the only EEPROM state senkosp was ever seen to read.
 Sub `0x0b` (write) never has to persist anything: the only writer observed in
 this project is the Naomi BIOS (§R5), which does not exist on the target. Ack
 it and drop the payload.
+
+---
+
+## Restart stub — spec pin P5
+
+**Question (spec `2026-08-22-phase4-conversion-design.md` §Open questions,
+P5: "the restart stub's location in the test image"; plan §Patch table &
+build system: "restart-stub jump → reboot (locate in both images — the
+stub's offset fits inside the test load; plan pin P5)"; task brief
+`.superpowers/sdd/2026-08-22-phase4-conversion/task-5-brief.md`):** where do
+both images' copies of `FUN_8c067e18` (`docs/kb/relocation-map.md
+§Deliberately not patched` — copies `0x60c` B from `0x8c180904` to
+`0xadfff000` via pool `0x8c067e3c`, then jumps to `0x8dfff000` via pool
+`0x8c067e4c`, which is a Naomi-BIOS re-entry that "is not there" on DC) put
+the one word Phase 4 must own to turn "restart" into a DC reboot?
+
+### Main image — old value verified
+
+```
+main pool 0x8c067e3c (dest ptr)   -> dat 0x47e3c = 0xadfff000
+main pool 0x8c067e4c (jump target) -> dat 0x47e4c = 0x8dfff000
+```
+
+Both read byte-for-byte out of `senkosp.dat` (`struct.unpack_from("<I", d,
+0x47e3c/0x47e4c)`). `0x47e4c`'s value matches the brief's expected old value
+exactly.
+
+### Test image — the brief's needle search failed; a refined search found it
+
+The brief's literal check (`d.find(needle, 0x171ff8, 0x1bfc38)` with
+`needle = d[0x47e18:0x47e58]`, the 64-byte main-image stub head) returned
+**`NOT FOUND`**. Snippet assumption that failed: the needle bakes in two
+`mov.l @(disp,PC),Rn` loader instructions whose displacement encodes the
+pool's position *relative to the loading instruction* — those two bytes
+necessarily change when the function is relocated to a different address, so
+a byte-identical 64-byte needle can never match a relocated copy even when
+every pool *value* and every other opcode is identical.
+
+Adapted method: search shrinking sub-chunks of the needle inside the test
+range. A 32-byte prefix (`d[0x47e18:0x47e38]`) hit at **dat `0x1a4644`**
+(the head of the function, before the first pool word). Growing a full-word
+comparison from there (`struct.unpack_from` over the same index offsets used
+for the main image) gives:
+
+| word (idx from head) | role | main (dat `0x47e18`+idx) | test (dat `0x1a4644`+idx) | same? |
+| --- | --- | --- | --- | --- |
+| `0x1c` | `mov.w`/length insn, contains `0x060c` | `0x060c4f26` | `0x060c4f26` | same |
+| `0x20` | source ptr (copy-from) | `0x8c180904` (dat `0x47e38`) | `0x8c06a004` (dat `0x1a4664`) | **differs** — each image's own copy of the `0x60c`-B payload, at its own address |
+| `0x24` | dest ptr (pool `…e3c`) | `0xadfff000` (dat `0x47e3c`) | `0xadfff000` (dat **`0x1a4668`**) | **same** |
+| `0x28` | fn ptr (memcpy-helper call target) | `0x8c069754` | `0x8c053ec4` (dat `0x1a466c`) | differs — shared helper linked at a different address in the smaller test build |
+| `0x2c` | P1→P2 OR-mask constant | `0xa0000000` | `0xa0000000` | same |
+| `0x30` | fn ptr (icache-flush-ish call target) | `0x8c02b320` | `0x8c02b208` (dat `0x1a4674`) | differs — same reason as `0x28` |
+| `0x34` | **jump target (pool `…e4c`)** | `0x8dfff000` (dat `0x47e4c`) | `0x8dfff000` (dat **`0x1a4678`**) | **same** |
+| `0x38` | first body instruction after the pool | `0xe500d26b` | `0xe500d26b` | same |
+
+**Every opcode byte is identical between the two images except the four
+words that legitimately vary with relocation** (two image-relative data
+pointers, two called-function addresses); the two words that matter for
+Phase 4 — the copy destination and the jump target — are **the same
+physical-page constants in both images**, because they are fixed absolute
+RAM addresses, not PC-relative or link-time values. **The test image does
+have the stub** (P5 answered: it is *not* absent, it is a relocated
+byte-identical copy), so the "test-exit path must be re-derived from its own
+exit code" fallback in the brief does not apply.
+
+> **Test-image stub location.** `FUN_8c067e18`'s test-image twin starts at
+> dat `0x1a4644` (RAM `0x8c052c4c`, via `dat_offset = 0x171ff8 + (addr −
+> 0x8c020000)`, `docs/kb/game.md` §Parsed `.dat` header). Its jump-target
+> pool word is at dat `0x1a4678` (RAM `0x8c052c80`), old value `0x8dfff000`
+> — byte-verified.
+
+### `0x8c067e3c` (dest pool) — value and role, and why patching only `…e4c` suffices
+
+Disassembled the full head of the main-image function
+(`scripts/ghidra/run.sh script DisasmRange.java 0x8c067e18 0x8c067e80 force`,
+program `senkosp3`; verbatim, PR/delay-slot markers as emitted):
+
+```
+8c067e18  sts.l PR,@-r15
+8c067e1a  mov.l 0x8c067e3c,r4      ; r4 = 0xadfff000  (dest ptr)
+8c067e1c  mov.l 0x8c067e40,r3      ; r3 = 0x8c069754   (fn ptr)
+8c067e1e  mov.w 0x8c067e36,r6      ; r6 = 0x060c        (byte count)
+8c067e20  mov.l 0x8c067e38,r5      ; r5 = 0x8c180904   (source ptr)
+8c067e22  jsr @r3                  ; CALL #1 — copies 0x60c B, 0x8c180904 -> 0xadfff000
+8c067e24  _nop
+8c067e26  mov.l 0x8c067e48,r2      ; r2 = 0x8c02b320
+8c067e28  mov.l 0x8c067e44,r3      ; r3 = 0xa0000000
+8c067e2a  or r3,r2                 ; r2 = 0xac02b320   (P2 alias of 0x8c02b320)
+8c067e2c  jsr @r2                  ; CALL #2 — via the P2 (uncached) alias, before the jump
+8c067e2e  _nop
+8c067e30  mov.l 0x8c067e4c,r1      ; r1 = 0x8dfff000   (jump target)   <== ONLY use of pool "…e4c"
+8c067e32  jmp @r1                  ; THE escape — unconditional, no other branch in the function
+8c067e34  _lds.l @r15+,PR          ; delay slot
+```
+
+**This is decisive.** `FUN_8c067e18` contains exactly **one** unconditional
+control-transfer instruction — the `jmp @r1` at `8c067e32` — and `r1` is
+loaded from pool `0x8c067e4c` two instructions earlier, with nothing between
+the load and the jump that could redirect it. `0x8c067e3c` (loaded into `r4`
+at entry) is consumed only as an *argument* to `CALL #1` (the memcpy-style
+helper) and never referenced again; it has no bearing on where control ends
+up. **Patching only `0x47e4c`/`0x1a4678` (main/test) is sufficient**: the
+memcpy (`CALL #1`, using the `…e3c` dest ptr) and the P2-aliased helper call
+(`CALL #2`) still run — harmless leftover writes into the fixed physical
+page `0x0dfff000`, already flagged acceptable in `relocation-map.md`
+("acceptable only because the path is a reboot anyway") — but the jump
+itself lands wherever the patched `…e4c`/`0x1a4678` word points, so the
+Naomi-BIOS re-entry (`0xa0082262` etc., baked *inside* the copied `0x60c`-B
+payload, never reached once the jump is redirected) is never executed. The
+same reasoning applies unchanged to the test image: its opcode bytes at
+`8c052c4c`–`8c052c86` (dat `0x1a4644`–`0x1a4680`) are byte-identical to the
+main image's at this span except the four relocation-dependent pool words
+already tabulated, so its control-flow shape — one `jsr`, one `jsr`, one
+`jmp` through the same relative pool slot — is identical.
+
+### RESET-PATCH — pin
+
+> **RESET-PATCH.** Two entries, one per image, `new` symbolic (Task 9/10
+> compute the shim reboot routine's literal address; kept symbolic here so
+> the two can never drift, same convention as §Cart-patch sites'
+> `G1_MIRROR_P2`):
+>
+> | image | dat_offset | old (verified) | new |
+> | --- | --- | --- | --- |
+> | main | `0x47e4c` | `0x8dfff000` | `SHIM_REBOOT_ENTRY` |
+> | test | `0x1a4678` | `0x8dfff000` | `SHIM_REBOOT_ENTRY` |
+>
+> Both `old` values byte-identical — the physical landing page is shared
+> between images, so both patches target the same conceptual "restart"
+> escape hatch with the same literal `new` once Task 10 defines it.
+> `0x8c067e3c`/its test-image twin at dat `0x1a4668` (both `0xadfff000`,
+> both **not** patched) are recorded for completeness: they are the copy
+> destination, consumed only by `CALL #1`, never by the jump.
+
+### Reproduction
+
+```
+python3 - <<'EOF'
+import struct
+d = open("senkosp.dat","rb").read()
+main_stub, test_stub = 0x47e18, 0x1a4644
+def w32(base, idx): return struct.unpack_from("<I", d, base+idx)[0]
+assert w32(main_stub, 0x24) == 0xadfff000 and w32(main_stub, 0x34) == 0x8dfff000
+assert w32(test_stub, 0x24) == 0xadfff000 and w32(test_stub, 0x34) == 0x8dfff000
+print("RESET-PATCH pins verified: main dat 0x47e4c, test dat 0x1a4678, both old=0x8dfff000")
+EOF
+```
+
+---
+
+## Low-RAM placements — spec pin P6 (KERNEL-SLICE), BLOB-CHECK
+
+**Question (plan Task 5: "kernel slice (P6), blob sanity"; spec §RAM map:
+`0x8c000600`–`0x8c007xxx` "Naomi RTOS kernel slice from the user's BIOS
+dump (byte-identity recipe: `tooling.md` §Phase 3: RAM snapshot)"; task
+brief):** exactly which BIOS-ROM (and, where ROM has no source, snapshot)
+bytes does the loader `dd` into `0x8c000600` so that the placed image
+matches what a real Naomi BIOS boot leaves there — and does the pre-placed
+`0x60000` BIOS blob's own internal vector table ever point into the shim's
+home window?
+
+### KERNEL-SLICE — run bounds
+
+Grew the identical run from the anchor exactly as specified
+(`tools/ram-snapshot.bin` vs `bios/naomi/epr-21576h.ic27`, identity
+`ROM_off = RAM_off − 0x800`, anchor RAM `0x1004` = ROM `0x804`,
+`docs/kb/tooling.md` §Phase 3: RAM snapshot):
+
+```
+identical run: RAM 0x1000 - 0x3800  ROM 0x800 - 0x3000
+0x600-0x800 in ROM at: -0x1
+```
+
+**The run is shorter than the spec's rough `0x8c007xxx` upper bound, and it
+does not reach down to the RAM-`0x800` floor either — both ends investigated
+byte-by-byte before pinning anything (the brief's escalation trigger:
+"identical-run comes out surprisingly short"):**
+
+- **Low end (RAM `0x800`–`0x1000`, 0x800 B): snapshot is all-zero.**
+  `ram[0x800:0x1000]` — 2048/2048 bytes zero, verified
+  (`all(b==0 for b in ram[0x800:0x1000])` → `True`). This is not a broken
+  identity; it is simply RAM the resident kernel had not written by
+  snapshot time (post-`~150s`-attract, per `tooling.md`'s capture
+  provenance) — the loader reproduces it by leaving it zeroed, which is the
+  no-op the ROM comparison was never going to give a "match" for anyway
+  (ROM's corresponding bytes at `0x0`–`0x800` are real, non-zero BIOS-header
+  content — this is a different structure, not a mis-scoped copy).
+- **High end (RAM `0x3800` onward): a `0xff`→`0x00` transition, not a
+  broken run.** `ram[0x37f0:0x3800]` is 16 bytes of `0xff` (stack-poison
+  fill, a standard uninitialized-stack pattern) immediately followed by
+  zero at `0x3800`; `rom[0x2ff0:0x3020]` stays `0xff` past that point (the
+  ROM's own static copy of the same poisoned-stack template is longer than
+  what the live kernel had actually touched). Scanned RAM `[0x3800,0x4200)`
+  against `ROM−0x800`: only 5/2560 bytes coincidentally match — confirms
+  this is genuinely dynamic/untouched RAM from `0x3800` on (heading toward
+  the `0x0c004000` per-task TCB region `tooling.md` already names), not
+  kernel content the loader needs to source from anywhere. **`hi = 0x3800`
+  is a real boundary** (0xff-poison template ends exactly where the
+  identical run ends), confirming the run is short *because the kernel
+  blob's true static extent is 0x2800 B*, not because the ROM−0x800
+  identity is unreliable.
+- **`0x600`–`0x800` (the brief's flagged sub-window): the brief's own
+  full-block search (`rom.find(ram[0x600:0x800])`) returns `-1`.** Chunked
+  sub-searches (`select:` down to 8/16/32-byte windows) find only two small
+  fragments elsewhere in ROM at *non-uniform* offsets (`0x1494` for the
+  window's first ~20 B, `0x1e74` for ~60 B starting at window-relative
+  `0x180`), with ~300 B of pure zero between them — evidence this is a
+  small boot-time-constructed vector-stub/table (consistent with
+  `tooling.md`'s "VBR+0x600 stub at `0x0c000600`" — the SH4 hardware
+  interrupt-vector offset is a fixed CPU convention, not something that has
+  to live at a fixed ROM address too), **not** a single contiguous ROM
+  copy. No clean single-source recipe exists for it — per the brief's
+  explicit fallback, taken as **snapshot-only content**.
+
+### KERNEL-SLICE — the pin (three pieces, not one)
+
+The plan's draft loader Makefile (`docs/superpowers/plans/2026-08-22-phase4-conversion.md`
+§Loader Makefile deltas) sketches a single
+`dd if=$(BIOS) skip=$(KERNEL_ROM_OFF) count=$(KERNEL_LEN)` starting exactly
+at `KERNEL_DST=0x8c000600`. **That single-slice recipe cannot work**: a ROM
+offset for RAM `0x600` would be `0x600 − 0x800 = −0x200` (the brief's own
+"negative offset" warning, confirmed). The real recipe needs **three**
+pieces to cover `[0x600, 0x3800)`:
+
+| piece | mem_b range | len | source | ROM `skip`/snapshot slice |
+| --- | --- | --- | --- | --- |
+| A | `0x600`–`0x800` | `0x200` (512) | **snapshot-only** (no ROM source found) | `tools/ram-snapshot.bin[0x600:0x800]`, re-derivable via `tooling.md` §Phase 3: RAM snapshot's documented capture recipe |
+| B | `0x800`–`0x1000` | `0x800` (2048) | **zero-fill** (`bzero`/`memset`, no bytes needed) | — |
+| C | `0x1000`–`0x3800` | `0x2800` (10240) | **BIOS ROM**, `KERNEL_ROM_OFF=0x800` (2048), `KERNEL_LEN=0x2800` (10240) | `dd if=$(BIOS) bs=1 skip=2048 count=10240` |
+
+> **KERNEL-SLICE pin.** `KERNEL_DST=0x8c000600` (per spec/brief);
+> `KERNEL_ROM_OFF=0x800`, `KERNEL_LEN=0x2800` for piece C only (the literal
+> two numbers Task 6's Makefile needs); pieces A and B are **not** a ROM
+> `dd` — Task 6's Makefile draft must gain a `zero-fill 0x800 B` step and a
+> `cat` of a committed-recipe-but-not-committed-bytes 512 B snapshot slice
+> ahead of the existing single `dd`, or the placed image will be wrong over
+> `[0x600,0x1000)`. Flagged for Task 6.
+
+### KERNEL-SLICE — byte-compare verdict + digests
+
+Piece C (the only piece with an independent ROM source to check against the
+snapshot) byte-compared in full:
+
+```
+Piece C byte-compare ROM[0x800:0x3000) == RAM[0x1000:0x3800): True
+  ROM slice: md5 ea73283fdfebdc2d0546e41af2da356d  sha256 7c0f310e80ca29297befe174c862cc0dbff29966dde6d1dbe0716422bf7fcd28  len 0x2800
+  RAM slice: md5 ea73283fdfebdc2d0546e41af2da356d  sha256 7c0f310e80ca29297befe174c862cc0dbff29966dde6d1dbe0716422bf7fcd28  len 0x2800
+Piece B all-zero: True  md5 c99a74c555371a433d121f551d6c6398  len 0x800
+Piece A (snapshot-only): md5 7fa62b3351e5e47cba9086973c4560a4  len 0x200
+full reconstruction [0x600,0x3800) == snapshot: True  len 0x3200
+```
+
+(digests only — no BIOS/snapshot bytes committed, per the global gitignore
+rule.) **Acceptance bar met**: `piece_A + piece_B + piece_C ==
+ram[0x600:0x3800]` byte-for-byte, verified by direct comparison, for the
+full pinned window.
+
+### BLOB-CHECK
+
+```
+python3 - <<'EOF'
+import struct
+rom = open("bios/naomi/epr-21576h.ic27","rb").read()
+ws = struct.unpack_from("<8I", rom, 0x60000)
+print([hex(w) for w in ws], all((w & 0x0fff0000) == 0x0c010000 for w in ws))
+EOF
+```
+
+```
+vectors: ['0xc018374', '0xc01837a', '0xc018398', '0xc01839e', '0xc018436', '0xc018422', '0xc01862c', '0xc0185dc']
+signature (w & 0x0fff0000)==0x0c010000 for all 8: True
+vectors landing in shim window 0x0c010000-0x0c017fff: []
+range: 0xc018374 - 0xc01862c
+```
+
+> **BLOB-CHECK verdict — PASS, no shim collision.** All 8 vectors satisfy
+> the signature and fall in `0xc018374`–`0xc01862c` — entirely inside the
+> `0x60000`-blob's own destination window `BIOS60000_DST=0x8c018000`,
+> len `0x7000` (plan `shim_iface.h` draft), i.e. `0x8c018374`–`0x8c01862c`
+> in P1 terms. **None land below `0x8c018000`**, so none touch the shim
+> home `0x8c010000`–`0x8c017fff` (`docs/kb/phase4-conversion.md` §Shim home
+> found clean over that exact span). The map does not need to shrink;
+> `FUN_8c065ff0`'s consumers are satisfied by pre-placement as designed.
+
+### Reproduction
+
+```
+python3 - <<'EOF'
+import hashlib, struct
+ram = open("tools/ram-snapshot.bin","rb").read()
+rom = open("bios/naomi/epr-21576h.ic27","rb").read()
+assert rom[0x800:0x3000] == ram[0x1000:0x3800]
+assert all(b==0 for b in ram[0x800:0x1000])
+assert (ram[0x600:0x800] + ram[0x800:0x1000] + rom[0x800:0x3000]) == ram[0x600:0x3800]
+ws = struct.unpack_from("<8I", rom, 0x60000)
+assert all((w & 0x0fff0000) == 0x0c010000 for w in ws)
+assert all(w >= 0x0c018000 for w in ws)
+print("KERNEL-SLICE + BLOB-CHECK pins verified")
+EOF
+```
