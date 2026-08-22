@@ -3,7 +3,7 @@
 map (+ above-16m flags), region write-truth, and device verdicts.
 
 Adapted from ../cleopatra/scripts/parse_cart_log.py. Line formats are ground
-truth from the instrumented fork (../flycast4naomi2dreamcast @ 0166c5b77):
+truth from the instrumented fork (../flycast4naomi2dreamcast @ 6e3522822):
   CARTDMA src=%08x dest=%08x len=%x          core/hw/naomi/naomi.cpp
   CARTPIO offset=%08x                        core/hw/naomi/naomi_cart.cpp:1020
   CARTPIOCNT bytes=%llx                      cumulative PIO bytes, per ~10 s sample
