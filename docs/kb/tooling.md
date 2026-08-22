@@ -553,6 +553,10 @@ Phase 4 legs live under `captures/phase4/` (own subdirectory, same reason as
 | `phase4/pc2.log` | 340,977 | 14 MB | **Task 1 PC-capture leg** — interpreter mode, unattended boot → attract, ~300s, against the `trig=`/`sp=`-tagged fork (`0d55a1812`). Zero `trig=vbl` observed (17,445/17,445 `MDODMA`, 16,567/16,567 `MAPLEPC` all `trig=reg`) and zero sub-`0x0b` EEPROM-write lines — attract-mode never touches the EEPROM. `docs/kb/boot-binary.md` §Check lines, verbatim, run C. |
 | `phase4/pc2-presp-diagnostic.log` | 339,341 | 14 MB | **Superseded, kept not deleted.** Same recipe as `pc2.log` but captured one fork commit earlier (`0166c5b77`, before the per-event `sp=` field existed on `MDODMA`/`MAPLEPC`) — `MAPLEPC`'s `trig=` data is identical/valid, but `sp=` is absent so it can't feed the PC-correlated `sp_consistent` check. Superseded by `pc2.log`; not deleted per the capture-file rule (primary data). |
 | `phase4/shimwatch.log` | 1,083,410 | 39 MB | **Task 2 shim-home write-watch leg** — dynarec ON, unattended boot → attract, ~660s, against the `SHIMWATCH2`-emitting fork (`6e3522822`). 205 `CARTDMA` events, 69 `cartlog_sample()` ticks, **0 `SHIMWATCH2` lines** — `shim_home_clean: PASS`, exit 0. `docs/kb/phase4-conversion.md` §Shim home (V2s) — verdict recorded there as **PARTIAL** (attract regime only; match-play and test-menu regimes pending, see below). |
+| `phase4/loader-alive.log`(`+.stdout.log`) | 140,562 | 5.7 MB | **Task 8 first DC boot, release build** — the brief's exact `capture_dc_leg.sh phase4/loader-alive` command against the mastered `build/disc.gdi`, DC profile, `LOADER_SERIAL=0` (release default, silent stdout by design). Continuous `MDODMA` background activity for the whole run, no gap, no error tag — the CPU never stalls. `docs/kb/phase4-conversion.md` §First DC boot. |
+| `phase4/loader-alive-diag.log`(`+.stdout.log`) | — | 1.7 MB | **Task 8 diagnostic leg** — same disc, `LOADER_SERIAL=1` (temporary, reverted before commit) so KOS `dbglog` reaches Flycast's stdout (`Debug.SerialConsoleEnabled=yes`). stdout shows the full success sequence verbatim: `SENKOSP LOADER PHASE4 TASK6` / `GD init OK` / `cart read OK (KOS)` / `cart read OK (raw ATA)` / `patches OK` — the definitive text proof that Task 7's raw-ATA driver matches KOS's own read byte-for-byte. `docs/kb/phase4-conversion.md` §First DC boot. |
+| `phase4/loader-alive-shot2.log`(`+.stdout.log`) | — | 3.7 MB | **Task 8 screenshot-correlated leg** — same diagnostic build + `FLYCAST_SHOT`; stdout repeats the identical success sequence, and one auto-grabbed frame from this same run (mid-tear: top of frame red, bottom still the prior NAOMI-logo frame) is the committed `docs/kb/img/phase4-loader-alive.png`. `docs/kb/phase4-conversion.md` §First DC boot. |
+| `phase4/control-cleopatra-shot.log` | — | 6.7 MB | **Task 8 control test** — Cleopatra's own `build/disc.gdi` (read-only, real-HW-verified) through the same `capture_dc_leg.sh` + `FLYCAST_SHOT` path, to split "my disc" from "the process" per the debug-loop protocol when the first screenshot came back flat grey. Produced the byte-identical flat-grey placeholder, confirming a session-level render-pipeline stall, not a senkosp-specific problem. `docs/kb/tooling.md` §GDI mastering (Task 8). |
 
 **Pending:** `phase4/pc2-testmenu` — an operator ~60s test-menu visit (Task 1
 step 4 / operator-leg rule), needed to re-observe an EEPROM write under the
@@ -617,3 +621,48 @@ from the Cleopatra port, same pattern as the Ghidra/Flycast entries above.
   `memcpy` the shim into place is present (Task 6 copies it in, from
   Cleopatra) but kept behind `#if 0` — this collision is why it must stay
   disabled until a later task resolves it (see task-6-report.md).
+
+### GDI mastering (Task 8) — `make gdi`
+
+- **Donor archive:** `[GDI] Dolphin Blue.7z` (44 MB) copied from
+  `../cleopatra/` to this repo's root:
+  `cp "../cleopatra/[GDI] Dolphin Blue.7z" .` — gitignored (`*.7z` line
+  added to `.gitignore`; `git check-ignore -v "[GDI] Dolphin Blue.7z"`
+  confirms). Same donor, same B5 max-clone structure and extraction method as
+  Cleopatra's own recipe (`../cleopatra/docs/kb/tooling.md` §"Reference
+  self-boot GDIs"): `scripts/make_gdi.py` extracts it into `build/donor/`
+  itself via `/opt/homebrew/bin/7zz` (brew `sevenzip`), cached — re-extracted
+  only if any of the five donor files is missing.
+- **Build:** `make gdi` (top-level target, `Makefile`) → `loader` then
+  `python3 scripts/make_gdi.py` → `build/disc.gdi` + four tracks. Exit 0;
+  deterministic (four runs from clean, identical md5s — recorded in
+  `docs/kb/phase4-conversion.md` §First DC boot).
+- **`scripts/make_gdi.py`** — adapted from `../cleopatra/scripts/make_gdi.py`
+  byte-for-byte except the cart source (`senkosp.dat`), the IP.BIN identity
+  fields, and track04's payload; the B5 clone strategy, the donor extraction,
+  and the CART_FAD/CART_SIZE cross-check against `shims/include/shim_iface.h`
+  are unchanged. That cross-check caught a real bug on the first run — see
+  `docs/kb/phase4-conversion.md` §First DC boot for the `CART_SIZE` fix.
+- **`scripts/capture_dc_leg.sh <leg> [gdi-path]`** — DC-profile leg launcher
+  (clone of `scripts/capture_leg.sh`, no `FLYCAST_ENTRYPC`/BIOSEXEC export,
+  GDI default `build/disc.gdi`, separate `<leg>.stdout.log`). Same launch
+  gotchas as §"Instrumented Flycast" above (`ApplePersistenceIgnoreState`,
+  `vsync=no`, pre-launch `pkill`) plus: the DC profile takes the `.gdi` path
+  itself as the CLI argument (no ROM/BIOS args — DC HLE boot needs neither).
+- **Screenshot in this session — two working mechanisms, two caveats found
+  (Task 8):**
+  - `screencapture -x` (macOS): failed every attempt —
+    `could not create image from display` — a Screen Recording TCC
+    permission this session's process does not hold. Needs a human to grant
+    it in System Settings; not fixable from inside the session.
+  - `FLYCAST_SHOT=/abs/path.png` + `kill -USR1 <pid>`
+    (§"Instrumented Flycast" above) worked, but the render/present pipeline
+    was **severely throttled** for a backgrounded/occluded window in this
+    session: it delivered only a handful of real frames over roughly two
+    minutes before stalling, rather than the normal continuous 60 Hz. A
+    control-test capture of a known-good disc (`../cleopatra/build/disc.gdi`,
+    same method) hit the identical stall, confirming it is this session's
+    render-pipeline throttling, not any particular disc. Budget several
+    minutes, not seconds, for a DC-profile screenshot in this environment;
+    `docs/kb/phase4-conversion.md` §First DC boot has the full account and
+    the resulting (torn-frame) evidence.

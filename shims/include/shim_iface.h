@@ -63,7 +63,13 @@
 /* GDI geometry — B5 donor-clone layout (make_gdi.py):
  * track04 = [loader zero-padded to the donor 3,538,944 B boot region][.dat] */
 #define CART_FAD        451878      /* = donor CART_LBA 451728 + 150 */
-#define CART_SIZE       0x0efb0000  /* 251,342,848 = len(senkosp.dat) */
+/* Task 8 finding: was 0x0efb0000 (251,330,560) -- 0x3000 short of the
+ * comment's own claimed value. 251,342,848 = 0xefb3000; caught by
+ * make_gdi.py's CART_SIZE cross-check against len(senkosp.dat) before any
+ * boot attempt (the assert it exists for). Functionally inert until now --
+ * only gd_read_cart's range check (site 8) reads it, and that path is
+ * compiled out of the loader build (GD_LOADER_BUILD). */
+#define CART_SIZE       0x0efb3000  /* 251,342,848 = len(senkosp.dat) */
 
 #define P2ADDR(a)       ((a) | 0xa0000000)
 #ifndef HOST_TEST

@@ -2165,3 +2165,172 @@ sed -n '1135,1145p' $F/gdromv3.cpp    # 6x u16 packet write
 sed -n '1041,1060p' $F/gdromv3.cpp    # 0x709c acks INTRQ, 0x7018 does not
 sed -n '83,98p'  ../cleopatra/tools/kos/kernel/arch/dreamcast/hardware/g1ata.c
 ```
+
+---
+
+## First DC boot — GDI mastering + raw-ATA proof (Task 8)
+
+**Question (task brief `task-8-brief.md`):** master the B5 donor-clone GDI for
+senkosp and boot it in Flycast's DC profile — the first bootable disc for
+this project, and the first emulator proof of the whole Phase 4 stack (KOS
+loader → raw-ATA rehearsal → halt).
+
+### GDI mastering — `scripts/make_gdi.py`
+
+Adapted from `../cleopatra/scripts/make_gdi.py` byte-for-byte except the
+brief's deltas: cart source `senkosp.dat` (asserted `len == 251342848`),
+IP.BIN `IP_PRODUCT="T-SRS001M"` / `IP_TITLE="SENKO NO RONDE SPECIAL"` /
+`IP_DATE="20260822"` / `IP_COMPANY` unchanged (`"SEGA LC-T-99"`, fan-port
+convention), track04 = loader zero-padded to the donor's 3,538,944 B boot
+region + `senkosp.dat`. The B5 max-clone structure itself (tracks 1–3 +
+`disc.gdi` = donor Dolphin Blue, verbatim) is untouched.
+
+**Finding — `CART_SIZE` was wrong in `shims/include/shim_iface.h`.** The
+cross-check this script inherits from Cleopatra (`assert _csz == CART_SIZE`,
+comparing the script's own `CART_SIZE` against the value parsed out of the
+shim header) caught a real bug on the first `make gdi` run: the header had
+`#define CART_SIZE 0x0efb0000` with a comment claiming
+`/* 251,342,848 = len(senkosp.dat) */` — but `0x0efb0000` = 251,330,560, not
+251,342,848 (`python3 -c "print(0x0efb0000)"` → `251330560`; `stat -f%z
+senkosp.dat` → `251342848`; diff `0x3000` = 12,288 B). The correct hex is
+`0x0efb3000`. Fixed in `shims/include/shim_iface.h` and the matching literal
+in `shims/test/test_shim_iface.c`'s self-test; `make test` re-run green
+after the fix. This is exactly the failure mode the cross-check exists to
+catch (its own comment: "a donor swap or header edit could master the cart
+at one FAD while the shim streams from another, with no error at any build
+stage") — caught before any boot attempt, not diagnosed after one. The bug
+was functionally inert until now: the only reader of `CART_SIZE` is
+`gd_read_cart`'s range check (site 8), which is compiled out of the loader
+build (`GD_LOADER_BUILD`), so it never affected Task 6/7's builds or tests.
+
+**Donor:** `[GDI] Dolphin Blue.7z` copied from `../cleopatra/` to the repo
+root (44 MB, gitignored — `*.7z` added to `.gitignore`; `git check-ignore -v`
+confirms). Extraction is cached in `build/donor/` by `make_gdi.py` itself
+(`/opt/homebrew/bin/7zz`, same as Cleopatra's recipe).
+
+**Build:** `make gdi` (new top-level target: `loader` then
+`python3 scripts/make_gdi.py`). Exit 0, asserts passing:
+
+```
+$ make gdi
+...
+note: 0GDTEX.png absent -> disc art stays the donor's (Dolphin Blue)
+OK disc.gdi (B5 max-clone: tracks 1-3 + gdi = donor verbatim; track4 = loader + cart at LBA 451728 / FAD 451878)
+```
+
+**Determinism** — run twice from clean (`rm build/{disc.gdi,track0{1,2,3,4}.*}`
+between runs), md5 identical both times, and identical again across two more
+runs made later in this task (four runs total, same source):
+
+```
+MD5 (build/disc.gdi)   = c527f1ec937b56caa65084d436f8c0a0
+MD5 (build/track01.iso) = 681fa4c8daa058ce2df8ea1b604d6e91
+MD5 (build/track02.raw) = 03c796f60db2e9ef0b65a42a47a9d321
+MD5 (build/track03.iso) = b05c578ec5bbe6e39731848b99df73e8
+MD5 (build/track04.iso) = f34602293d259cf68237e1cc4a46aae6
+```
+
+### Boot result — **raw-ATA verified**
+
+`scripts/capture_dc_leg.sh phase4/loader-alive` (brief's exact command, the
+committed release build — `LOADER_SERIAL=0`, no guest serial output by
+design) against the mastered `build/disc.gdi`, Flycast's **DREAMCAST**
+profile (no Naomi ROM argument — the `.gdi` path is the CLI argument).
+`captures/phase4/loader-alive.log` (cartlog, 140,562 lines) shows continuous
+`MDODMA` background maple-poll activity for the whole run with no gap and no
+`SHIMWATCH2`/error tag — the guest CPU never stalls. The release build is
+silent on serial by design (`LOADER_SERIAL=0` kill-switch,
+`loader/main.c`), so this leg alone does not show the loader's own text.
+
+**Definitive text proof — diagnostic leg.** Per the debug-loop protocol
+(get unambiguous evidence before concluding), `LOADER_SERIAL` was flipped to
+`1` **temporarily** (`loader/main.c`, the code's own documented debug
+switch), rebuilt, remastered, and booted twice
+(`captures/phase4/loader-alive-diag.stdout.log`,
+`captures/phase4/loader-alive-shot2.stdout.log` — two independent captures,
+identical result). Flycast's `Debug.SerialConsoleEnabled = yes`
+(`~/Library/Application Support/Flycast/emu.cfg`, already set) forwards
+guest SCIF to Flycast's stdout. Both captures show the full success sequence
+verbatim, in program order, with no error line before or after:
+
+```
+SENKOSP LOADER PHASE4 TASK6
+GD init OK
+cart read OK (KOS)
+cart read OK (raw ATA)
+patches OK
+```
+
+Tracing `loader/main.c` (Task 6/7's code, unchanged by this task): `"cart
+read OK (KOS)"` only prints if `cdrom_read_sectors` succeeded and the image
+starts `"NAOMI"`; `"cart read OK (raw ATA)"` only prints if
+`gd_read_fad(CART_FAD, rawbuf, 1)` returned `0` **and**
+`memcmp(rawbuf, stage, 2048) == 0` — i.e. the raw-ATA driver's read matches
+KOS's own read of the same sector, byte for byte. This is the Task 7 driver's
+first end-to-end proof (its own report, §8, named this exact test as the
+open item). `"patches OK"` is unconditional (`PATCH_COUNT == 0`, Task 6
+stub) and is unconditionally followed by
+`halt("PHASE4 TASK6: loader alive, image verified")` — the `#if 0` block
+between them never compiles in, so reaching `"patches OK"` on serial
+**guarantees** that exact halt call ran next; no other code path exists.
+`LOADER_SERIAL` was reverted to `0` and the loader/GDI rebuilt before the
+final commit (`git diff loader/main.c` → empty; md5s above are the
+**release**-build artifacts).
+
+**Screenshot — `docs/kb/img/phase4-loader-alive.png`.** Two capture
+mechanisms were tried; both hit environment-level limits in this session,
+documented here so a future run knows what to expect:
+
+- `screencapture -x` (the brief's specified method): `could not create image
+  from display`, exit 1/2, reproducible even with the sandbox disabled — a
+  macOS Screen Recording TCC permission this session's controlling process
+  does not hold (a human must grant it in System Settings; out of this
+  agent's reach).
+- `FLYCAST_SHOT`/`kill -USR1` (`tools/flycast-src/core/ui/gui.cpp:508-545`,
+  documented in this file's §Instrumented Flycast — built specifically to
+  need no TCC permission, reading the GL/Vulkan offscreen framebuffer
+  directly): produced a flat, unchanging mid-grey 9.6 KB PNG at first,
+  identical byte-for-byte in content to a **control-test** capture of
+  `../cleopatra/build/disc.gdi` (Cleopatra's own real-HW-verified disc)
+  taken the same way — proving the flatness was the capture path stalling in
+  this session, not this disc/loader (the debug-loop protocol's "control
+  test to split my artifact from the process," applied to the screenshot
+  tooling rather than the GDI itself, since the GDI's own control test
+  (booting) was never in question here). Longer waits (up to several
+  minutes) showed the render/present pipeline **is** alive but severely
+  throttled for this backgrounded/occluded window — it delivered a handful
+  of real frames (Flycast's own DC "swirl" boot animation, then its NAOMI
+  license-screen animation, both frames confirmed non-grey and content-
+  correct) over roughly two minutes, then stalled again. One captured frame
+  lands mid-tear: the top of the framebuffer already solid red (our
+  `halt()`'s pixel-fill loop, `loader/main.c`) with the previous frame's
+  NAOMI logo still visible in the untouched bottom portion — captured from
+  `loader-alive-shot2`, the same run whose stdout log (quoted above) shows
+  the full success sequence through `"patches OK"` immediately before this
+  frame. The committed PNG is this frame: genuine captured pixels, not
+  fabricated, showing the halt screen's red fill actively in progress,
+  time-correlated with the serial proof of the same run. A fully painted,
+  static red+text frame was not obtained despite an extended wait and one
+  `open -a`-triggered re-activation attempt — the render pipeline did not
+  advance again afterward in the time available.
+
+### Verdict
+
+**Raw-ATA GD driver verified end-to-end on Flycast's DREAMCAST profile.**
+KOS's `cdrom_read_sectors` and Task 7's `gd_read_fad` independently read the
+same sector at `CART_FAD` and agree byte-for-byte; the loader reached its
+Task 6/7 halt with no failure at any of the eight `gd.c` sites
+(`docs/kb/phase4-conversion.md` §GD driver, §Failure sites). No driver code
+was touched by this task — the only source fix was the `CART_SIZE` header
+typo above, caught by `make_gdi.py`'s own cross-check before boot.
+
+**Reproduction:**
+```
+make gdi
+scripts/capture_dc_leg.sh phase4/loader-alive & sleep 90; pkill -9 -f "flycast-src.*Flycast"
+grep -c MDODMA captures/phase4/loader-alive.log   # continuous background activity, no gap
+```
+For the text proof (temporary diagnostic only — do not commit with
+`LOADER_SERIAL=1`): flip `loader/main.c`'s `LOADER_SERIAL` to `1`, `make gdi`,
+capture, `grep -E "cart read OK|PHASE4|FAIL|ABORT|MISMATCH"
+captures/phase4/<leg>.stdout.log`, then revert and rebuild.
