@@ -3,7 +3,7 @@
 map (+ above-16m flags), region write-truth, and device verdicts.
 
 Adapted from ../cleopatra/scripts/parse_cart_log.py. Line formats are ground
-truth from the instrumented fork (../flycast4naomi2dreamcast @ f014a410c):
+truth from the instrumented fork (../flycast4naomi2dreamcast @ 0166c5b77):
   CARTDMA src=%08x dest=%08x len=%x          core/hw/naomi/naomi.cpp
   CARTPIO offset=%08x                        core/hw/naomi/naomi_cart.cpp:1020
   CARTPIOCNT bytes=%llx                      cumulative PIO bytes, per ~10 s sample
@@ -21,7 +21,17 @@ truth from the instrumented fork (../flycast4naomi2dreamcast @ f014a410c):
   JVSREPORT buttons=%04x                     maple_jvs.cpp:2241 (P1 digital word)
   HW[RW] pc=%08x addr=%08x val=%08x          addrspace.cpp:136 (game-code MMIO)
   CARTDMAPC pc=%08x sp=%08x                  naomi.cpp:468-470, follows CARTDMA
-  MAPLEPC cmd=86 sub=%02x pc=%08x            maple_if.cpp caller PC, Phase 3
+  MAPLEPC cmd=86 sub=%02x pc=%08x trig=%s sp=%08x   maple_jvs.cpp caller PC + r15 +
+                                              DoDma trigger ("reg" guest SB_MDST store,
+                                              attributable; "vbl" hardware vblank
+                                              trigger, not), Phase 3/4
+  SPWATER min=%08x max=%08x                  naomi.cpp, r15 water-mark across maple
+                                              transactions (MDODMA/MAPLEPC), ~10s cadence,
+                                              Phase 4. Whole-run aggregate — may include
+                                              activity from unidentified call sites outside
+                                              any confirmed function; not load-bearing for
+                                              sp_consistent (see pc_checks), kept for
+                                              diagnostics/summary.
   BIOSEXEC pc=%08x                           PC observed executing in BIOS window
 
 Usage:
@@ -66,7 +76,12 @@ _MIE = re.compile(r"^MIERESP sub=([0-9a-f]+) addr=([0-9a-f]+) data=([0-9a-f]*)",
 _JVS = re.compile(r"^JVSREPORT buttons=([0-9a-f]+)", re.I)
 _HW = re.compile(r"^HW([A-Z]) pc=([0-9a-f]+) addr=([0-9a-f]+) val=([0-9a-f]+)", re.I)
 _DMAPC = re.compile(r"^CARTDMAPC pc=([0-9a-f]+) sp=([0-9a-f]+)", re.I)
-_MPC = re.compile(r"^MAPLEPC cmd=86 sub=([0-9a-f]+) pc=([0-9a-f]+)", re.I)
+# trig=/sp= are optional so pre-Phase-4 logs (no trigger tag, no SP) still
+# parse; missing trig groups to "?", not "reg" — an untagged line must never
+# silently count as an attributable one.
+_MPC = re.compile(
+    r"^MAPLEPC cmd=86 sub=([0-9a-f]+) pc=([0-9a-f]+)(?: trig=(\w+))?(?: sp=([0-9a-f]+))?", re.I)
+_SPWATER = re.compile(r"^SPWATER min=([0-9a-f]+) max=([0-9a-f]+)", re.I)
 _BIOS = re.compile(r"^BIOSEXEC pc=([0-9a-f]+)", re.I)
 _SOFWR = re.compile(r"^SOFWR (\w+) val=([0-9a-f]+)", re.I)
 
@@ -92,7 +107,8 @@ def parse_leg(name, text):
     leg = {"name": name, "dma": [], "pio": set(), "pio_bytes": 0, "wm": {},
            "prof": {}, "hist": {}, "regs": None, "vramregs": [], "serial": [],
            "mie": [], "jvs": [], "hw": {}, "dmapc": [], "pcpairs": [],
-           "maplepc": [], "biosexec": [], "sofwr": collections.Counter()}
+           "maplepc": [], "biosexec": [], "sofwr": collections.Counter(),
+           "spwater": None}
     for line in text.splitlines():
         m = _DMA.match(line)
         if m:
@@ -165,7 +181,17 @@ def parse_leg(name, text):
             continue
         m = _MPC.match(line)
         if m:
-            leg["maplepc"].append((int(m.group(1), 16), int(m.group(2), 16)))
+            leg["maplepc"].append((int(m.group(1), 16), int(m.group(2), 16),
+                                   m.group(3) or "?",
+                                   int(m.group(4), 16) if m.group(4) else None))
+            continue
+        m = _SPWATER.match(line)
+        if m:
+            lo, hi = int(m.group(1), 16), int(m.group(2), 16)
+            if leg["spwater"] is None:
+                leg["spwater"] = (lo, hi)
+            else:
+                leg["spwater"] = (min(leg["spwater"][0], lo), max(leg["spwater"][1], hi))
             continue
         m = _BIOS.match(line)
         if m:
@@ -251,6 +277,31 @@ def _bios_check(legs):
     return ("no_bios_exec", not bios, f"{len(bios)} BIOSEXEC lines (expect 0)")
 
 
+# boot-binary.md "SP — two stacks, not one" / "Why three checks cannot pass
+# as written": maple_DoDma() has two callers — a guest SB_MDST store (trig=
+# reg, Sh4cntx.pc is the attributable call-site PC) and the hardware vblank
+# trigger (trig=vbl, Sh4cntx.pc is just wherever the main loop was that tick).
+# Only trig=reg lines carry a PC worth checking against a function range.
+#
+# TASK_SP_FLOOR / sp_consistent provenance (Phase 4 Task 1 fork-probe capture,
+# captures/phase4/pc2.log, cross-checked against a 45s per-event-sp diagnostic
+# capture — docs/kb/boot-binary.md §SP water-mark, Task 1 follow-up): a naive
+# whole-run SPWATER aggregate does NOT cleanly bound the task cluster — it is
+# dragged down by an unidentified additional PC family (phys ~0x0c0316xx-
+# 0x0c0320xx, all trig=reg) running at SP ~0x0cbffdc4-0x0cbfff9c, a THIRD
+# region distinct from both confirmed stacks. Per-PC correlation (same
+# diagnostic capture) shows the CONFIRMED input/eeprom function
+# (FUN_8c02532a, pc=8c025448) samples at a constant sp=8c1d4a1c, and the
+# CONFIRMED boot-time device-scan function (FUN_8c0665fe, pc=8c066728 et al.)
+# samples inside the confirmed boot-stack range (0x8c00efa4-0x8c00efd8) — so
+# the sound floor check is the one scoped to events already independently
+# confirmed by input_pc_in_input_fn/eeprom_*_seen (trig=reg, pc in
+# input_fn/eeprom_fn), not the unscoped SPWATER min. SPWATER itself is still
+# emitted/parsed (kept for diagnostics — see the SPWATER docstring entry
+# above) but is not load-bearing here.
+TASK_SP_FLOOR = 0x8c1c0000   # second-stack floor; boot-binary.md §SP, Task 10 resolution
+
+
 def pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack):
     out = [_bios_check(legs)]
     dmapc = [p for l in legs for p, _ in l["dmapc"]]
@@ -258,21 +309,35 @@ def pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack):
         out.append(("dma_pc_in_cart_fn", all(_in(cart_fn, p) for p in dmapc),
                     f"{len(dmapc)} DMA-kick PCs vs cart fn"))
     if input_fn:
-        pcs = [p for l in legs for s, p in l["maplepc"] if s == 0x15]
+        pcs = [p for l in legs for s, p, trig, _ in l["maplepc"] if s == 0x15 and trig == "reg"]
         out.append(("input_pc_in_input_fn", bool(pcs) and all(_in(input_fn, p) for p in pcs),
-                    f"{len(pcs)} sub=15 PCs vs input fn"))
+                    f"{len(pcs)} sub=15 trig=reg PCs vs input fn"))
     if eeprom_fn:
-        rd = [p for l in legs for s, p in l["maplepc"] if s in (0x01, 0x03)]
-        wr = [p for l in legs for s, p in l["maplepc"] if s == 0x0b]
+        rd = [p for l in legs for s, p, trig, _ in l["maplepc"] if s in (0x01, 0x03) and trig == "reg"]
+        wr = [p for l in legs for s, p, trig, _ in l["maplepc"] if s == 0x0b and trig == "reg"]
         out.append(("eeprom_read_seen", bool(rd) and all(_in(eeprom_fn, p) for p in rd),
-                    f"{len(rd)} sub=01/03 PCs vs eeprom fn"))
+                    f"{len(rd)} sub=01/03 trig=reg PCs vs eeprom fn"))
         out.append(("eeprom_write_seen", bool(wr) and all(_in(eeprom_fn, p) for p in wr),
-                    f"{len(wr)} sub=0b PCs vs eeprom fn"))
+                    f"{len(wr)} sub=0b trig=reg PCs vs eeprom fn"))
+    # sp_consistent: two-stack model (boot-binary.md §SP). Boot cluster = dmapc
+    # SPs (CARTDMAPC, cart-kick events) below the task-stack floor; must sit in
+    # the static stack region. Task cluster = SPs sampled at trig=reg MAPLEPC
+    # events whose PC is already confirmed by input_fn/eeprom_fn (see provenance
+    # note above) — its floor must never dip below TASK_SP_FLOOR.
     sps = [sp for l in legs for _, sp in l["dmapc"]]
     if sps:
         if stack:
-            ok = all(_in(stack, sp) for sp in sps)
-            det = f"{len(sps)} SPs vs static stack region"
+            boot_sps = [sp for sp in sps if sp < TASK_SP_FLOOR]
+            fn_ranges = (input_fn or []) + (eeprom_fn or [])
+            task_sps = [sp for l in legs for s, p, trig, sp in l["maplepc"]
+                       if trig == "reg" and sp is not None and _in(fn_ranges, p)]
+            task_min = min(task_sps) if task_sps else None
+            ok = (bool(boot_sps) and all(_in(stack, sp) for sp in boot_sps)
+                  and task_min is not None and task_min >= TASK_SP_FLOOR)
+            det = (f"{len(boot_sps)} boot-cluster SPs vs {stack}; "
+                   f"{len(task_sps)} task-cluster (fn-confirmed) SPs, min="
+                   + (f"0x{task_min:x}" if task_min is not None else "(none)")
+                   + f" vs floor 0x{TASK_SP_FLOOR:x}")
         else:
             ok = max(sps) - min(sps) < 0x100000
             det = f"SP spread {max(sps) - min(sps):#x} (< 1 MB heuristic)"

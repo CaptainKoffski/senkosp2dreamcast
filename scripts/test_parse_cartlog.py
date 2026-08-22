@@ -114,15 +114,30 @@ with tempfile.TemporaryDirectory() as d:
     assert lines[0] == "leg,cart_offset,length,dest,mode,above_16m"
     assert "attract,0x00200000,0x7520,0x0dfe0000,DMA,1" in lines
 
-# PC layer: CARTDMAPC/MAPLEPC/BIOSEXEC lines + pc_checks() + --pc-report join
+# PC layer: CARTDMAPC/MAPLEPC/SPWATER/BIOSEXEC lines + pc_checks() +
+# --pc-report join. dmapc SPs model the boot cluster (below the task-stack
+# floor). MAPLEPC lines carry both trig= values — one trig=reg per
+# subcommand at the real (fn-confirmed) call site, plus a trig=vbl
+# artifact-PC line for sub=15/0x0b to prove the filter actually excludes
+# vblank-triggered lines rather than just tolerating the field's presence.
+# sp= values model the real capture's finding (docs/kb/boot-binary.md §SP
+# water-mark, Task 1 follow-up): the fn-confirmed call site samples a
+# constant SP above the task-stack floor (8c1d4a1c); the artifact PC samples
+# a third, unrelated low region (0cbffdc4) that must NOT be allowed to drag
+# the task-cluster floor check down — hence sp_consistent is scoped to
+# trig=reg AND fn-confirmed PCs only, not a blind aggregate. SPWATER is
+# still emitted/parsed (diagnostic) but intentionally not load-bearing.
 PCLEG = """\
 CARTDMA src=00200000 dest=0dfe0000 len=7520
-CARTDMAPC pc=8c03bd28 sp=8cffff00
+CARTDMAPC pc=8c03bd28 sp=8c00ee00
 CARTDMA src=00300000 dest=0d244c20 len=100
-CARTDMAPC pc=8c03bd30 sp=8cfffef0
-MAPLEPC cmd=86 sub=15 pc=8c031600
-MAPLEPC cmd=86 sub=01 pc=8c032000
-MAPLEPC cmd=86 sub=0b pc=8c032100
+CARTDMAPC pc=8c03bd30 sp=8c00ee38
+MAPLEPC cmd=86 sub=15 pc=8c031600 trig=reg sp=8c1d4a1c
+MAPLEPC cmd=86 sub=15 pc=0c03161e trig=vbl sp=0cbffdc4
+MAPLEPC cmd=86 sub=01 pc=8c032000 trig=reg sp=8c1d4a1c
+MAPLEPC cmd=86 sub=0b pc=8c032100 trig=reg sp=8c1d4a1c
+MAPLEPC cmd=86 sub=0b pc=0c03161e trig=vbl sp=0cbffdc4
+SPWATER min=0cbffdc4 max=8c1d4a1c
 """
 
 legs = [P.parse_leg("pc", PCLEG)]
@@ -131,7 +146,7 @@ cks = dict((n, ok) for n, ok, _ in P.pc_checks(
     cart_fn=[(0x8C03BD00, 0x8C03BE00)],
     input_fn=[(0x8C031000, 0x8C031FFF)],
     eeprom_fn=[(0x8C032000, 0x8C032200)],
-    stack=[(0x8CFF0000, 0x8D000000)]))
+    stack=[(0x8C000000, 0x8C00F000)]))
 assert cks == {"no_bios_exec": True, "dma_pc_in_cart_fn": True,
                "input_pc_in_input_fn": True, "eeprom_read_seen": True,
                "eeprom_write_seen": True, "sp_consistent": True}, cks
@@ -147,10 +162,42 @@ bad = [P.parse_leg("pc", PCLEG + "BIOSEXEC pc=8c000100\n")]
 cks = dict((n, ok) for n, ok, _ in P.pc_checks(bad, None, None, None, None))
 assert cks["no_bios_exec"] is False
 
-# SP outside the static stack region fails sp_consistent
+# boot-cluster SP outside the static stack region fails sp_consistent (fn
+# ranges given so the task-cluster half is isolated as the passing half).
 cks = dict((n, ok) for n, ok, _ in P.pc_checks(
-    legs, None, None, None, stack=[(0x8C000000, 0x8C100000)]))
+    legs, None,
+    input_fn=[(0x8C031000, 0x8C031FFF)], eeprom_fn=[(0x8C032000, 0x8C032200)],
+    stack=[(0x8C010000, 0x8C100000)]))
 assert cks["sp_consistent"] is False
+
+# trig=vbl-only MAPLEPC lines never satisfy a check on their own — remove the
+# trig=reg sub=0b line and only the artifact-PC trig=vbl one remains; that
+# must NOT be enough to pass eeprom_write_seen (proves the filter is load-
+# bearing, not just present).
+NO_REG_WRITE = PCLEG.replace("MAPLEPC cmd=86 sub=0b pc=8c032100 trig=reg sp=8c1d4a1c\n", "")
+legs_noreg = [P.parse_leg("pc", NO_REG_WRITE)]
+cks_noreg = dict((n, ok) for n, ok, _ in P.pc_checks(
+    legs_noreg, cart_fn=None, input_fn=None,
+    eeprom_fn=[(0x8C032000, 0x8C032200)], stack=None))
+assert cks_noreg["eeprom_write_seen"] is False, cks_noreg
+
+# no function range given at all -> the task cluster can't be confirmed ->
+# sp_consistent fails even though the boot cluster alone looks fine.
+cks_notask = dict((n, ok) for n, ok, _ in P.pc_checks(
+    legs, None, None, None, stack=[(0x8C000000, 0x8C00F000)]))
+assert cks_notask["sp_consistent"] is False, cks_notask
+
+# task-cluster SP below the floor -> sp_consistent fails (the measured
+# second stack would be encroaching on the image/BSS region). Lowering all
+# three fn-confirmed sp= values (not the artifact-PC ones, which are already
+# excluded by the trig=reg+fn filter) is what should trip this.
+LOW_TASK_SP = PCLEG.replace("sp=8c1d4a1c", "sp=8c1bffff")
+legs_lowtask = [P.parse_leg("pc", LOW_TASK_SP)]
+cks_lowtask = dict((n, ok) for n, ok, _ in P.pc_checks(
+    legs_lowtask, None,
+    input_fn=[(0x8C031000, 0x8C031FFF)], eeprom_fn=[(0x8C032000, 0x8C032200)],
+    stack=[(0x8C000000, 0x8C00F000)]))
+assert cks_lowtask["sp_consistent"] is False, cks_lowtask
 
 # no PC lines at all -> no dmapc-derived checks fire (Phase 2 legs untouched)
 cks = dict((n, ok) for n, ok, _ in P.pc_checks(
@@ -162,8 +209,8 @@ assert "sp_consistent" not in cks          # no dmapc lines -> heuristic/region 
 
 # pcpairs: CARTDMAPC attaches to the immediately preceding CARTDMA
 assert legs[0]["pcpairs"] == [
-    (0x00200000, 0x0dfe0000, 0x7520, 0x8c03bd28, 0x8cffff00),
-    (0x00300000, 0x0d244c20, 0x100, 0x8c03bd30, 0x8cfffef0),
+    (0x00200000, 0x0dfe0000, 0x7520, 0x8c03bd28, 0x8c00ee00),
+    (0x00300000, 0x0d244c20, 0x100, 0x8c03bd30, 0x8c00ee38),
 ]
 
 # --pc-report: merged/deduped on the printed (dest, pc, sp) triple, not raw
@@ -172,8 +219,8 @@ assert legs[0]["pcpairs"] == [
 dup_legs = [P.parse_leg("pc1", PCLEG), P.parse_leg("pc2", PCLEG)]
 rep_lines = P.pc_report(dup_legs).splitlines()
 assert rep_lines == [
-    "PCPAIR dest=0dfe0000 pc=8c03bd28 sp=8cffff00",
-    "PCPAIR dest=0d244c20 pc=8c03bd30 sp=8cfffef0",
+    "PCPAIR dest=0dfe0000 pc=8c03bd28 sp=8c00ee00",
+    "PCPAIR dest=0d244c20 pc=8c03bd30 sp=8c00ee38",
 ], rep_lines
 
 print("OK pc_checks self-check")

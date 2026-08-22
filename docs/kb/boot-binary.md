@@ -1044,6 +1044,17 @@ has seen an EEPROM write at all, and worth having — but every one of them
 carries `0c03161e`, the artifact PC. This leg therefore proves the write
 *happens* and says nothing about *where the game issues it from*.
 
+**2026-08-22 update (Phase 4 Task 1):** `0c03161e` is confirmed `trig=reg` —
+a real guest store, not the unattributable vblank artifact this doc
+originally guessed (§Why three checks cannot pass as written, addendum
+above) — but the call site's *function* is still unidentified, so the write
+site remains unnamed. `captures/phase4/pc2.log` (unattended boot→attract,
+this task's leg) adds no new write evidence: zero sub-`0x0b` events, of
+either trigger — attract-mode bookkeeping never touches the EEPROM. Closing
+this needs both a repeat operator test-menu leg (to re-observe the write
+under the trig-tagged fork) and static identification of the
+`0c03161e`-region function (see the addendum above) — neither done here.
+
 ### `MDODMA` — the wider maple probe, and the boot-time driver it reveals
 
 `MAPLEPC` fires only inside `MIEImpl::handle_86_subcommand()`, i.e. only for
@@ -1136,6 +1147,61 @@ not escape it either — it samples the same `Sh4cntx.pc` (0 mismatches over
 > which *is* a confirmed guest store — strong enough for Task 10 — and the
 > EEPROM-write call site stays unknown.
 
+### Addendum 2026-08-22 — Phase 4 Task 1: the fix shipped, and the vblank
+### theory it tested turns out to be wrong
+
+The fork now tags every `maple_DoDma()` transaction with `trig=reg` (guest
+`SB_MDST` store, via `maple_SB_MDST_Write()`) or `trig=vbl` (hardware vblank
+trigger, via `maple_vblank()`, `SB_MDTSEL==1`) —
+`../flycast4naomi2dreamcast@0d55a1812`, `core/hw/maple/maple_if.cpp` /
+`maple_jvs.cpp`. Re-captured `captures/phase4/pc2.log` (boot→attract, ~300s,
+interpreter-only): **every single maple transaction is `trig=reg`** — 17 445/
+17 445 `MDODMA enter` lines, 16 567/16 567 `MAPLEPC` lines, zero `trig=vbl`
+anywhere.
+
+**This falsifies the theory above, not just the check.** The 00-status.md
+FAIL reason ("the transactions they filter are vblank-triggered, `SB_MDTSEL
+== 1`") and this doc's own P0/P1 "vblank trigger" column (§`MDODMA` table)
+were both an *inference* from PC-pattern (no store found at `pc-2`), never a
+measurement of which function called `maple_DoDma()`. The fork now measures
+it directly, and `maple_vblank()`'s `SB_MDTSEL==1` branch is **never taken**
+in this leg. senkosp does not use the hardware vblank maple trigger at all.
+
+**So what *is* the artifact-PC cluster (`0c03161e`, and five sibling PCs in
+the `MDODMA` table)?** Still a genuine guest register store — just from a
+call site this project has not identified. `MAPLEPC`'s narrower cmd=`0x86`
+filter shows exactly one such PC, `0c03161e` (physical offset ≈0x03161e,
+~3 MB into the 32 MB window — not `FUN_8c0665fe`'s ≈0x0665fe, so not the
+already-known boot-time device-scan function either): 745 events, subs `01`×1
+`03`×1 `13`×1 `15`×369 `17`×9 `21`×3 `27`×360 `31`×1. **This is a second,
+uncharacterized maple-triggering function**, disjoint from confirmed
+`FUN_8c02532a` (`0x8c02532a`-`0x8c025505`), and identifying it needs new
+static (Ghidra) analysis — out of Task 1's scope (fork probe only), carried
+below as an open item.
+
+**Consequence for the three PC-range checks:** `trig=reg` filtering is
+therefore a no-op on this leg (nothing was ever `trig=vbl` to exclude), and
+`input_pc_in_input_fn` / `eeprom_read_seen` still FAIL against
+`FUN_8c02532a`'s range — not because of an unattributable vblank artifact
+(that theory is dead), but because a second, real, `trig=reg` call site
+sits outside it. Widening `input_fn`/`eeprom_fn` to cover `0c03161e` without
+static confirmation of what function it is would be an unjustified range
+(the same mistake §Candidates already warns against). **Open item for a
+follow-up task:** disassemble physical ≈`0x03161e`-`0x032100` (P1 mirror
+≈`0x8c03161e`-`0x8c032100`) and determine whether it is a legitimate second
+input/EEPROM path or a distinct subsystem that happens to share the MIE.
+
+**`eeprom_write_seen` — still zero evidence, unattended.** `pc2.log` (boot→
+attract, no operator input) carries **zero** sub-`0x0b` `MAPLEPC` lines of
+either trigger — attract-mode bookkeeping does not touch the EEPROM in this
+leg. Phase 3's 16 observed writes came only from an operator's test-menu
+visit, and all 16 landed on the same artifact PC now known to be `trig=reg`
+from the uncharacterized second function above — so even a repeat operator
+leg is likely to reproduce "write happens, call site still unidentified"
+rather than newly confirm `FUN_8c02532a`. The operator leg
+(`phase4/pc2-testmenu`) is still the documented next step, but expectations
+are revised accordingly.
+
 ### SP — two stacks, not one
 
 672 logged SPs, in two disjoint clusters:
@@ -1180,6 +1246,46 @@ exact base the game's heap is created with (`docs/kb/relocation-map.md`
 §Provenance). The free-space consequence: everything below `0x8c1de200` is
 image/BSS (reserved wholesale), everything above is the heap — no separate
 reservation window around `0x8c1d4984` is needed.
+
+### Addendum 2026-08-22 — Phase 4 Task 1: the `r15` water-mark probe, measured
+
+The fork now samples `Sh4cntx.r[15]` at every maple transaction and prints it
+per-event (`MDODMA`/`MAPLEPC` `sp=`) plus a running whole-run low/high-water
+mark (`SPWATER min=.. max=..`, ~10s cadence) —
+`../flycast4naomi2dreamcast@0d55a1812`. First attempt used the whole-run
+`SPWATER` aggregate as the pass/fail signal per the Task 1 plan; **that
+aggregate does not cleanly bound the task cluster** — its `min` is dragged
+down to `~0x0cbffdc4` by the same uncharacterized second call-site family
+from §Why three checks cannot pass as written (physical ≈`0x03161e`), which
+turns out to run at a *third*, previously-unseen low-SP region, disjoint from
+both confirmed stacks. Per-PC correlation (`MDODMA`'s new `sp=` field, a 45s
+diagnostic capture) makes this unambiguous:
+
+| PC (P1/P0) | Function | Events | SP |
+| --- | --- | --- | --- |
+| `8c025448` | `FUN_8c02532a` (confirmed input/EEPROM path) | 848 | constant `8c1d4a1c` |
+| `8c066728` (+4 siblings) | `FUN_8c0665fe` (confirmed boot device-scan) | 345 | `8c00efa4`-`8c00efd8` (inside the confirmed boot-stack region) |
+| `0c03161e` (+5 siblings) | *unidentified* | 748 | `0cbffdc4`-`0cbfff9c` (neither known stack) |
+
+So the two **confirmed** functions land exactly where the static model says
+(task stack, boot stack); the *unidentified* function is what pollutes a
+blind aggregate. `scripts/parse_cartlog.py`'s `sp_consistent` was therefore
+built on per-event, PC-correlated data — task-cluster SP = `trig=reg` samples
+whose PC is already confirmed by `input_fn`/`eeprom_fn` — not the raw
+`SPWATER` min. Against `captures/phase4/pc2.log`: **`sp_consistent` PASSes**
+(15 822 fn-confirmed task-cluster SPs, min `0x8c1d4a1c` ≥ the
+`0x8c1c0000` floor; 36 boot-cluster SPs, all inside
+`0x8c000000`-`0x8c00f000`). `SPWATER` itself is still emitted and parsed
+(`min=0x0cbffdc4 max=0x8c1d4a1c` for this leg) — kept as diagnostic evidence,
+not as the check's basis.
+
+**Consequence for Phase 4 RAM planning:** the unidentified third region sits
+at SP ≈`0x0cbffdc4`, i.e. physical offset ≈12.5 MB into the 32 MB Naomi
+window — comfortably inside the Dreamcast's 16 MB budget on its own, but
+until the function is identified its *actual stack depth* (not just this one
+sampled value) is unmeasured. Flag for whichever task does the DC RAM-budget
+accounting; not blocking here since `0x8c1d4b64`/`0x8c1de200` already bound
+the confirmed heap/stack layout independently of this region.
 
 ### `SOFWR` — Task 10 input, and its cap
 
@@ -1267,6 +1373,44 @@ second stack, which accounts for the fourth — not unresolved range errors. Bot
 work outside this repo (a fork probe change; an `r15` water-mark probe) before
 a green line is honest. **`tools/pc-parse.txt` is left in place regardless: the
 `PCPAIR` data it carries comes from the cart path, which is fully confirmed.**
+
+Run C — 2026-08-22, Phase 4 Task 1, trig=/sp=-tagged fork
+(`../flycast4naomi2dreamcast@0d55a1812`), same ranges as Run B, against the
+new leg `captures/phase4/pc2.log` (unattended boot→attract, ~300s,
+interpreter-only per the Phase 3 recipe):
+
+```
+python3 scripts/parse_cartlog.py captures/phase4/pc2.log \
+    --cart-fn 8c027f54-8c027f99 \
+    --input-fn 8c02532a-8c025505 --eeprom-fn 8c02532a-8c025505 \
+    --stack 8c000000-8c00f000 --pc-report          # exit=1
+```
+
+```
+CHECK dest_known: PASS — every DMA dest in a known window (main/vram/aram/ta); 0 outside
+CHECK len_aligned_32: PASS — every DMA len a whole number of 0x20-byte DMA_COUNT units
+CHECK beyond_boot_read: PASS — at least one cart read past the 1 MB boot region (runtime streaming)
+CHECK main_watermark_boot: PASS — main watermark 0x1ffffa5 >= boot-load end 0x191ff8
+CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)
+CHECK dma_pc_in_cart_fn: PASS — 83 DMA-kick PCs vs cart fn
+CHECK input_pc_in_input_fn: FAIL — 376 sub=15 trig=reg PCs vs input fn
+CHECK eeprom_read_seen: FAIL — 4 sub=01/03 trig=reg PCs vs eeprom fn
+CHECK eeprom_write_seen: FAIL — 0 sub=0b trig=reg PCs vs eeprom fn
+CHECK sp_consistent: PASS — 36 boot-cluster SPs vs [(2348810240, 2348871680)]; 15822 task-cluster (fn-confirmed) SPs, min=0x8c1d4a1c vs floor 0x8c1c0000
+```
+
+**One of four closes; three don't, for a newly precise reason (not the old
+one).** `sp_consistent` PASSes on real, per-PC-correlated evidence (§SP —
+two stacks, addendum above). `input_pc_in_input_fn` and `eeprom_read_seen`
+still FAIL, but the `trig=` tag *disproves* why this doc and 00-status.md
+both said they must fail (§Why three checks cannot pass as written,
+addendum above): every transaction here is `trig=reg`, so it is not a
+vblank-artifact-vs-store split any more — `FUN_8c02532a` and the
+uncharacterized `0c03161e`-region function are **both** real, attributable,
+register-triggered call sites, and only one of them is in the candidate
+range. `eeprom_write_seen` FAILs on an empty set: this leg is unattended
+attract-mode only and never touches the EEPROM (0 sub-`0x0b` lines of either
+trigger) — see §Target: EEPROM's 2026-08-22 update.
 
 ### Reconciliation ledger
 

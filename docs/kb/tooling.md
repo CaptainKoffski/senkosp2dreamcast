@@ -8,13 +8,34 @@ referenced, not duplicated — that file is part of this project's method.
 ### Instrumented Flycast (reused build)
 
 - **Binary:** `../cleopatra/tools/flycast-src/build/Flycast.app/Contents/MacOS/Flycast`
-  (Mach-O arm64), commit `f014a410c` — the same build the senkosp assessment
-  v9 capture used (`../naomi2dreamcast/assessments/senkosp.md` §1).
-- **Source of truth:** `../flycast4naomi2dreamcast` (fork), HEAD also
-  `f014a410c` (verified 2026-08-13) — the built copy is current. Phase 2
-  rebuilds only if it adds instrumentation; full build recipe (CMake 3.31.6
-  pin, DEVELOPER_DIR, ZLIB_TBD, Syphon patch): `../cleopatra/docs/kb/tooling.md`
+  (Mach-O arm64), commit `0d55a1812` (Phase 4 Task 1, rebuilt 2026-08-22 —
+  see below). Originally the same build the senkosp assessment v9 capture
+  used (`../naomi2dreamcast/assessments/senkosp.md` §1, then `f014a410c`).
+- **Source of truth:** `../flycast4naomi2dreamcast` (fork), HEAD `0d55a1812`
+  (Phase 4 Task 1, 2026-08-22) — the built copy is current. Phase 2 rebuilds
+  only if it adds instrumentation; full build recipe (CMake 3.31.6 pin,
+  DEVELOPER_DIR, ZLIB_TBD, Syphon patch): `../cleopatra/docs/kb/tooling.md`
   §"Flycast — source build".
+  **Note (2026-08-22):** `../cleopatra/tools/flycast-src` and
+  `../flycast4naomi2dreamcast` are two independent checkouts of the same
+  `origin` remote (`CaptainKoffski/flycast4naomi2dreamcast`) and can drift —
+  found 13 commits apart (Cleopatra-side instrumentation pushed directly
+  from the `flycast-src` checkout, never pulled into the standalone one).
+  Reconciled via `git stash` / fast-forward pull / `git stash pop` before
+  this task's edits landed; before any future fork edit, `git fetch && git
+  log --oneline HEAD..origin/master` in `flycast4naomi2dreamcast` to catch
+  this early. Commit in `flycast4naomi2dreamcast` (source of truth), push,
+  then `git pull --ff-only` in `flycast-src` before rebuilding — do not edit
+  `flycast-src` directly and leave it uncommitted.
+  **Phase 4 Task 1 fork commits:**
+  `0166c5b77` — maple `trig=` tag (`maple_SB_MDST_Write`→`reg`,
+  `maple_vblank`'s `SB_MDTSEL==1` branch→`vbl`) threaded into `MDODMA`/
+  `MAPLEPC`/`MIERESP`; `cartlog_sp_sample()`/`cartlog_sp_water()`
+  (`cartlog.cpp`, `SPWATER` emitted at the existing ~10s `cartlog_sample()`
+  tick). `0d55a1812` — follow-up: per-event `sp=` on `MDODMA`/`MAPLEPC`
+  lines, added after the whole-run `SPWATER` aggregate proved unable to
+  separate the task-cluster floor from an unidentified third low-SP region
+  (`docs/kb/boot-binary.md` §SP — two stacks, addendum 2026-08-22).
 - **BIOS:** `~/Library/Application Support/Flycast/data/naomi.zip` already
   installed (verified 2026-08-13); source copy in this repo: `bios/naomi.zip`.
 - **Launch gotchas (macOS, every unattended run):**
@@ -507,3 +528,31 @@ Sizes/line counts verified 2026-08-22.
 Deleted by design: `captures/canary-*.log` (BIOSEXEC canaries, Task 6;
 `canary-snapshot` for the RAM snapshot, Task 10b). The canary class is the
 only deletable one — its result is recorded in this file instead.
+
+### Phase 4 leg inventory
+
+Phase 4 legs live under `captures/phase4/` (own subdirectory, same reason as
+`phase3/`: keeps `captures/*.log` from picking them up).
+
+| Leg | Lines | Size | What it is |
+|---|---|---|---|
+| `phase4/pc2.log` | 340,977 | 14 MB | **Task 1 PC-capture leg** — interpreter mode, unattended boot → attract, ~300s, against the `trig=`/`sp=`-tagged fork (`0d55a1812`). Zero `trig=vbl` observed (17,445/17,445 `MDODMA`, 16,567/16,567 `MAPLEPC` all `trig=reg`) and zero sub-`0x0b` EEPROM-write lines — attract-mode never touches the EEPROM. `docs/kb/boot-binary.md` §Check lines, verbatim, run C. |
+| `phase4/pc2-presp-diagnostic.log` | 339,341 | 14 MB | **Superseded, kept not deleted.** Same recipe as `pc2.log` but captured one fork commit earlier (`0166c5b77`, before the per-event `sp=` field existed on `MDODMA`/`MAPLEPC`) — `MAPLEPC`'s `trig=` data is identical/valid, but `sp=` is absent so it can't feed the PC-correlated `sp_consistent` check. Superseded by `pc2.log`; not deleted per the capture-file rule (primary data). |
+
+**Pending:** `phase4/pc2-testmenu` — an operator ~60s test-menu visit (Task 1
+step 4 / operator-leg rule), needed to re-observe an EEPROM write under the
+trig-tagged fork. Not yet captured — see `docs/kb/boot-binary.md` §Target:
+EEPROM's 2026-08-22 update and the Task 1 report for the exact command.
+
+A 45s scratchpad diagnostic capture (per-PC `MDODMA` `sp=` correlation,
+`docs/kb/boot-binary.md` §SP — two stacks addendum's table) was written
+outside `captures/` (session scratchpad, not primary data — its result is
+fully recorded in that table) and is not part of this inventory.
+
+### Dynarec toggle — restore after an interpreter-only leg
+
+`~/Library/Application Support/Flycast/emu.cfg` line ~39,
+`Dynarec.Enabled`. Interpreter-only probes (PC-exact `Sh4cntx.pc`/`r[15]`
+sampling — Task 9's precedent, reused for Task 1) need `= no`; **restore
+`= yes` after** — later legs depend on it. Verified restored 2026-08-22
+after Task 1's captures.

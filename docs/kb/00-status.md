@@ -92,31 +92,46 @@ and 6 are `[x]`, unqualified.
       call site (target 6 — observed 16×, PC unattributable by two
       independent probes) and the second stack's *extent* (target 7 — bounded
       to static BSS, not measured).
-- [~] **2 — Parser cross-checks on the PC-capture leg: 6 of 10 PASS**
-      (re-run 2026-08-22 against `captures/phase3/pc.log`, reproducing the
-      documented run B line for line).
-      `docs/kb/boot-binary.md` §Check lines, verbatim (run B):
+- [~] **2 — Parser cross-checks on the PC-capture leg: 7 of 10 PASS**
+      (Phase 4 Task 1, 2026-08-22, re-run against `captures/phase4/pc2.log`
+      with the trig=/sp=-tagged fork — `docs/kb/boot-binary.md` §Check lines,
+      verbatim, run C).
       `dest_known`, `len_aligned_32`, `beyond_boot_read`,
       `main_watermark_boot`, `no_bios_exec`, `dma_pc_in_cart_fn` — PASS
-      (six lines; the first four are Phase 2 carry-overs, plus the two
-      Phase 3 proofs — `no_bios_exec` 0 lines and `dma_pc_in_cart_fn`
-      672/672).
-      **FAIL: `input_pc_in_input_fn`, `eeprom_read_seen`, `eeprom_write_seen`**
-      — all three test the *DMA-kick PC*, and the transactions they filter are
-      **vblank-triggered** (`SB_MDTSEL == 1`), so no guest store exists to
-      attribute. Not a wrong range: no range can pass them, and the
-      independent `MDODMA` probe reproduces the same artifact
-      (§Why three checks cannot pass as written). The input target is proven
-      instead by 80 392 sub-`0x33` events at a confirmed guest store.
-      **FAIL: `sp_consistent`** — a real finding, not a bad range: senkosp is
-      multi-stack (§SP — two stacks), and the second stack is bounded to
-      static BSS by the "Task 10 resolution" paragraph closing that same
-      section.
-      **What would close it:** a one-line fork change tagging
-      `maple_DoDma()`'s caller (`maple_SB_MDST_Write` vs `maple_vblank`) plus
-      an `r15` water-mark probe — both outside this repo. Carried as a Phase 4
-      flag; the phase is not blocked on them because every affected target has
-      independent confirming evidence.
+      (six lines, Phase 2/3 carry-overs), plus **`sp_consistent` now PASSes**
+      on real measured evidence (below) — seven.
+      **What Task 1 shipped and what it found:** the fork now tags every
+      `maple_DoDma()` call with its trigger source (`trig=reg` guest
+      `SB_MDST` store vs `trig=vbl` hardware vblank) and samples `r15` per
+      transaction (`../flycast4naomi2dreamcast@0d55a1812`). Re-captured
+      against `pc2.log` (boot→attract, ~300s): **every transaction is
+      `trig=reg` — zero `trig=vbl` observed.** This *disproves* the theory
+      below (`SB_MDTSEL==1`) that Phase 3 used to explain the three FAILs —
+      the probe now exists and shows senkosp never arms the hardware
+      trigger. `docs/kb/boot-binary.md` §Why three checks cannot pass as
+      written and §SP — two stacks, not one both carry dated addenda with
+      the full evidence.
+      **PASS: `sp_consistent`** — now measured, not just statically bounded:
+      per-PC-correlated `r15` samples put the confirmed input/EEPROM
+      function (`FUN_8c02532a`) at a constant task-stack SP `0x8c1d4a1c`
+      (≥ the `0x8c1c0000` floor) and the confirmed boot-time device-scan
+      function inside the confirmed boot-stack region — both exactly where
+      the static model predicted.
+      **Still FAIL: `input_pc_in_input_fn`, `eeprom_read_seen`,
+      `eeprom_write_seen`** — for a *different, newly precise* reason than
+      Phase 3 recorded: a second, real `trig=reg` call site (physical
+      ≈`0x03161e`, function unidentified) issues genuine sub-`15`/`01`/`03`
+      maple transactions outside `FUN_8c02532a`'s confirmed range, so the
+      range — not the trigger — is what's incomplete. `eeprom_write_seen`
+      additionally has zero sub-`0x0b` evidence in this unattended leg
+      (attract-mode never touches the EEPROM).
+      **What would close it now:** static (Ghidra) identification of the
+      `0x03161e`-region function, plus a repeat operator test-menu leg to
+      re-observe the EEPROM write under the trig-tagged fork. Both are
+      follow-up work, out of Task 1's fork-probe scope. Carried as a Phase 4
+      flag; the phase is not blocked on it because every affected target has
+      independent confirming evidence (input via sub `0x33`, `docs/kb/boot-binary.md`
+      §Target: input function).
 - [x] **3 — Dry run passes.** `docs/kb/relocation-map.md` §Dry-run evidence:
       three legs on `senkosp-reloc.dat` (`md5 a80f03676c0595bcae1bebcc5f16f884`),
       `parse_cartlog.py --dryrun` → **`exit=0`**, with
