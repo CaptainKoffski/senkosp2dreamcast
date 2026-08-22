@@ -61,13 +61,14 @@ struct plan gd_plan(unsigned cart_off, unsigned len) {
 /* ---- G1 ATA task file ---------------------------------------------------
  * Verified identical in the emulator that will run this code and in KOS's own
  * G1 driver: gdromv3.h:321-340 and g1ata.c:83-98.
- * Access widths: DATA is 16-bit only (flycast logs+drops any other size,
- * gdromv3.cpp:1067 read / :1137 write); the rest are 8-bit task-file regs. */
+ * Access widths: DATA is 16-bit -- real hardware needs it, and flycast logs a
+ * complaint on any other size (it does not drop the access: gdromv3.cpp:1067-1068
+ * read / :1137-1138 write); the rest are 8-bit task-file regs. */
 #define GD_ALTSTAT  (*(volatile unsigned char  *)0xa05f7018)  /* R  status, no INTRQ ack (gdromv3.cpp:1054) */
 #define GD_DATA     (*(volatile unsigned short *)0xa05f7080)  /* RW 16-bit data port */
 #define GD_ERRREG   (*(volatile unsigned char  *)0xa05f7084)  /* R  error/sense (gdromv3.cpp:1099) */
 #define GD_FEATURES (*(volatile unsigned char  *)0xa05f7084)  /* W  bit0 = DMA (gdromv3.h:75) */
-#define GD_SECCNT   (*(volatile unsigned char  *)0xa05f7088)  /* W  transfer mode */
+#define GD_SECCNT   (*(volatile unsigned char  *)0xa05f7088)  /* W  transfer mode (gdromv3.h:329-330) */
 #define GD_BCLO     (*(volatile unsigned char  *)0xa05f7090)  /* RW byte count low  (gdromv3.cpp:1058,1124) */
 #define GD_BCHI     (*(volatile unsigned char  *)0xa05f7094)  /* RW byte count high (gdromv3.cpp:1062,1130) */
 #define GD_DRVSEL   (*(volatile unsigned char  *)0xa05f7098)  /* RW device select */
@@ -101,7 +102,9 @@ unsigned int gd_last_err = 0xcafe0000;
  * phase's, then read the FIFO before the drive filled it. The classic fix is
  * to discard four Alternate Status reads (each G1 access is >100 ns) before the
  * first meaningful poll. Free on flycast, where ALTSTAT is a pure read with no
- * side effects (gdromv3.cpp:1054-1056) and every transition is synchronous. */
+ * side effects (gdromv3.cpp:1054-1056) and every transition is synchronous.
+ * Load-bearing for gd_wait_drq below, which treats "BSY clear, DRQ clear" as a
+ * finished command -- a stale pre-BSY sample would end the transfer early. */
 static void gd_settle(void) {
     (void)GD_ALTSTAT; (void)GD_ALTSTAT; (void)GD_ALTSTAT; (void)GD_ALTSTAT;
 }
@@ -112,10 +115,25 @@ static int gd_wait_clear(unsigned char mask) {
     return -1;
 }
 
-static int gd_wait_set(unsigned char mask) {
+/* Wait for the next DRQ block. 0 = data ready, 1 = the drive went idle without
+ * offering data (command finished or FAILED -- read the verdict), -1 = timeout.
+ *
+ * Ready means BSY clear AND DRQ set: ATA status bits are not valid while BSY is
+ * asserted, and KOS polls the same pair (g1ata.c:193-195).
+ *
+ * The idle exit is what keeps a failed command cheap: a rejected packet never
+ * enters a data phase at all -- flycast lands it in gds_procpacketdone with
+ * CHECK=1, DRQ=0 and a sense key (gdromv3.cpp:1030-1037, :282-301). Waiting for
+ * a DRQ that will never come would burn the whole 50M-poll budget and report a
+ * stall, throwing away the drive's own verdict; instead we fall straight through
+ * to the status read. */
+static int gd_wait_drq(void) {
     gd_settle();
-    for (unsigned i = 0; i < GD_SPIN; i++)
-        if ((GD_ALTSTAT & mask) == mask) return 0;
+    for (unsigned i = 0; i < GD_SPIN; i++) {
+        unsigned char st = GD_ALTSTAT;
+        if (st & ST_BSY) continue;
+        return (st & ST_DRQ) ? 0 : 1;
+    }
     return -1;
 }
 
@@ -162,9 +180,12 @@ static int gd_fail(unsigned site, unsigned fad) {
  * (../cleopatra/shims/src/gd.c, its G1-DMA read path). We ack the interrupt
  * anyway by reading GD_STATCMD at the end of every command (gdromv3.cpp:1047
  * asic_CancelInterrupt), so nothing stays latched.
- * Harmless in the loader build too: KOS's GD command path is polled BIOS
- * syscalls and it hooks only the GD-DMA event (cdrom.c:805-813).
+ * Shim only: in the loader, KOS owns the interrupt policy (it programs the IML
+ * registers from its own event table, cdrom.c:805-813) and nothing masks the
+ * game's handler because there is no game yet -- the loader's rehearsal has no
+ * reason to touch them.
  * .data sentinel, not .bss (house style -- see gd_last_err). */
+#if !GD_LOADER_BUILD
 static unsigned gd_inited = 0xff;
 static void gd_hw_init(void) {
     if (gd_inited != 0xff) return;
@@ -173,15 +194,21 @@ static void gd_hw_init(void) {
     *(volatile unsigned int *)0xa05f6924 &= ~1u;
     *(volatile unsigned int *)0xa05f6934 &= ~1u;
 }
+#else
+#define gd_hw_init() ((void)0)
+#endif
 
 /* Read `sectors` 2048-byte data sectors starting at absolute `fad` into `dst`.
  * 0 = ok, negative = failure site (also in SHIM_ERR + gd_last_err).
  *
- * dst is written through its P2 (uncached) alias -- the C1 lesson: the game
- * reads streamed cart bytes uncached or hands them to hardware DMA, so nothing
- * may sit dirty in the D-cache over them (cart.c cart_read carries the full
- * reasoning). P2ADDR is idempotent for P0/P1/P2 RAM pointers, so callers may
- * pass any alias. */
+ * dst is ALWAYS written through its P2 (uncached) alias -- the C1 lesson: the
+ * game reads streamed cart bytes uncached or hands them to hardware DMA, so
+ * nothing may sit dirty in the D-cache over them (cart.c cart_read carries the
+ * full reasoning). P2ADDR is idempotent, so any alias may be passed in, but
+ * note the direction this forces on the CALLER: whatever reads those bytes back
+ * must read them uncached too (P2, or a dcache_inval first). A P1 read of a
+ * buffer this function filled can hit a stale cache line -- that is the whole
+ * C1 bug. cart.c's bounce and the loader's rehearsal buffer both follow it. */
 int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
     /* 0x1fffff caps both the packet's 24-bit count field and `sectors * 2048`
      * below (4 GB); the whole cart image is 122,720 sectors. */
@@ -201,7 +228,10 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
     GD_BCLO = (unsigned char)(GD_SECSZ & 0xffu);   /* byte-count limit per DRQ block */
     GD_BCHI = (unsigned char)(GD_SECSZ >> 8);
     GD_STATCMD = ATA_SPI_PACKET;
-    if (gd_wait_set(ST_DRQ)) return gd_fail(GD_E_PACKET, fad);
+    /* Either failure mode lands here: no DRQ within the budget, or the drive
+     * rejecting PACKET outright (idle with CHECK) -- gd_fail records ALTSTAT +
+     * ERROR either way. */
+    if (gd_wait_drq()) return gd_fail(GD_E_PACKET, fad);
 
     /* The 12-byte SPI packet, written as 6 little-endian 16-bit words -- the
      * only shape the drive accepts (flycast collects exactly 6 words into the
@@ -240,7 +270,9 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
     int odd = (int)((unsigned long)p & 1u);
     unsigned left = sectors * GD_SECSZ;
     while (left) {
-        if (gd_wait_set(ST_DRQ)) return gd_fail(GD_E_DATA, fad);
+        int w = gd_wait_drq();
+        if (w < 0) return gd_fail(GD_E_DATA, fad);
+        if (w > 0) break;               /* drive ended the command early: verdict below */
         unsigned n = ((unsigned)GD_BCHI << 8) | (unsigned)GD_BCLO;
         if (!n || (n & 1u) || n > left) return gd_fail(GD_E_COUNT, fad);
         left -= n;
@@ -264,6 +296,9 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
     /* Read the real status register, not ALTSTAT: this is the read that acks
      * INTRQ (gdromv3.cpp:1046-1047) and carries the command's verdict. */
     if (GD_STATCMD & ST_CHECK) return gd_fail(GD_E_CHECK, fad);
+    /* Ended early with CHECK clear: the drive simply stopped delivering. Short
+     * data is still a failed read -- never report success on a partial buffer. */
+    if (left) return gd_fail(GD_E_DATA, fad);
     return 0;
 }
 
@@ -275,8 +310,10 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
  * bug in miniature, and the head/tail copies are at most 2 KB each.
  * Unaligned destinations need no bounce -- gd_read_fad splits the words
  * itself (see its data phase).
- * NOTE: unusable from the loader build -- SHIM_BOUNCE lives inside the
- * loader's own image (see gd_fail). The loader rehearses gd_read_fad only. */
+ * Compiled out of the loader build: SHIM_BOUNCE lives inside the loader's own
+ * image (see gd_fail), so this must be unlinkable there, not merely unused.
+ * The loader rehearses gd_read_fad only. */
+#if !GD_LOADER_BUILD
 int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
     if (!len) return 0;
     if (cart_off > (unsigned)CART_SIZE || len > (unsigned)CART_SIZE - cart_off)
@@ -305,4 +342,5 @@ int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
     }
     return 0;
 }
+#endif /* !GD_LOADER_BUILD */
 #endif /* !HOST_TEST */

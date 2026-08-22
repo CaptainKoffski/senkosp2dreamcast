@@ -98,16 +98,20 @@ static void gd_or_die_dma(u32 phys, u32 rel_fad, u32 n) {   /* body via G1-DMA (
  * data on real hardware. (Via P1 cached the bytes would sit in D-cache while RAM
  * stayed stale -> garbage graphics on real DC; Flycast has no cache so it masked
  * this.) This mirrors maple_reply + the register mirror, which are all P2.
- * The bounce buffer stays cached (shim home, P1): it is pure CPU scratch -- the
- * BIOS PIO writes it and xmemcpy reads it back through the same cached view, so
- * they are mutually coherent; only the FINAL dest must be uncached. */
+ * The BOUNCE buffer is P2 as well (changed in Task 7): gd.c's raw-ATA driver
+ * always writes its destination through the uncached alias, so a P1 read of the
+ * bounce here would hit a D-cache line left over from the PREVIOUS partial read
+ * -- stale bytes, intermittently, and invisible under emulation (no cache).
+ * Both sides uncached = mutually coherent with no cache op. (Cleopatra could
+ * keep the bounce cached: its BIOS syscall wrote whichever alias it was
+ * handed, so writer and reader agreed by construction.) */
 void cart_read(u32 off, u32 len, u32 dest_phys) {
     split_t s;
     if (cart_first) { cart_first = 0; shim_mark(4, 0xf81f); }   /* slot4 magenta: first cart read */
     if ((++cart_count & 31u) == 0)                              /* slot5: activity blinker */
         shim_mark(5, (cart_count & 32u) ? 0xffe0 : 0x001f);
     unsigned char *dst = (unsigned char *)(dest_phys | 0xa0000000); /* P2 uncached */
-    unsigned char *bounce = (unsigned char *)SHIM_BOUNCE;
+    unsigned char *bounce = (unsigned char *)P2ADDR(SHIM_BOUNCE); /* P2: see above */
     cart_split(off, len, &s);
     if (s.head_take) {
         gd_or_die(bounce, s.head_fad, 1);

@@ -1987,8 +1987,8 @@ Everything below was read out of the sources, not a wiki. Implementation:
 | `0xa05f7080` | data (16-bit only) | data (16-bit only) | `:324` | `:85` |
 | `0xa05f7084` | error / sense | features (bit0 = DMA) | `:326-327` | `:86-87` |
 | `0xa05f7088` | interrupt reason | sector count / xfer mode | `:329-330` | `:88-89` |
-| `0xa05f7090` | byte count low | byte count low | `:334` | `:90` (`LBA_MID`) |
-| `0xa05f7094` | byte count high | byte count high | `:335` | `:91` (`LBA_HIGH`) |
+| `0xa05f7090` | byte count low | byte count low | `:334` | `:91` (`LBA_MID`) |
+| `0xa05f7094` | byte count high | byte count high | `:335` | `:92` (`LBA_HIGH`) |
 | `0xa05f7098` | device select | device select | `:337` | `:96` |
 | `0xa05f709c` | status (**acks INTRQ**) | command | `:339-340` | `:97-98` |
 
@@ -2054,6 +2054,20 @@ command byte and the count field have to agree; they do.
    data FIFO before the drive has filled it. The driver discards four alternate
    status reads (>100 ns each on the G1 bus) before every DRQ poll. Free on
    flycast (`gdromv3.cpp:1054-1056`: a pure read).
+3. **"Wait for DRQ" is a three-way answer, not a two-way one.** A command that
+   fails never enters a data phase: it goes straight to `gds_procpacketdone`
+   with `CHECK=1`, `DRQ=0` and a sense key (`gdromv3.cpp:1030-1037` for an
+   unhandled/illegal request, `:282-301` for the completion state). A wait that
+   only looks for DRQ would burn the whole 50M-poll budget and report a stall,
+   throwing the drive's own verdict away. `gd_wait_drq` therefore returns
+   *ready* (BSY clear **and** DRQ set — status bits are invalid while BSY is
+   asserted, and KOS polls the same pair, `g1ata.c:193-195`), *idle* (BSY and
+   DRQ both clear → fall through to the status read and report `CHECK` plus the
+   `ERROR` byte), or *timeout*. This is also why the 400 ns settle is
+   load-bearing rather than merely defensive: a stale pre-BSY sample would read
+   as "idle" and end the transfer early. A transfer that ends short without
+   `CHECK` is still a failure (site 3) — the driver never returns success on a
+   partial buffer.
 
 Command completion raises the GD interrupt on every block and at the end
 (`gdromv3.cpp:237,297`). That is `SB_ISTEXT` bit 0 (`holly_intc.h:43`,
@@ -2061,7 +2075,28 @@ Command completion raises the GD interrupt on every block and at the end
 `SB_IML2/4/6EXT` = `0x5f6914/24/34` (`sb.h:87,94,101`) — the game runs with its
 Naomi-legacy ASIC handler armed and no concept of a GD-ROM drive. Cleopatra hit
 the same class with the *GD-DMA* interrupt (`ISTNRM` bit 14) on real hardware,
-where masking it was what made cart streaming work.
+where masking it was what made cart streaming work. Shim only (`#if
+!GD_LOADER_BUILD`): in the loader, KOS owns the interrupt policy — it programs
+the IML registers from its own event table (`cdrom.c:805-813`) — and there is no
+game handler to protect yet.
+
+### Cache contract (the C1 lesson, restated for this driver)
+
+`gd_read_fad` **always** writes its destination through the P2 uncached alias,
+whatever alias the caller passed. That is what the game needs (it reads streamed
+cart bytes uncached or hands them to hardware DMA), but it forces a rule on the
+*reader* side: anything that reads those bytes back must read them uncached too,
+or invalidate first. Two consequences, both live:
+
+- `cart.c`'s bounce buffer is now addressed through P2 (`cart_read`). It used to
+  be P1 — correct under Cleopatra's BIOS syscall, which wrote whichever alias it
+  was handed, and **silently wrong** here: the driver's P2 write bypasses the
+  cache, so a P1 read of the bounce can hit the line left over from the previous
+  partial read and hand the game the *previous* sector's bytes. Intermittent,
+  and invisible under emulation (flycast has no cache).
+- the loader's rehearsal buffer is `dcache_inval_range`d before the read
+  (discard, not write-back — a write-back would land stale zeroes on top of the
+  incoming sector).
 
 ### Brief-vs-source: KOS `cdrom.c` is not a packet-protocol reference
 
@@ -2072,7 +2107,14 @@ touches the task file**: it is a BIOS-syscall driver
 i.e. exactly the path this port cannot use after handoff. KOS's raw task-file
 driver is `g1ata.c` (plain ATA for the IDE/HDD mod, not ATAPI packets), and it
 is the citation used above for the register map, the 16-bit word order, and the
-polled-PIO shape (`g1ata.c:190-197` wait macros, `:539` word packing).
+polled-PIO shape (`g1ata.c:190-197` wait macros, `:541` word packing).
+
+Same class of substitution on the emulator side: the brief pointed at
+`gdrom_response.cpp` for "command 0x30 parsing: FAD and length byte order".
+That file is 51 lines of canned reply tables for the `0xa1` (IDENTIFY) and
+`0x71` commands — it contains no command parsing at all. All of it lives in
+`gdromv3.cpp` (`gd_process_spi_cmd`, `:708-1039`), which is what the citations
+above point at.
 
 ### Failure sites
 
@@ -2089,7 +2131,7 @@ and the drive's own status/sense bytes.
 | --- | --- |
 | 1 | drive never went idle before the command |
 | 2 | `PACKET` accepted but DRQ for the 12 command bytes never came |
-| 3 | DRQ for a data block never came (seek/read failed, or media) |
+| 3 | DRQ for a data block never came, or the drive stopped short of the requested bytes with no `CHECK` |
 | 4 | drive offered an impossible byte count for a block |
 | 5 | transfer done but the drive never went idle |
 | 6 | drive raised `CHECK`; the `ERROR` register holds the sense key |
@@ -2101,8 +2143,9 @@ The `SHIM_ERR` store is compiled out of the **loader's** copy of `gd.c`
 `0x8c010000` — the same address as `SHIM_BASE` — so `SHIM_ERR` (`0x8c014000`)
 and `SHIM_BOUNCE` (`0x8c015800`) sit *inside the running loader's own image*
 (`loader.elf .text` = `0x8c010000`–`0x8c03ab18`). The loader reads the negative
-return value and `gd_last_err` instead, and rehearses `gd_read_fad` only
-(never `gd_read_cart`, which uses the bounce buffer).
+return value and `gd_last_err` instead, and rehearses `gd_read_fad` only —
+`gd_read_cart` (the bounce-buffer user) is compiled out of that build entirely,
+so it is unlinkable there rather than merely documented as unsafe.
 
 ### Verification status
 
