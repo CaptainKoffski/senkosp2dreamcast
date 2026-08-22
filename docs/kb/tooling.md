@@ -8,11 +8,11 @@ referenced, not duplicated — that file is part of this project's method.
 ### Instrumented Flycast (reused build)
 
 - **Binary:** `../cleopatra/tools/flycast-src/build/Flycast.app/Contents/MacOS/Flycast`
-  (Mach-O arm64), commit `0d55a1812` (Phase 4 Task 1, rebuilt 2026-08-22 —
+  (Mach-O arm64), commit `6e3522822` (Phase 4 Task 2, rebuilt 2026-08-22 —
   see below). Originally the same build the senkosp assessment v9 capture
   used (`../naomi2dreamcast/assessments/senkosp.md` §1, then `f014a410c`).
-- **Source of truth:** `../flycast4naomi2dreamcast` (fork), HEAD `0d55a1812`
-  (Phase 4 Task 1, 2026-08-22) — the built copy is current. Phase 2 rebuilds
+- **Source of truth:** `../flycast4naomi2dreamcast` (fork), HEAD `6e3522822`
+  (Phase 4 Task 2, 2026-08-22) — the built copy is current. Phase 2 rebuilds
   only if it adds instrumentation; full build recipe (CMake 3.31.6 pin,
   DEVELOPER_DIR, ZLIB_TBD, Syphon patch): `../cleopatra/docs/kb/tooling.md`
   §"Flycast — source build".
@@ -36,6 +36,15 @@ referenced, not duplicated — that file is part of this project's method.
   lines, added after the whole-run `SPWATER` aggregate proved unable to
   separate the task-cluster floor from an unidentified third low-SP region
   (`docs/kb/boot-binary.md` §SP — two stacks, addendum 2026-08-22).
+  **Phase 4 Task 2 fork commit:** `6e3522822` — `cartlog_shimwatch2()`
+  (`naomi.cpp`), a baseline-and-compare write-watch over senkosp's own
+  shim-home window (`mem_b` `0x00010000`–`0x00017fff`, P1
+  `0x8c010000`–`0x8c018000`), reusing the existing whole-RAM handoff
+  baseline `cartlog_main_base` rather than a second private snapshot buffer.
+  Emits `SHIMWATCH2 addr= was= now=` at the same `cartlog_sample()` cadence.
+  No checkout drift this time (`git fetch && git log --oneline
+  HEAD..origin/master` in both checkouts was clean before this edit landed).
+  `docs/kb/phase4-conversion.md` §Shim home (V2s).
 - **BIOS:** `~/Library/Application Support/Flycast/data/naomi.zip` already
   installed (verified 2026-08-13); source copy in this repo: `bios/naomi.zip`.
 - **Launch gotchas (macOS, every unattended run):**
@@ -538,11 +547,19 @@ Phase 4 legs live under `captures/phase4/` (own subdirectory, same reason as
 |---|---|---|---|
 | `phase4/pc2.log` | 340,977 | 14 MB | **Task 1 PC-capture leg** — interpreter mode, unattended boot → attract, ~300s, against the `trig=`/`sp=`-tagged fork (`0d55a1812`). Zero `trig=vbl` observed (17,445/17,445 `MDODMA`, 16,567/16,567 `MAPLEPC` all `trig=reg`) and zero sub-`0x0b` EEPROM-write lines — attract-mode never touches the EEPROM. `docs/kb/boot-binary.md` §Check lines, verbatim, run C. |
 | `phase4/pc2-presp-diagnostic.log` | 339,341 | 14 MB | **Superseded, kept not deleted.** Same recipe as `pc2.log` but captured one fork commit earlier (`0166c5b77`, before the per-event `sp=` field existed on `MDODMA`/`MAPLEPC`) — `MAPLEPC`'s `trig=` data is identical/valid, but `sp=` is absent so it can't feed the PC-correlated `sp_consistent` check. Superseded by `pc2.log`; not deleted per the capture-file rule (primary data). |
+| `phase4/shimwatch.log` | 1,083,410 | 39 MB | **Task 2 shim-home write-watch leg** — dynarec ON, unattended boot → attract, ~660s, against the `SHIMWATCH2`-emitting fork (`6e3522822`). 205 `CARTDMA` events, 69 `cartlog_sample()` ticks, **0 `SHIMWATCH2` lines** — `shim_home_clean: PASS`, exit 0. `docs/kb/phase4-conversion.md` §Shim home (V2s) — verdict recorded there as **PARTIAL** (attract regime only; match-play and test-menu regimes pending, see below). |
 
 **Pending:** `phase4/pc2-testmenu` — an operator ~60s test-menu visit (Task 1
 step 4 / operator-leg rule), needed to re-observe an EEPROM write under the
 trig-tagged fork. Not yet captured — see `docs/kb/boot-binary.md` §Target:
 EEPROM's 2026-08-22 update and the Task 1 report for the exact command.
+
+**Pending:** `phase4/shimwatch-play` — an operator-played full match, then a
+test-menu visit, then quit (Task 2 step 4 / operator-leg rule), needed to
+close the `shim_home_clean` verdict from PARTIAL to full CLEAN. Command:
+`scripts/capture_leg.sh phase4/shimwatch-play` (dynarec stays ON), then
+`pkill -9 -f "flycast-src.*Flycast"` after the operator quits. Parse with
+`python3 scripts/parse_cartlog.py captures/phase4/shimwatch*.log`.
 
 A 45s scratchpad diagnostic capture (per-PC `MDODMA` `sp=` correlation,
 `docs/kb/boot-binary.md` §SP — two stacks addendum's table) was written

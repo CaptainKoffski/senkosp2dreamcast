@@ -33,6 +33,9 @@ truth from the instrumented fork (../flycast4naomi2dreamcast @ 0166c5b77):
                                               sp_consistent (see pc_checks), kept for
                                               diagnostics/summary.
   BIOSEXEC pc=%08x                           PC observed executing in BIOS window
+  SHIMWATCH2 addr=%08x was=%02x now=%02x     naomi.cpp cartlog_shimwatch2(), senkosp shim-home
+                                              (0x8c010000-0x8c018000) baseline-vs-content diff,
+                                              same 64-DMA/10s cadence, Phase 4 Task 2
 
 Usage:
   parse_cartlog.py captures/*.log [--csv OUT.csv] [--attract-leg NAME]
@@ -83,6 +86,7 @@ _MPC = re.compile(
     r"^MAPLEPC cmd=86 sub=([0-9a-f]+) pc=([0-9a-f]+)(?: trig=(\w+))?(?: sp=([0-9a-f]+))?", re.I)
 _SPWATER = re.compile(r"^SPWATER min=([0-9a-f]+) max=([0-9a-f]+)", re.I)
 _BIOS = re.compile(r"^BIOSEXEC pc=([0-9a-f]+)", re.I)
+_SHIM2 = re.compile(r"^SHIMWATCH2 addr=([0-9a-f]+) was=([0-9a-f]+) now=([0-9a-f]+)", re.I)
 _SOFWR = re.compile(r"^SOFWR (\w+) val=([0-9a-f]+)", re.I)
 
 
@@ -108,7 +112,7 @@ def parse_leg(name, text):
            "prof": {}, "hist": {}, "regs": None, "vramregs": [], "serial": [],
            "mie": [], "jvs": [], "hw": {}, "dmapc": [], "pcpairs": [],
            "maplepc": [], "biosexec": [], "sofwr": collections.Counter(),
-           "spwater": None}
+           "spwater": None, "shimwatch2": []}
     for line in text.splitlines():
         m = _DMA.match(line)
         if m:
@@ -197,6 +201,10 @@ def parse_leg(name, text):
         if m:
             leg["biosexec"].append(int(m.group(1), 16))
             continue
+        m = _SHIM2.match(line)
+        if m:
+            leg["shimwatch2"].append((int(m.group(1), 16), int(m.group(2), 16), int(m.group(3), 16)))
+            continue
         m = _SOFWR.match(line)
         if m:
             leg["sofwr"][m.group(1).lower()] += 1
@@ -275,6 +283,14 @@ def _in(ranges, pc):
 def _bios_check(legs):
     bios = [p for l in legs for p in l["biosexec"]]
     return ("no_bios_exec", not bios, f"{len(bios)} BIOSEXEC lines (expect 0)")
+
+
+# O1 (spec): the planned senkosp shim home 0x8c010000-0x8c018000 must stay
+# clean of game-runtime writes (cartlog_shimwatch2(), naomi.cpp). Safety
+# tripwire like no_bios_exec — unconditional, no flags needed.
+def _shimwatch_check(legs):
+    hits = [h for l in legs for h in l["shimwatch2"]]
+    return ("shim_home_clean", not hits, f"{len(hits)} SHIMWATCH2 lines (expect 0)")
 
 
 # boot-binary.md "SP — two stacks, not one" / "Why three checks cannot pass
@@ -614,8 +630,10 @@ def main(argv):
     eeprom_fn = _ranges(args.eeprom_fn) if args.eeprom_fn else None
     stack = _ranges(args.stack) if args.stack else None
     check_list = checks(legs, rows, attract=attract)
-    # no_bios_exec is a safety tripwire: it runs on every parse, flags or not.
+    # no_bios_exec / shim_home_clean are safety tripwires: they run on every
+    # parse, flags or not.
     check_list.append(_bios_check(legs))
+    check_list.append(_shimwatch_check(legs))
     if cart_fn or input_fn or eeprom_fn or stack:
         # The other PC checks stay flag-gated: sp_consistent's 1 MB heuristic
         # false-FAILs on merged dynarec-relocated PCs across ordinary legs, and

@@ -449,4 +449,43 @@ assert dr_cks["dryrun_vram_below_8m"] is False, dr_cks   # regression -> not exe
 
 print("OK dryrun boot-transient exemption self-check")
 
+# Task 2 (O1): shim_home_clean — PASS iff zero SHIMWATCH2 lines, unconditional
+# (like no_bios_exec, not flag-gated).
+with tempfile.TemporaryDirectory() as d:
+    logpath = os.path.join(d, "attract.log")
+    with open(logpath, "w", encoding="utf-8") as f:
+        f.write(ATTRACT)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = P.main([logpath, "--attract-leg", "attract"])
+    out = buf.getvalue()
+assert rc == 0
+assert "CHECK shim_home_clean: PASS — 0 SHIMWATCH2 lines (expect 0)" in out
+
+clean_leg = P.parse_leg("clean", ATTRACT)
+assert clean_leg["shimwatch2"] == []
+cks = dict((n, ok) for n, ok, _ in [P._shimwatch_check([clean_leg])])
+assert cks["shim_home_clean"] is True, cks
+
+# A SHIMWATCH2 line (game-runtime write inside the senkosp shim window)
+# flips the check to FAIL and the full run to exit=1.
+dirty_leg = P.parse_leg("dirty",
+    ATTRACT + "SHIMWATCH2 addr=8c010040 was=00 now=5a\n")
+assert dirty_leg["shimwatch2"] == [(0x8c010040, 0x00, 0x5a)]
+cks = dict((n, ok) for n, ok, _ in [P._shimwatch_check([dirty_leg])])
+assert cks["shim_home_clean"] is False, cks
+
+with tempfile.TemporaryDirectory() as d:
+    logpath = os.path.join(d, "dirty.log")
+    with open(logpath, "w", encoding="utf-8") as f:
+        f.write(ATTRACT + "SHIMWATCH2 addr=8c010040 was=00 now=5a\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = P.main([logpath])
+    out = buf.getvalue()
+assert rc == 1
+assert "CHECK shim_home_clean: FAIL — 1 SHIMWATCH2 lines (expect 0)" in out
+
+print("OK shim_home_clean self-check")
+
 print("ok")
