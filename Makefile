@@ -25,6 +25,7 @@ gdi: loader
 
 test:
 	$(MAKE) -C shims test
+	python3 scripts/test_build_patch_table.py
 	python3 scripts/test_maple_literals.py
 
 clean:

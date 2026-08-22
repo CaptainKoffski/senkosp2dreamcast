@@ -13,7 +13,8 @@ B = build
 # vector, and this port's runtime disc path is raw ATA by design (the kernel
 # slice the loader places lands on the BIOS's own low-RAM GD state -- see
 # src/gd.c's header). Provably dead, not merely unused.
-SRCS = src/main.c src/scif.c src/util.c src/gd.c src/cart.c src/maple.c src/jvs.c
+SRCS = src/main.c src/scif.c src/util.c src/gd.c src/cart.c src/maple.c src/jvs.c \
+       src/mtramp.S $(B)/mie_blobs.c
 
 .PHONY: all test clean
 all: $(B)/shim.bin $(B)/shim.map
@@ -25,6 +26,13 @@ test:
 	# gd.c compiles its MMIO half out under HOST_TEST -- the test links the real
 	# gd_plan the shim runs, so a divergence is a link/assert failure, not a copy.
 	cc -DHOST_TEST -Iinclude -o $(B)/test_gd_math test/test_gd_math.c src/gd.c && $(B)/test_gd_math
+# MIE reply blobs: captured traffic, so they are GENERATED at build time from a
+# capture log (never committed -- same rule as bios_data.bin in loader/Makefile).
+# Task 11; provenance note in docs/kb/phase4-conversion.md §Attract.
+$(B)/mie_blobs.c: ../scripts/extract_mie_blobs.py ../captures/phase4/pc2.log
+	mkdir -p $(B)
+	python3 ../scripts/extract_mie_blobs.py
+
 $(B)/shim.elf: $(SRCS) shim.ld include/shim_iface.h
 	mkdir -p $(B)
 	$(CC) $(CFLAGS) -Wl,-T,shim.ld -Wl,-Map,$(B)/shim.map.tmp -o $@ $(SRCS)

@@ -49,7 +49,11 @@ def parse_rows(text):
 text = run_gen()
 dat = DAT.read_bytes()
 rows = parse_rows(text)
-assert len(rows) == 4, f"expected 4 reloc-only entries, found {len(rows)}"
+# Task 11: the row COUNT is no longer asserted (it grows every task and an
+# exact number is drift, not a test). What must hold is the invariant: every
+# emitted row's `old` is what senkosp.dat actually holds at that offset, and
+# the main/test split matches img_of()'s rule.
+assert len(rows) >= 4, f"generator emitted only {len(rows)} rows"
 
 test_img_rows = 0
 for off, img, ln, old, _new in rows:
@@ -57,10 +61,12 @@ for off, img, ln, old, _new in rows:
         f"old mismatch @dat:{off:#x}: header has {old.hex()}, "
         f"senkosp.dat has {dat[off:off + ln].hex()}")
     assert img in (0, 1), (off, img)
+    assert img == (1 if off >= 0x171ff8 else 0), f"img tag wrong @dat:{off:#x}"
     if img == 1:
         test_img_rows += 1
-assert test_img_rows == 2, f"expected 2 img==1 (test-image) rows, found {test_img_rows}"
-print("OK (a) old-byte fidelity, (b) img==1 tagging (2 test-image entries)")
+assert test_img_rows, "no test-image rows emitted"
+print(f"OK (a) old-byte fidelity ({len(rows)} rows), "
+      f"(b) img tagging ({test_img_rows} test-image rows)")
 
 # ---- (c): determinism across independent runs ------------------------------
 text2 = run_gen()

@@ -1,9 +1,12 @@
 # Project status
 
-**Updated:** 2026-08-22 (Phase 4 Task 10 — the game ENTERS and streams from
-the disc; stops at its own `I/O BD IS NOT CONNECTED` error, which Task 11's
-maple service exists to fix. Phase 3 — DONE; gate green with **two** criteria
-met in substance rather than literally — 2 and 4, see the Phase 3 checklist)
+**Updated:** 2026-08-22 (Phase 4 Task 11 — **the game reaches its attract
+cycle on the Dreamcast profile**: maple mirrored, the MIE firmware ladder and
+the JVS I/O-board enumeration serviced by the shim, the per-frame input poll
+running, attract assets streaming from the GD-ROM. Gate criterion 1 met.
+Next: Task 12 — live pad input + free-play. Phase 3 — DONE; gate green with
+**two** criteria met in substance rather than literally — 2 and 4, see the
+Phase 3 checklist)
 
 ## What this is
 
@@ -298,7 +301,25 @@ and 6 are `[x]`, unqualified.
 
 **Phase 4 — conversion** (loader + shim + patch table → bootable GDI), in
 progress. Spec + plan exist (`docs/superpowers/specs/` and `plans/`); tasks
-1–10 are done.
+1–11 are done.
+
+**State as of Task 11 (2026-08-22): the game reaches ATTRACT on the DC
+profile — gate criterion 1.** Every maple register constant in both images is
+repointed into the shim's RAM mirror, the boot driver's five kick+poll windows
+are detoured into a register-preserving trampoline, and the steady engine's
+one fn-ptr pool word (MAPLE-KICK-HOOK) routes its kick to the same service.
+The shim replays the MIE's Z80 firmware-upload ladder (345 transactions, the
+Naomi count exactly), answers the JVS I/O-board enumeration from senkosp's own
+captured replies, and the game's per-frame input poll (MIE sub 0x33) runs — so
+the `I/O BD IS NOT CONNECTED` / `DOES NOT FULFILL THE GAME SPECS` gate passes
+and never fires again. In the release configuration the game renders 12,739
+frames with 8,353 large display lists and streams attract assets whose
+`(offset, length)` pairs match the Phase 2 Naomi attract capture, with **zero**
+real maple DMA from any game PC. Evidence:
+`docs/kb/phase4-conversion.md` §Attract, legs `captures/phase4/attract*`.
+
+**Next: Task 12 — steady input + free-play** (live pad through `dc_to_jvs`,
+TESTBIT-INJECT offsets, baked EEPROM): criteria 2, 3 and 5.
 
 **State as of Task 10 (2026-08-22): senkosp's own code runs on a Dreamcast
 and streams from the disc.** The loader stages everything high and a
@@ -312,10 +333,8 @@ because nothing maple-side is patched yet. Evidence:
 `docs/kb/phase4-conversion.md` §Integration v1, legs
 `captures/phase4/entry2`–`entry4`.
 
-**Next: Task 11 — maple/MIE boot-phase service.** That error message is
-exactly what Task 11's MAPLE-BASE repoint, kick hook and five boot detours
-exist to eliminate; the pins are already in `phase4-conversion.md`
-§Maple-patch sites and §Input ABI.
+That error message is exactly what Task 11's MAPLE-BASE repoint, kick hook and
+five boot detours eliminated (see the Task 11 state above).
 
 ### Direct inputs (everything Phase 4 needs, all produced by Phase 3)
 

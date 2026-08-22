@@ -2692,3 +2692,298 @@ $1}' entry2.log | sort | uniq -c) <(… entry5.log …)` → no output) and dive
 on exactly one field in 79,205 lines — a KOS-side maple descriptor address,
 `mdstar=0c0f0b40` vs `0c0f0bc0`, shifted because the shim blob grew 140 bytes
 (2,912 → 3,052 B) and moved a loader-side allocation.
+
+---
+
+## Attract — maple/MIE service live (Task 11)
+
+**Question (plan Task 11, gate criterion 1):** with the maple registers
+mirrored and the boot driver's five kicks detoured, does senkosp's I/O-board
+handshake succeed on a Dreamcast, and does the game reach its title/attract
+cycle?
+
+**Answer: yes.** The five boot detours service the MIE's Z80 firmware upload
+ladder exactly as the Naomi machine does (345 transactions, the same 345 the
+Naomi capture records), the JVS I/O-board enumeration completes, the game's
+per-frame input poll (MIE sub `0x33`) starts, and the game streams attract
+assets and renders continuously. Legs live under `captures/phase4/attract*`.
+
+### What the boot driver actually asks for — measured, not assumed
+
+Before writing any reply synthesizer, the five kick sites were attributed to
+their transactions in the Naomi-mode reference leg `captures/phase4/pc2.log`
+(post-`MAINHANDOFF`, i.e. senkosp's own traffic, §R5). The fork logs the
+kicking PC on every `MDODMA enter`, so each of the five detour sites maps 1:1
+onto the maple commands it issues:
+
+| site | kick PC (logged as +2) | frames | maple cmd | what it is |
+| --- | --- | --- | --- | --- |
+| **E** `8c066a5e` | `8c066a60` | 1 | — (`hdr0=80000300`, pattern 3 = RESET) | bus reset; no transfer, no reply |
+| **A** `8c066726` | `8c066728` | **341** | `0x80`, `plen=8` | JVS/Z80 firmware upload, 0x1c bytes per chunk |
+| **B** `8c06680e` | `8c066812` | 1 | `0x80`, `plen=2` | upload finalize (`dma_buffer_in[1] == 0xff`) |
+| **C** `8c0668a2` | `8c0668a4` | 1 | `0x01`, `plen=1` | `MDC_DeviceRequest` |
+| **D** `8c066926` | `8c066928` | 1 | `0x86`, `plen=1` | a 0x86 frame with **no payload** |
+
+Two consequences that a subcommand-table-only shim would have got wrong:
+
+- **The boot driver never sends a single MIE *subcommand*.** It uploads
+  firmware and probes the device. Every reply it needs is computable from the
+  request — `BaseMIE::RawDma`,
+  `../flycast4naomi2dreamcast/core/hw/maple/maple_jvs.cpp:1291-1405` — so the
+  boot path consumes exactly one captured blob (site D's, 4 bytes).
+- **Site D's frame carries no payload**, and Flycast answers it before it ever
+  reads a subcommand byte (`if (dma_count_in == 0) { reply(MDRS_JVSReply);
+  return; }`, `maple_jvs.cpp:1758-1761`). The capture labels that reply
+  `sub=ff` only because the fork's MIERESP logger reads `p_data[4]`
+  (`maple_if.cpp:299`), which for a 1-word frame is *past the frame*. The shim
+  therefore keys on `plen`, not on that byte; the blob is named `mie_86empty`.
+
+### The I/O-board gate is on the STEADY engine, not the boot driver
+
+The Task 10 stop (`I/O BD IS NOT CONNECTED TO NAOMI BD.`) is decided at
+`0x8c0acf44`, disassembled from `senkosp.dat` (main image, dat `0x8cf44`):
+
+```
+8c0acf44  mov.l 0x8c0acf74,r0   ; r0 = 0x8c06fbf8
+8c0acf48  jsr @r0               ; FUN_8c06fbf8 = `return *(u32 *)0x8c1c013c`
+8c0acf4c  tst r0,r0
+8c0acf4e  bf 0x8c0acf56         ; non-zero -> board present, skip the fatal
+8c0acf50  mov.l 0x8c0acf78,r0   ; = 0x8c0ad6a0 -> prints str+0x29 =
+8c0acf52  jsr @r0               ;    "I/O BD IS NOT CONNECTED TO NAOMI BD.\n"
+8c0acf56  mov.l 0x8c0acf7c,r0   ; = 0x8c06fc04, spec check(r4=1, r5=10, r6=1)
+8c0acf5c  jsr @r0               ;    board[0x94] >= 1 players, [0x95] >= 10
+8c0acf5e  mov #10,r5            ;    switches, [0x97] >= 1 coin slots
+8c0acf62  tst r0,r0
+8c0acf64  bf 0x8c0acf6c
+8c0acf66  mov.l 0x8c0acf80,r0   ; = 0x8c0ad6c0 -> prints str+0x4f =
+8c0acf68  jsr @r0               ;    "...DOES NOT FULFILL THE GAME SPECS."
+```
+
+`0x8c1c013c` is the JVS **node count**, written by the node scan at
+`0x8c068da6` (`mov.l 0x8c068dd8,r4 ; ... ; mov.l r13,@r4`, r13 = the probe's
+result), and the spec bytes come from the parsed board-info struct at
+`*(0x8c1c0144) + 0xac + 0x94…0x98`. **That scan transacts on the steady maple
+engine, not on the boot driver**: in `pc2.log` every enumeration frame
+(sub `0x17` transmit / sub `0x15` receive carrying JVS `F1,10,11,12,13,14`) is
+logged with `pc=8c025448` — the steady kick site — and they all occur *after*
+the boot driver's last kick.
+
+> **Consequence for the task split, recorded as a deviation.** Criterion 1
+> (attract) is unreachable with the boot detours alone, and leg `attract1`
+> proves it empirically (below). MAPLE-KICK-HOOK — a pinned mechanism this doc
+> already specifies in full (§MAPLE-KICK-HOOK) but which the plan assigned to
+> Task 12 — was therefore wired in Task 11. Task 12 keeps its actual substance
+> (live pad input through `dc_to_jvs`, TESTBIT-INJECT, free-play/EEPROM).
+
+### Blob provenance
+
+`scripts/extract_mie_blobs.py` harvests **15** reply classes from
+`captures/phase4/pc2.log`, post-`MAINHANDOFF` only (pre-handoff maple traffic
+is the Naomi BIOS's, §R5, and goes to the BIOS's own buffer `0x0c296220`).
+Output is `shims/build/mie_blobs.c` — generated at build time by the shim
+Makefile, **gitignored**: it is captured game/BIOS traffic.
+
+- **Lengths are measured, not modelled.** The fork prints `MDODMA rawdma_ret
+  outlen=` immediately before each `MIERESP` (`maple_if.cpp:283-306`), so each
+  blob is trimmed to the byte count the emulator actually returned. This is
+  not cosmetic: JVS data frames *declare one 32-bit word more than they write*
+  (`dword_length = (len + 22) / 4 + 1`, `maple_jvs.cpp:1716-1727`), so
+  Cleopatra's `(hdr[3]+1)*4` rule overshoots them by 4 bytes.
+- **Byte-stability is asserted** across every occurrence of each class in the
+  leg (sub `0x17` 9×, sub `0x31` 2×, the rest 1×). The steady sub-`0x33` poll
+  is exempt by nature — it carries live input, and its first occurrence is the
+  cold/no-scan variant (subresp `0x32`); the shim replays the has-data variant
+  (subresp `0x16`), which is byte-identical across all 15,799 occurrences.
+- **Three classes exceed the 0x40-byte MIERESP dump and are reconstructed**,
+  each with an assert tying the reconstruction to bytes the capture *does*
+  contain:
+  - `mie_sub33` (68 B) = the 64 captured bytes + the 4-byte tail of the
+    trailing ack frame (`w8(0x18); w8(channel); w8(sense_line); w8(0)`,
+    `maple_jvs.cpp:1888-1893`). The splice is checked: captured bytes 60..63
+    must equal the separately captured sub-`0x17` ack's header.
+  - `mie_jvs10` (92 B) = the board-ID string (`get_id()`,
+    `maple_jvs.cpp:1105`) spliced onto the captured prefix (33-byte prefix
+    match asserted) with the JVS checksum recomputed — Cleopatra's method,
+    unchanged.
+  - `mie_sub03` (132 B) = 4-byte header + the 128-byte EEPROM image, rebuilt
+    from the captured first 60 bytes using the Naomi dual-copy layout (system
+    section twice at `0x00`/`0x12`, game header twice at `0x24`/`0x28`, game
+    data twice from `0x2c`, zero tail). Every copy the capture contains is
+    asserted equal to its twin before the tail is derived. **Independently
+    verified**: the reconstruction is byte-identical to the 128-byte EEPROM
+    Flycast itself saved for this ROM (`~/Library/Application
+    Support/Flycast/data/senkosp.zip.eeprom`, not part of this repo) — a file
+    written by a different code path than the capture.
+
+### The five detours, as built
+
+`shims/src/mtramp.S` — ten stubs (five sites × two images) over one shared
+body. Each stub loads its site's resume address into **r2** (free: the
+original window clobbers exactly r2 and T) and falls into the common body,
+which pushes r2 first and pops it last straight into the `jmp`. The body
+saves and restores **r0, r1, r3–r7, PR, MACL, MACH** around the call into C,
+per the register contract at :1261-1280 (r8–r15 the C ABI preserves).
+
+Resume address = window RAM address + window length, and both numbers now
+exist in two places (this doc's table → `scripts/build_patch_table.py`'s
+`MAPLE_BOOT_SITES`, and `mtramp.S`), so the generator **asserts them equal**
+(`_resume_check`) and refuses to emit a table that disagrees with the
+trampolines. Negative-checked: perturbing one resume address by 2 bytes fails
+the build with
+`MAPLE-BOOT-C test: mtramp.S resumes at 0x8c0510e2, window 0x8c0510d4+12 ends
+at 0x8c0510e0`.
+
+Generated detour bytes, verified against the table above per site per image
+(main A shown; the other nine differ only in the literal):
+
+```
+old  72 2e 72 25 52 62 28 22 fc 8b c2 2e   = 2e72 2572 6252 2228 8bfc 2ec2
+new  01 d2 2b 42 09 00 09 00 00 10 01 8c   = d201 422b 0009 0009 .long 8c011000
+```
+
+All 118 generated entries (59 per image) pass their old-byte verify against
+`senkosp.dat`.
+
+### Leg chain
+
+| leg | build | what it establishes |
+| --- | --- | --- |
+| `attract1` | boot detours + MAPLE-BASE + pools; **kick-hook OFF** | boot ladder complete, error path never taken, stop = the unserviced steady engine |
+| `attract2` | + MAPLE-KICK-HOOK | enumeration completes; game streams and renders |
+| `attract3`/`attract6` | same, + sub-level tracing | reproduced; `MIE skip` = 0 (no reply ever undelivered) |
+| `attract4` | same | 14,336 maple transactions serviced, 89 cart streams — the game runs indefinitely |
+| `attract7` | + a real maple DMA per service (experiment) | 18,432 transactions, 89 streams, same handshake — raising `holly_MAPLE_DMA` changed nothing observable → residual risk 1 closed; the experiment was reverted |
+| `attract8` | reverted to the plain service | 5,537 frames rendered, 1,383 display lists > 4 KB, AICA ARM sound driver booted |
+| `attract10-release` | release config (no serial, no trace) | the shipped build behaves identically |
+
+**`attract1` — the boot ladder alone.** Verbatim serial tail:
+
+```
+MB n=00000157 star=0c1bfa80 h1=80000001
+MB n=00000158 star=0c1bfa80 h1=80000000
+MB n=00000159 star=0c1bfa80 h1=80000000
+```
+
+`0x159 = 345` transactions = 1 (site E reset) + 341 (site A chunks) + 1
+(site B finalize) + 1 (site C DeviceRequest) + 1 (site D empty 0x86) — the
+Naomi count, exactly. `System reset requested` = **0** (Task 10's reboot loop
+is gone: the I/O-board error path never fires), `SHIMERR` = 0, `MIE odd` = 0.
+`CART off` = **0**: the game now stops *before* the asset streaming Task 10
+reached, because the JVS enumeration it needs sits earlier in the boot than
+the first asset load. The game-side cartlog is 24 lines long (PVR soft reset,
+interrupt masks, its own MMU enable at `8c02d630`, SPG video-mode program) and
+then silent — the steady engine kicks into the mirror and polls forever.
+
+**`attract2`+ — the enumeration, verbatim** (`MIE sub=` lines are
+change-gated, so this *is* the whole handshake):
+
+```
+MIE sub=00000031 jvs=00000000 rcv=0cff9f60 n=0000015c   DIP switches
+MIE sub=00000001 jvs=00000000 rcv=0cff9f60 n=00000161   EEPROM ready
+MIE sub=00000003 jvs=00000000 rcv=0cff9f60 n=00000163   EEPROM read (128 B)
+MIE sub=00000017 jvs=000000f0 rcv=...      n=00000166   JVS reset
+MIE sub=00000017 jvs=000000f1 rcv=...      n=000001a4   JVS set address
+MIE sub=00000015 ...                       n=000001a5   -> mie_jvsf1
+MIE sub=00000017 jvs=00000010 / sub=15     n=000001a7   -> mie_jvs10 (board ID)
+MIE sub=00000017 jvs=00000011 / sub=15     n=000001aa   -> mie_jvs11
+MIE sub=00000017 jvs=00000012 / sub=15     n=000001ad   -> mie_jvs12
+MIE sub=00000017 jvs=00000013 / sub=15     n=000001b0   -> mie_jvs13
+MIE sub=00000017 jvs=00000014 / sub=15     n=000001b3   -> mie_jvs14 (features)
+MIE sub=00000013 jvs=00000000              n=000001b6
+MIE sub=00000021 jvs=00000022              n=000001b7
+MIE sub=00000017 jvs=00000021 / sub=15     n=000001b8
+MIE sub=00000033 jvs=00000000 rcv=0cff3f60 n=000001bb   <== the per-frame poll
+```
+
+**Sub `0x33` starting is the gate opening.** It is the same signal Cleopatra
+used (`../cleopatra/docs/kb/phase4-conversion.md` §Task 15c: "node-count ≥ 1 →
+specs = 0 → JVS-board slot registered → engine emits sub-0x33"). Neither
+fatal string is ever printed, and `System reset requested` stays 0 in every
+leg. The recv addresses (`0x0cff9f60` / `0x0cff3f60`) are the Naomi
+`0x0dff9f60` / `0x0dff3f60` double-buffer shifted down by the relocation
+patches — the maple path confirms the relocation seeds independently of the
+cart path.
+
+**Attract reached.** `attract8` (~6 min, plain service):
+
+```
+MB n=345 (boot ladder)   MIE sub= 21 (the handshake above)   MIE skip= 0
+MS n=... heartbeats every 512 services, climbing to the end of the leg
+CART off= 77 streams     System reset= 0     SHIMERR= 0     MIE odd= 0
+post-handoff: 5,537 STARTRENDER, 11,076 C2D list transfers of which
+              1,383 are > 4 KB (real geometry), first at 63% into the leg
+CLEO-ARMRST(w) VREG=03 ARMRST=00 ram0=ea00003e ram4=ea000089   (AICA ARM booted)
+```
+
+And the streams are *attract's* streams, not arbitrary ones: of the 83 cart
+transfers in `attract7`, **82 match a `(cart_offset, length)` pair the Phase 2
+Naomi capture recorded** and 54 of them appear in the Phase 2 **attract** leg
+specifically (`docs/kb/cart-streaming-map.csv`). 72 of the 83 land in the
+relocated above-16 MB corridors. The tail of the sequence is the attract demo
+battle's asset load (`0x0b496800 len=0x3be800` → `0x0c7b8d40`, corridor 1's
+`0x0c271000`, etc.).
+
+### Findings worth carrying forward
+
+1. **Residual risk 1 (maple-DMA interrupt) is closed empirically.** The game
+   *does* enable `holly_MAPLE_DMA`: its boot builds `IML4NRM` to `0x0007f000`
+   (the DMA-end group, bits 12–18; `holly_intc.h:27` puts maple at bit 12),
+   and the `0x1000` step is logged at `pc=8c02bd0a pr=8c023bd8` in every leg.
+   Leg `attract7` raised that interrupt for real — a single pattern-3 maple
+   DMA on the true registers after each service, which makes Flycast's
+   `maple_schd()` run `asic_RaiseInterrupt(holly_MAPLE_DMA)`
+   (`maple_if.cpp:375-401`) — and the game behaved the same as without it:
+   same enumeration, same 89-stream cart sequence, same absence of errors, and
+   it kept servicing to the end of the leg either way (`attract4` 14,336
+   transactions without, `attract7` 18,432 with). No *rate* claim is made from
+   these legs: the kill command did not actually stop the emulator (finding 4),
+   so each leg ran until the next one started and the durations are not
+   comparable. The synchronous mirror completion is sufficient; the experiment
+   was reverted rather than shipped.
+2. **Non-MIE maple frames are answered "no device."** The steady engine polls
+   buses 1 and 2 (`cmd 09`, recipients `0x60`/`0xa0`) roughly once per frame,
+   and Flycast's *Naomi* profile answers them with real Dreamcast controller
+   replies because it keeps controllers attached there. A real Naomi cabinet
+   has only the MIE on the bus, so the shim replies with the no-response
+   marker `0xffffffff` — Flycast's own answer for a missing device
+   (`maple_if.cpp:315-320`). Attract is unaffected. Task 12 should re-check
+   this when live pad input goes in.
+3. **`MIE odd` never fired.** No unmodelled maple command and no unmodelled
+   0x86 subcommand was seen in any leg — the modelled set (`0x01`, `0x02`,
+   `0x03`/`0x04`, `0x80`, `0x82`, `0x86`, and subs `0x01`, `0x03`, `0x0b`,
+   `0x13`, `0x15`, `0x17`/`0x19`/`0x21`, `0x31`, `0x33`) covers boot + attract
+   completely.
+4. **Reading a leg's stdout too early lies.** Flycast's stdout is block
+   buffered and the capture recipe's `pkill -9` discards the last block; worse,
+   `pkill -9 -f "flycast-src.*Flycast"` did **not** match the process in this
+   session (the next leg's own startup pkill is what ended the previous one),
+   so a log read right after a "kill" can be both truncated *and* still
+   growing. Kill by PID (`pgrep -f "Flycast.app/Contents/MacOS/Flycast"`) and
+   re-read after the size settles. Three intermediate readings in this task
+   suggested a stall that did not exist.
+
+### Reproduction
+
+```sh
+# blobs (regenerated by the shim Makefile; gitignored output)
+python3 scripts/extract_mie_blobs.py                    # 15 classes, all asserts
+
+# build + leg (diagnostic: LOADER_SERIAL=1 in loader/main.c, reverted before commit)
+make -C shims clean && make -C shims DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
+make gdi && scripts/capture_dc_leg.sh phase4/attractN &
+# ... let it run, then:  kill -9 $(pgrep -f "Flycast.app/Contents/MacOS/Flycast")
+# ... wait for the .stdout.log size to settle before reading it
+
+# what to grep for
+tr '\r' '\n' < captures/phase4/attractN.stdout.log > /tmp/a.txt
+grep -c '^MB n='      /tmp/a.txt     # 345 = the boot ladder, complete
+grep    '^MIE sub='   /tmp/a.txt     # the enumeration; must end at sub=33
+grep -c '^MIE skip\|^MIE odd\|SHIMERR\|System reset requested'  /tmp/a.txt   # 0
+grep -c '^CART off'   /tmp/a.txt     # attract asset streams
+grep -c '^MS n='      /tmp/a.txt     # steady-service heartbeats, must keep climbing
+
+# no real maple DMA may come from a game PC (Cleopatra's lesson (b))
+grep 'MDODMA enter' captures/phase4/attractN.log | sed 's/.*pc=\([0-9a-f]*\).*/\1/' \
+  | sort -u          # only loader/KOS PCs, and only before the handoff line
+                     # (MMUCRWR val=00000000 pc=8c01057c)
+```

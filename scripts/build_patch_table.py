@@ -69,6 +69,7 @@ def _sb_off(name):     # "#define NAME (SHIM_BASE + 0xNNNN)" -> abs address
 
 SHIM_BASE = _hexdef("SHIM_BASE")
 TEST_DAT_OFF = _hexdef("TEST_DAT_OFF")     # main/test boundary, raw .dat offset
+GAME_LOAD_ADDR = _hexdef("GAME_LOAD_ADDR")  # both images load here (RAM address)
 
 # Register mirrors (P2/uncached, matching the game's original access mode) --
 # not consumed by any entry wired in THIS task (only the 4 reloc words are
@@ -331,18 +332,132 @@ for _off, _exp, _fn, _what in [
     hook(_off, _exp, sym(_fn), _what)
 
 # ---- MAPLE-* (Task 11, docs/kb/phase4-conversion.md §Maple-patch sites) ---
-# NOT WIRED YET: shim_maple_service / the 5 boot-detour trampolines aren't in
-# shim.map. Scaffolding for Task 11 to fill in:
+# Every maple register constant in either image is repointed into MAPLE_MIRROR,
+# so the game's maple programming writes shim RAM instead of Dreamcast maple
+# registers. Rows are (KB entry #, dat_offset, old u32, register) transcribed
+# from the KB's two 20-row tables -- §"The full patch table — main image" and
+# §"Test image — the same 20 words, the same shape". `new` is never written
+# here: it is MAPLE_MIRROR_P2 + (old & 0xff), the KB's own symbolic rule.
+# Entries 19-20 of each image are the KB's written exemption (the crash-dump
+# register list: read-only, from a trap handler, and reading SB_MDSTAR /
+# SB_MDTSEL is side-effect free) and appear as comments only.
 #
-#   20-row main + 20-row test tables (1 base repoint + 17 pool/init-table
-#   repoints + 2 *exempt* each):
-#     pool(dat_off, old_u32, MAPLE_MIRROR_P2 + (old_u32 & 0xff), "...")
-#   MAPLE-KICK-HOOK (fn-ptr slot, main/test dat 0x0054c0 / 0x1774b8):
-#     ptr(dat_off, 0x8C02A17E, sym("shim_maple_service"), "MAPLE-KICK-HOOK")
-#   5 boot detours (MAPLE-BOOT-A..E; §MAPLE-BOOT-STRATEGY table gives each
-#   site's exact `expect` bytes -- the "replaced halfwords" column -- and its
-#   dat_offset per image):
-#     detour(dat_off, bytes.fromhex("..."), sym("shim_maple_boot_a"), "MAPLE-BOOT-A")
+# Entries 12-18 ARE repointed although they are data-table words: they live in
+# the (register, value) init-pair list walked by FUN_8c02c584, so repointing
+# turns them into a free, correct zero-init of the mirror -- including
+# mirror[0x18] = 0 (the completion invariant's initial state) and SB_MMSEL = 1,
+# which §MIE-DESC's "no byte swap" conclusion depends on.
+_MAPLE_ROWS = [
+    # main image
+    (1,  0x006b58, 0xA05F6C00, "block base",  "MAPLE-BASE"),
+    (2,  0x04664c, 0xA05F6C14, "SB_MDEN",     "MAPLE-BOOT"),
+    (3,  0x04678c, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT"),
+    (4,  0x04682c, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT"),
+    (5,  0x046958, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT"),
+    (6,  0x046ac0, 0xA05F6C14, "SB_MDEN",     "MAPLE-BOOT"),
+    (7,  0x046ac8, 0xA05F6C8C, "SB_MDAPRO",   "MAPLE-BOOT"),
+    (8,  0x046ad0, 0xA05F6C80, "SB_MSYS",     "MAPLE-BOOT"),
+    (9,  0x046ad4, 0xA05F6C10, "SB_MDTSEL",   "MAPLE-BOOT"),
+    (10, 0x046ad8, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT"),
+    (11, 0x046adc, 0xA05F6C18, "SB_MDST",     "MAPLE-BOOT"),
+    (12, 0x13c4c8, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT init-pair"),
+    (13, 0x13c4d0, 0xA05F6C10, "SB_MDTSEL",   "MAPLE-BOOT init-pair"),
+    (14, 0x13c4d8, 0xA05F6C14, "SB_MDEN",     "MAPLE-BOOT init-pair"),
+    (15, 0x13c4e0, 0xA05F6C80, "SB_MSYS",     "MAPLE-BOOT init-pair"),
+    (16, 0x13c4e8, 0xA05F6C8C, "SB_MDAPRO",   "MAPLE-BOOT init-pair"),
+    (17, 0x13c4f0, 0xA05F6CE8, "SB_MMSEL",    "MAPLE-BOOT init-pair"),
+    (18, 0x13c648, 0xA05F6C18, "SB_MDST",     "MAPLE-BOOT init-pair"),
+    # 19-20 exempt: 0x13c710 SB_MDSTAR / 0x13c714 SB_MDTSEL (crash-dump list)
+    # test image (same 20 words, same order, same values -- KB §Test image)
+    (1,  0x178b50, 0xA05F6C00, "block base",  "MAPLE-BASE"),
+    (2,  0x1a2e78, 0xA05F6C14, "SB_MDEN",     "MAPLE-BOOT"),
+    (3,  0x1a2fb8, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT"),
+    (4,  0x1a3058, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT"),
+    (5,  0x1a3184, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT"),
+    (6,  0x1a32ec, 0xA05F6C14, "SB_MDEN",     "MAPLE-BOOT"),
+    (7,  0x1a32f4, 0xA05F6C8C, "SB_MDAPRO",   "MAPLE-BOOT"),
+    (8,  0x1a32fc, 0xA05F6C80, "SB_MSYS",     "MAPLE-BOOT"),
+    (9,  0x1a3300, 0xA05F6C10, "SB_MDTSEL",   "MAPLE-BOOT"),
+    (10, 0x1a3304, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT"),
+    (11, 0x1a3308, 0xA05F6C18, "SB_MDST",     "MAPLE-BOOT"),
+    (12, 0x1b22f4, 0xA05F6C04, "SB_MDSTAR",   "MAPLE-BOOT init-pair"),
+    (13, 0x1b22fc, 0xA05F6C10, "SB_MDTSEL",   "MAPLE-BOOT init-pair"),
+    (14, 0x1b2304, 0xA05F6C14, "SB_MDEN",     "MAPLE-BOOT init-pair"),
+    (15, 0x1b230c, 0xA05F6C80, "SB_MSYS",     "MAPLE-BOOT init-pair"),
+    (16, 0x1b2314, 0xA05F6C8C, "SB_MDAPRO",   "MAPLE-BOOT init-pair"),
+    (17, 0x1b231c, 0xA05F6CE8, "SB_MMSEL",    "MAPLE-BOOT init-pair"),
+    (18, 0x1b2474, 0xA05F6C18, "SB_MDST",     "MAPLE-BOOT init-pair"),
+    # 19-20 exempt: 0x1b253c SB_MDSTAR / 0x1b2540 SB_MDTSEL (crash-dump list)
+]
+for _n, _off, _old, _reg, _anchor in _MAPLE_ROWS:
+    pool(_off, _old, MAPLE_MIRROR_P2 + (_old & 0xFF),
+         f"#{_n} {_reg} -> maple mirror ({_anchor})")
+assert len(_MAPLE_ROWS) == 36, "maple pool rows: 18 per image, KB entries 1-18"
+
+# The five boot detours (§MAPLE-BOOT-STRATEGY). Each window is the
+# `SB_MDEN = 1 / kick / poll` run (+ the trailing `SB_MDEN = 0` at A/C/D/E);
+# `expect` is the KB's "replaced halfwords" column, byte-verified against
+# senkosp.dat by detour() itself. The two images are byte-identical over all
+# five windows, so only the dat_offset and the trampoline differ.
+#
+# WINDOW LENGTH IS NOT FREE: it is 10 or 12 bytes purely from the window's
+# alignment (detour() derives the literal slot from dat_offset % 4 and asserts
+# the KB's own formula), and the trampoline's resume address must be
+# window_ram + that length. src/mtramp.S bakes the resume addresses;
+# scripts/test_build_patch_table.py cross-checks them against this table so
+# the two cannot drift.
+MAPLE_BOOT_SITES = [
+    # (site, main dat_off, test dat_off, expect halfwords)
+    ("a", 0x046724, 0x1a2f50, "2e72 2572 6252 2228 8bfc 2ec2"),
+    ("b", 0x04680e, 0x1a303a, "2e72 2572 6252 2228 8bfc"),
+    ("c", 0x0468a0, 0x1a30cc, "2e72 2572 6252 2228 8bfc 2ec2"),
+    ("d", 0x046924, 0x1a3150, "2e72 2572 6252 2228 8bfc 2ec2"),
+    ("e", 0x046a5c, 0x1a3288, "2c52 2452 6242 2228 8bfc 2c72"),
+]
+# MAPLE-KICK-HOOK (§MAPLE-KICK-HOOK verdict: "1 pool repoint, hook kind =
+# fn-ptr slot"). [0x8c0254c0] = 0x8c02a17e has exactly one pc-relative loader
+# (0x8c025442), so this word alone converts the steady engine's existing
+# `jsr @r3` into the service hook. Wired in Task 11, not 12: the JVS
+# enumeration the boot I/O-board gate tests runs on THIS engine (see
+# shim_maple_service's comment + the Task 11 report's leg chain).
+ptr(0x0054c0, 0x8C02A17E, sym("shim_maple_service"), "MAPLE-KICK-HOOK main")
+ptr(0x1774b8, 0x8C02A17E, sym("shim_maple_service"), "MAPLE-KICK-HOOK test")
+
+_TRAMP = (ROOT / "shims/src/mtramp.S").read_text()
+
+
+def _resume_check(site, image, dat_off, nbytes):
+    """The trampoline's baked resume address MUST be window_ram + window_len:
+    control returns to the first instruction the detour did not swallow. Both
+    numbers exist twice (here and in mtramp.S), so assert them equal rather
+    than trusting two hand-typed tables."""
+    ram = GAME_LOAD_ADDR + dat_off - (TEST_DAT_OFF if image == "test" else 0)
+    m = re.search(rf"MBSITE\s+{site}_{image},\s*(0x[0-9a-fA-F]+)", _TRAMP)
+    if not m:
+        sys.exit(f"mtramp.S has no MBSITE {site}_{image}")
+    got = int(m.group(1), 16)
+    if got != ram + nbytes:
+        sys.exit(f"MAPLE-BOOT-{site.upper()} {image}: mtramp.S resumes at "
+                 f"{got:#010x}, window {ram:#010x}+{nbytes} ends at "
+                 f"{ram + nbytes:#010x}")
+
+
+for _site, _main, _test, _hw in MAPLE_BOOT_SITES:
+    # The KB writes the window as big-endian halfwords ("2e72 2572 ..."); the
+    # image stores them little-endian, so each pair is byte-swapped here --
+    # one transcription of the KB's own column, no second hand-typed form.
+    _hw = _hw.replace(" ", "")
+    _exp = bytes.fromhex("".join(_hw[i + 2:i + 4] + _hw[i:i + 2]
+                                 for i in range(0, len(_hw), 4)))
+    assert len(_exp) == len(_detour_code(_main, 0)) == len(_detour_code(_test, 0)), (
+        f"MAPLE-BOOT-{_site.upper()}: KB window is {len(_exp)} B but the detour "
+        f"needs {len(_detour_code(_main, 0))} B at this alignment")
+    detour(_main, _exp, sym(f"shim_mb_{_site}_main"),
+           f"MAPLE-BOOT-{_site.upper()} main: kick+poll detour")
+    detour(_test, _exp, sym(f"shim_mb_{_site}_test"),
+           f"MAPLE-BOOT-{_site.upper()} test: kick+poll detour")
+    _resume_check(_site, "main", _main, len(_exp))
+    _resume_check(_site, "test", _test, len(_exp))
 
 # ---- RESET-PATCH (docs/kb/phase4-conversion.md §Restart stub) -------------
 # FUN_8c067e18's single `jmp @r1` loads r1 from this pool word one instruction
@@ -395,6 +510,6 @@ out = [
 (ROOT / "build").mkdir(exist_ok=True)
 (ROOT / "build/patch_table.h").write_text("\n".join(out) + "\n")
 print(f"OK patch_table.h: {len(main_patches)} main + {len(test_patches)} test patches "
-      f"(reloc seeds + CART-* repoints/hooks + RESET-PATCH; maple scaffolded, not "
-      f"wired -- Task 11); G1_MIRROR_P2={G1_MIRROR_P2:#010x} "
+      f"(reloc seeds + CART-* repoints/hooks + MAPLE-* repoints/detours + "
+      f"RESET-PATCH); G1_MIRROR_P2={G1_MIRROR_P2:#010x} "
       f"MAPLE_MIRROR_P2={MAPLE_MIRROR_P2:#010x}")

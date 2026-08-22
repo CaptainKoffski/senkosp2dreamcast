@@ -53,10 +53,302 @@ void shim_reboot(void) {
     ((void (*)(void))0xa0000000)();
 }
 
-#if 0  /* re-enabled per-task: see plan Tasks 10-12 */
+/* ======================================================================
+ * Maple/MIE service (Task 11) -- the shim half of the maple mirror.
+ *
+ * The patch table repoints every maple register constant in senkosp's image
+ * into MAPLE_MIRROR (docs/kb/phase4-conversion.md §Maple-patch sites), so the
+ * game's maple programming writes shim RAM instead of Dreamcast maple
+ * registers, and its `SB_MDST reads 0` completion poll would spin forever.
+ * Five mid-body detours (§MAPLE-BOOT-STRATEGY) land in src/mtramp.S, which
+ * calls shim_maple_boot() below with every register preserved.
+ *
+ * What this file does per kick: walk the command list the game programmed
+ * into mirror SB_MDSTAR exactly as real Holly does (§MIE-DESC, transcribed
+ * from maple_DoDma, ../flycast4naomi2dreamcast/core/hw/maple/maple_if.cpp:
+ * 198-360), synthesize each frame's reply into that frame's own recv address
+ * with UNCACHED stores (it stands in for a DMA-to-RAM write), and clear the
+ * mirror's SB_MDST so the poll exits. Synchronous where hardware is
+ * asynchronous, which is strictly stronger: the reply is ready earlier and
+ * nothing in either driver reads the maple-DMA interrupt (§MIE-DESC).
+ * ====================================================================== */
 typedef unsigned int u32;
-typedef unsigned short u16;
 typedef unsigned char u8;
+
+void scif_puts(const char *); void scif_puthex(unsigned int);   /* src/scif.c */
+
+#ifndef SHIM_TRACE
+#define SHIM_TRACE 0            /* per-transaction serial; see cart.c */
+#endif
+
+/* Captured MIE replies (scripts/extract_mie_blobs.py -> shims/build/mie_blobs.c,
+ * gitignored: captured traffic). Provenance: captures/phase4/pc2.log, the
+ * Naomi-mode leg, post-MAINHANDOFF only -- i.e. senkosp's own transactions,
+ * never the Naomi BIOS's (§R5). */
+extern const unsigned char mie_sub01[];   extern const unsigned int mie_sub01_len;
+extern const unsigned char mie_sub03[];   extern const unsigned int mie_sub03_len;
+extern const unsigned char mie_sub13[];   extern const unsigned int mie_sub13_len;
+extern const unsigned char mie_sub17[];   extern const unsigned int mie_sub17_len;
+extern const unsigned char mie_sub21[];   extern const unsigned int mie_sub21_len;
+extern const unsigned char mie_sub31[];   extern const unsigned int mie_sub31_len;
+extern const unsigned char mie_sub33[];   extern const unsigned int mie_sub33_len;
+extern const unsigned char mie_86empty[]; extern const unsigned int mie_86empty_len;
+extern const unsigned char mie_jvsf1[];   extern const unsigned int mie_jvsf1_len;
+extern const unsigned char mie_jvs10[];   extern const unsigned int mie_jvs10_len;
+extern const unsigned char mie_jvs11[];   extern const unsigned int mie_jvs11_len;
+extern const unsigned char mie_jvs12[];   extern const unsigned int mie_jvs12_len;
+extern const unsigned char mie_jvs13[];   extern const unsigned int mie_jvs13_len;
+extern const unsigned char mie_jvs14[];   extern const unsigned int mie_jvs14_len;
+extern const unsigned char mie_jvsdflt[]; extern const unsigned int mie_jvsdflt_len;
+
+#define MMIR(o) (*(volatile u32 *)P2ADDR(MAPLE_MIRROR + (o)))   /* mirror cell */
+#define UW(a)   (*(volatile u32 *)P2ADDR(a))    /* DMA-source view: uncached */
+#define UB(a)   (*(volatile u8  *)P2ADDR(a))
+
+/* .data (non-zero) per house style -- the loader zero-fills the shim window,
+ * so a .bss counter could not tell "never ran" from "ran zero times". */
+u32 maple_count = 0x10000;      /* transactions serviced (+ sentinel) */
+static u8 pending_jvs = 0xff;   /* last transmitted JVS cmd; 0xff = none */
+static u8 odd_seen = 0x80;      /* bitmap of unmodelled cmds/subs met, once each */
+
+static void put(u32 rcv, const unsigned char *b, u32 n) {
+    volatile u8 *rx = (volatile u8 *)P2ADDR(rcv);
+    while (n--) *rx++ = *b++;
+}
+static void put1(u32 rcv, u32 w) { *(volatile u32 *)P2ADDR(rcv) = w; }
+
+/* BaseMIE's JVSGetId body, verbatim: two frames, 28 + 20 bytes of a 56-byte
+ * literal (maple_jvs.cpp:1391-1400). Only the first 48 bytes are ever sent. */
+static const char mie_id48[48] __attribute__((nonstring)) =
+    "315-6149    COPYRIGHT SEGA ENTERPRISES CO,LTD.  ";
+
+/* MIE subcommand replies (maple frame cmd 0x86). `plen` is the frame's word
+ * count: plen <= 1 means the frame carries NO payload, which Flycast answers
+ * with a bare JVS ack before it ever looks at a subcommand byte
+ * (`if (dma_count_in == 0) { reply(MDRS_JVSReply); return; }`,
+ * maple_jvs.cpp:1758-1761) -- that is exactly the boot driver's site-D frame,
+ * and the reason the capture logs its subcommand as "ff" (the logger reads
+ * p_data[4], which is past the frame). */
+static void mie_86(u32 desc, u32 rcv, u32 plen) {
+    u32 sub;
+    if (plen <= 1u) { put(rcv, mie_86empty, mie_86empty_len); return; }
+    sub = UB(desc + 0x0c);
+    /* Diagnostic: log every CHANGE of subcommand (and of the JVS command a
+     * transmit carries). The boot enumeration is a short burst of distinct
+     * subs, the steady state is a single repeated sub -- so change-gating
+     * prints the whole handshake once and then goes quiet, which is exactly
+     * the evidence a leg needs. Same trick as Cleopatra's `in_last`. */
+    if (SHIM_TRACE) {
+        static u32 last_key = 0xffffffffu;
+        u32 key = (sub << 8) | (sub == 0x17 || sub == 0x19 || sub == 0x21
+                                ? UB(desc + 0x14) : 0u);
+        if (key != last_key) {
+            last_key = key;
+            scif_puts("MIE sub="); scif_puthex(key >> 8);
+            scif_puts(" jvs=");    scif_puthex(key & 0xffu);
+            scif_puts(" rcv=");    scif_puthex(rcv);
+            scif_puts(" n=");      scif_puthex(maple_count & 0xffffu);
+            scif_puts("\n");
+        }
+    }
+    switch (sub) {
+    case 0x17: case 0x19: case 0x21:        /* transmit: latch the JVS command */
+        /* cmd = dma_buffer_in[8] = frame byte 12 = descriptor word 5
+         * (maple_jvs.cpp:1783-1788, the `dma_count_in >= 8` branch). */
+        pending_jvs = UB(desc + 0x14);
+        if (sub == 0x21) put(rcv, mie_sub21, mie_sub21_len);
+        else             put(rcv, mie_sub17, mie_sub17_len);
+        break;
+    case 0x15:                              /* receive: the enumeration reply */
+        switch (pending_jvs) {
+        case 0xf1: put(rcv, mie_jvsf1, mie_jvsf1_len); break;
+        case 0x10: put(rcv, mie_jvs10, mie_jvs10_len); break;
+        case 0x11: put(rcv, mie_jvs11, mie_jvs11_len); break;
+        case 0x12: put(rcv, mie_jvs12, mie_jvs12_len); break;
+        case 0x13: put(rcv, mie_jvs13, mie_jvs13_len); break;
+        case 0x14: put(rcv, mie_jvs14, mie_jvs14_len); break;
+        default:   put(rcv, mie_jvsdflt, mie_jvsdflt_len); break;
+        }
+        break;
+    case 0x33: put(rcv, mie_sub33, mie_sub33_len); break;  /* per-frame poll */
+    case 0x03: put(rcv, mie_sub03, mie_sub03_len); break;  /* EEPROM read */
+    case 0x01: put(rcv, mie_sub01, mie_sub01_len); break;  /* EEPROM ready ACK */
+    case 0x13: put(rcv, mie_sub13, mie_sub13_len); break;  /* store repeat req */
+    case 0x31: put(rcv, mie_sub31, mie_sub31_len); break;  /* DIP switches */
+    case 0x0b:                              /* EEPROM write: ack, drop payload.
+                                             * Nothing to persist -- the only
+                                             * writer this project ever observed
+                                             * is the Naomi BIOS (§R5), which
+                                             * does not exist on the target.
+                                             * Flycast's ack echoes the image's
+                                             * first 4 bytes (maple_jvs.cpp:
+                                             * 1899, :1924-1927); mie_sub03+4 is
+                                             * that image. */
+        put1(rcv, 0x01200087u);
+        put(rcv + 4, mie_sub03 + 4, 4);
+        break;
+    default:
+        put(rcv, mie_86empty, mie_86empty_len);
+        if (!(odd_seen & 1u)) {             /* one-shot: an unmodelled sub is a
+                                             * finding, not a silent ack */
+            odd_seen |= 1u;
+            shim_mark(21, 0xffe0);
+            scif_puts("MIE odd sub="); scif_puthex(sub); scif_puts("\n");
+        }
+        break;
+    }
+}
+
+/* One maple frame. `desc` points at the command block, `rcv` is its (already
+ * range-checked) physical recv address. Non-MIE commands are answered exactly
+ * as BaseMIE::RawDma does (maple_jvs.cpp:1291-1405) -- reply word =
+ * resp | sender_in << 8 | reci_in << 16 | words << 24. */
+static void maple_frame(u32 desc, u32 rcv, u32 plen, u32 bus) {
+    u32 fh = UW(desc + 8);
+    u32 cmd = fh & 0xffu, reci = (fh >> 8) & 0xffu, sender = (fh >> 16) & 0xffu;
+    u32 echo = (sender << 8) | (reci << 16);
+    u32 k;
+    if (bus != 0u || reci != 0x20u) {       /* nothing else on a Naomi bus: the
+                                             * MIE is the only device. Flycast
+                                             * answers a missing device with the
+                                             * no-response marker
+                                             * (maple_if.cpp:315-320). */
+        put1(rcv, 0xffffffffu);
+        return;
+    }
+    switch (cmd) {
+    case 0x01: put1(rcv, 0x05u | echo); break;   /* DeviceRequest -> status, 0 words */
+    case 0x02: put1(rcv, 0x06u | echo); break;   /* AllStatusReq */
+    case 0x03: case 0x04: put1(rcv, 0x07u | echo); break;   /* Reset/Kill */
+    case 0x82:                                   /* JVSGetId: two frames */
+        put1(rcv, 0x07200083u);
+        put(rcv + 4, (const unsigned char *)mie_id48, 28);
+        put1(rcv + 32, 0x05200083u);
+        put(rcv + 36, (const unsigned char *)mie_id48 + 28, 20);
+        break;
+    case 0x80:                                   /* JVS firmware upload (Z80) */
+        if (UB(desc + 0x0d) == 0xffu) {          /* finalize marker */
+            put1(rcv, 0x00200007u);              /* 07 00 20 00 DeviceReply */
+            break;
+        }
+        {   u32 sum = 0;
+            for (k = 0; k < 0x1cu; k++) sum += UB(desc + 0x0c + k);
+            put1(rcv, 0x01200080u);              /* 80 00 20 01 */
+            put1(rcv + 4, sum & 0xffu);          /* the additive checksum */
+            put1(rcv + 8, 0x00200007u);          /* 07 00 20 00 */
+        }
+        break;
+    case 0x86: mie_86(desc, rcv, plen); break;
+    default:
+        put1(rcv, 0xffffffffu);
+        if (!(odd_seen & 2u)) {
+            odd_seen |= 2u;
+            shim_mark(22, 0xffe0);
+            scif_puts("MIE odd cmd="); scif_puthex(cmd); scif_puts("\n");
+        }
+        break;
+    }
+}
+
+/* Walk the command list at mirror SB_MDSTAR and complete the transaction.
+ * Header decode and the address arithmetic are maple_DoDma's, cell for cell
+ * (maple_if.cpp:211-214 header_1, :209 recv addr, :325 next block, and the
+ * one-word advance every non-START pattern takes, :340-357). */
+static void maple_service(void) {
+    u32 addr = MMIR(0x04) & 0x1fffffe0u;
+    u32 i;
+    /* The list base is game-controlled. Walk it only if it points at DC RAM:
+     * a stale/garbage pointer would otherwise feed uncached reads to MMIO and
+     * let the reply writes below spray registers or live code. */
+    if (addr - 0x0c000000u >= 0x01000000u && !(odd_seen & 8u)) {
+        odd_seen |= 8u;
+        shim_mark(23, 0xf800);
+        scif_puts("MIE skip list="); scif_puthex(addr);
+        scif_puts(" n="); scif_puthex(maple_count & 0xffffu); scif_puts("\n");
+    }
+    if (addr - 0x0c000000u < 0x01000000u)
+        for (i = 0; i < 64u; i++) {          /* cap: a list with no terminator
+                                              * must not walk RAM forever */
+            u32 h1 = UW(addr);
+            u32 plen = (h1 & 0xffu) + 1u;
+            if (((h1 >> 8) & 7u) == 0u) {    /* pattern 0 = START = a transfer */
+                u32 rcv = UW(addr + 4) & 0x1fffffe0u;
+                if (rcv - 0x0c000000u < 0x01000000u)
+                    maple_frame(addr, rcv, plen, (h1 >> 16) & 3u);
+                else if (!(odd_seen & 4u)) {  /* a reply we could not deliver is
+                                               * a silent stall -- say so once */
+                    odd_seen |= 4u;
+                    shim_mark(23, 0xf800);
+                    scif_puts("MIE skip rcv="); scif_puthex(rcv);
+                    scif_puts(" n="); scif_puthex(maple_count & 0xffffu);
+                    scif_puts("\n");
+                }
+                addr += (2u + plen) * 4u;
+            } else {
+                addr += 4u;                  /* RESET/NOP/occupy: no transfer */
+            }
+            if (h1 >> 31) break;             /* last-transfer bit */
+        }
+    maple_count++;
+    MMIR(0x18) = 0;                          /* SB_MDST = 0: the poll's exit */
+}
+
+/* MAPLE-BOOT-A..E (src/mtramp.S). The detour window swallowed `SB_MDEN = 1`,
+ * the kick, the poll, and -- at A/C/D/E -- the trailing `SB_MDEN = 0`. All
+ * four are mirror stores, so the uniform contract the KB pins (:1282-1286) is
+ * simply: on return mirror[0x14] = 0 and mirror[0x18] = 0. Site B's window
+ * ends before its own `SB_MDEN = 0`, so B's resume instruction writes the
+ * same 0 again; harmless. */
+/* MAPLE-KICK-HOOK (KB :1077-1093). The steady engine FUN_8c02532a reaches its
+ * registers through base->[0x10f4], which MAPLE-BASE (entry 1) repoints, so
+ * its kick lands in the mirror and its `SB_MDST reads 0` guard at 0x8c02536e
+ * would return -1 forever. The KB's hook is a pool repoint, not a thunk: the
+ * `jsr @r3` at 0x8c025444 loads r3 from [0x8c0254c0] (one loader in the whole
+ * image), so pointing that word here turns the existing call into the hook,
+ * with zero instructions rewritten. We are entered AFTER the kick store (it is
+ * that jsr's delay slot), so the mirror is fully programmed.
+ *
+ * Contract, all three parts: (a) walk the list and synthesize each reply,
+ * (b) clear mirror SB_MDST, (c) return what FUN_8c02a17e returned -- the value
+ * is stored to [0x8c19268c] two instructions later. That routine is
+ * `d244 e0ff 6322 000b 3038` = `return -1 - *(u32 *)0xffd8000c`, a read of
+ * SH-4 TMU TCNT0 (../flycast4naomi2dreamcast/core/hw/sh4/sh4_mmr.h:324-325),
+ * which exists identically on Dreamcast -- so recompute it rather than
+ * tail-calling into the game. SB_MDEN is deliberately untouched here: unlike
+ * the five boot windows, this site's instructions never wrote it.
+ *
+ * WHY IN TASK 11 (deviation from the task split, evidence in the report):
+ * senkosp's JVS I/O-board enumeration -- the thing the boot gate
+ * `if (*(u32 *)0x8c1c013c == 0) fatal("I/O BD IS NOT CONNECTED...")` at
+ * 0x8c0acf44 tests -- is transacted by THIS engine, not by the boot driver
+ * (captures/phase4/pc2.log: every sub-0x17/0x15 enumeration frame is
+ * pc=8c025448; the boot driver only uploads the MIE's Z80 firmware). Leg
+ * attract1 confirmed it live: 345/345 boot transactions serviced, the error
+ * path never taken, and the game then stopped dead at the first steady kick. */
+int shim_maple_service(void);
+int shim_maple_service(void) {
+    maple_service();
+    if (SHIM_TRACE && (maple_count & 0x1ffu) == 0u) {   /* ~8 s heartbeat */
+        scif_puts("MS n="); scif_puthex(maple_count & 0xffffu); scif_puts("\n");
+    }
+    return -1 - (int)*(volatile u32 *)0xffd8000c;      /* TMU TCNT0 */
+}
+
+void shim_maple_boot(void);
+void shim_maple_boot(void) {
+    if (maple_count == 0x10000u) shim_mark(1, 0x07e0);   /* slot1 green: first */
+    maple_service();
+    MMIR(0x14) = 0;                          /* SB_MDEN = 0 (replayed) */
+    if (SHIM_TRACE) {
+        scif_puts("MB n=");   scif_puthex(maple_count & 0xffffu);
+        scif_puts(" star=");  scif_puthex(MMIR(0x04));
+        scif_puts(" h1=");    scif_puthex(UW(MMIR(0x04) & 0x1fffffe0u));
+        scif_puts("\n");
+    }
+}
+
+#if 0  /* re-enabled per-task: see plan Tasks 10-12 */
+typedef unsigned short u16;
 void shim_die(u32, u32, u32);
 void *xmemcpy(void *, const void *, u32);
 void shim_mark(u32 slot, unsigned short color);   /* util.c: real-HW breadcrumb HUD */
