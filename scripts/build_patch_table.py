@@ -35,7 +35,7 @@ this generator never drift, same convention as Cleopatra's MIRROR_P2):
 Sources (all cited in docs/kb/phase4-conversion.md):
   §Cart-patch sites  -> 32-row main/test tables + 4 entry hooks (Task 10)
   §Maple-patch sites -> 20-row main/test tables, MAPLE-KICK-HOOK, 5 boot detours (Task 11)
-  §Restart stub      -> RESET-PATCH, 1 word per image (Task 13)
+  §Restart stub      -> RESET-PATCH, 1 word per image (Task 10)
   scripts/reloc_patchset.json -> the 4 relocation words (Task 9, wired below;
                                   single source -- values live ONLY in that
                                   file, never duplicated here)
@@ -222,18 +222,113 @@ for _r in _RELOC:
     pool(_off, _old, _new, _comment)
 
 # ---- CART-* (Task 10, docs/kb/phase4-conversion.md §Cart-patch sites) -----
-# NOT WIRED YET: shim_cart_service / shim_cart_pio aren't in shim.map (the
-# cart shim isn't built). Scaffolding for Task 10 to fill in, each row citing
-# its KB anchor:
+# Every cart/G1 register constant in either image is repointed into G1_MIRROR,
+# so the game's DMA programming writes shim RAM instead of Dreamcast G1 regs.
 #
-#   32-row main + 32-row test tables (29 pool repoints + 3 *exempt* each):
-#     pool(dat_off, old_u32, G1_MIRROR_P2 + (old_u32 & 0x7ff),
-#          "#<n> <register> -> mirror, CART-BASE|BOOT-POOLS|G1-TIMING|CART-PIO")
-#   4 entry hooks (CART-WAIT-A/B main dat 0x007e5e/0x007e34, CART-BOOT-DMA
-#   dat 0x046440, CART-PIO-READ dat 0x0463e6 -- +test twins, §Cart-patch
-#   sites "Four entry hooks" table):
-#     hook(dat_off, old_u16, sym("shim_cart_service"), "CART-WAIT-A: ...")
-#     hook(dat_off, old_u16, sym("shim_cart_pio"),      "CART-PIO-READ: ...")
+# Rows are (KB entry #, dat_offset, old u32, register, anchor) transcribed from
+# the KB's two 32-row tables -- §"The full patch table — main image" and
+# §"Test image — the same 32 words, the same shape". `new` is never written
+# here: it is G1_MIRROR_P2 + (old & 0x7ff), the KB's own symbolic rule, so the
+# doc and this file cannot drift. Entries 30-32 of each image are the KB's
+# written exemptions (crash-dump register list, read-only from a trap handler,
+# and reads of SB_GDSTAR/GDLEN/GDDIR are side-effect free) and are listed here
+# as comments only -- see the KB's Exemption block.
+#
+# Entry 29 IS repointed although it is a data-table word: it lives in the
+# (register, value) init-pair list walked by FUN_8c02c584, and its paired value
+# is 0, so repointing turns it into a free zero-init of mirror[0x418] -- the
+# mirror invariant's initial state.
+_CART_ROWS = [
+    # main image
+    (1,  0x0075e8, 0xA05F7000, "NAOMI_ROM_OFFSETH", "CART-BASE"),
+    (2,  0x04626c, 0xA05F7418, "SB_GDST",           "BOOT-POOLS"),
+    (3,  0x046274, 0xA05F703C, "NAOMI_DIMM_COMMAND", "BOOT-POOLS"),
+    (4,  0x04627c, 0xA05F7014, "NAOMI_DMA_COUNT",   "BOOT-POOLS"),
+    (5,  0x046368, 0xA05F74B8, "SB_GDAPRO",         "G1-TIMING"),
+    (6,  0x04636c, 0xA05F7480, "SB_G1RRC",          "G1-TIMING"),
+    (7,  0x046370, 0xA05F7484, "SB_G1RWC",          "G1-TIMING"),
+    (8,  0x046374, 0xA05F7490, "SB_G1CRC",          "G1-TIMING"),
+    (9,  0x046378, 0xA05F74A4, "SB_G1GDWC",         "G1-TIMING"),
+    (10, 0x046424, 0xA05F7418, "SB_GDST",           "BOOT-POOLS"),
+    (11, 0x04642c, 0xA05F7000, "NAOMI_ROM_OFFSETH", "CART-PIO"),
+    (12, 0x046430, 0xA05F7004, "NAOMI_ROM_OFFSETL", "CART-PIO"),
+    (13, 0x04643c, 0xA05F7008, "NAOMI_ROM_DATA",    "CART-PIO"),
+    (14, 0x046530, 0xA05F7418, "SB_GDST",           "BOOT-POOLS"),
+    (15, 0x046534, 0xA05F7004, "NAOMI_ROM_OFFSETL", "BOOT-POOLS"),
+    (16, 0x04653c, 0xA05F7000, "NAOMI_ROM_OFFSETH", "BOOT-POOLS"),
+    (17, 0x046540, 0xA05F7014, "NAOMI_DMA_COUNT",   "BOOT-POOLS"),
+    (18, 0x046544, 0xA05F7010, "NAOMI_DMA_OFFSETL", "BOOT-POOLS"),
+    (19, 0x046550, 0xA05F700C, "NAOMI_DMA_OFFSETH", "BOOT-POOLS"),
+    (20, 0x046554, 0xA05F7404, "SB_GDSTAR",         "BOOT-POOLS"),
+    (21, 0x046558, 0xA05F7408, "SB_GDLEN",          "BOOT-POOLS"),
+    (22, 0x04655c, 0xA05F740C, "SB_GDDIR",          "BOOT-POOLS"),
+    (23, 0x046a88, 0xA05F700C, "NAOMI_DMA_OFFSETH", "BOOT-POOLS"),
+    (24, 0x047970, 0xA05F7418, "SB_GDST",           "CART-WAIT"),
+    (25, 0x047adc, 0xA05F7418, "SB_GDST",           "CART-WAIT"),
+    (26, 0x047b00, 0xA05F7068, "NAOMI_LED",         "BOOT-POOLS"),
+    (27, 0x047c44, 0xA05F7418, "SB_GDST",           "CART-WAIT"),
+    (28, 0x047e14, 0xA05F7418, "SB_GDST",           "CART-WAIT"),
+    (29, 0x13c650, 0xA05F7418, "SB_GDST",           "BOOT-POOLS"),
+    # 30-32 exempt: 0x13c718 SB_GDSTAR / 0x13c71c SB_GDLEN / 0x13c720 SB_GDDIR
+    # test image (same 32 words, same order, same values -- KB §Test image)
+    (1,  0x1795e0, 0xA05F7000, "NAOMI_ROM_OFFSETH", "CART-BASE"),
+    (2,  0x1a2a98, 0xA05F7418, "SB_GDST",           "BOOT-POOLS"),
+    (3,  0x1a2aa0, 0xA05F703C, "NAOMI_DIMM_COMMAND", "BOOT-POOLS"),
+    (4,  0x1a2aa8, 0xA05F7014, "NAOMI_DMA_COUNT",   "BOOT-POOLS"),
+    (5,  0x1a2b94, 0xA05F74B8, "SB_GDAPRO",         "G1-TIMING"),
+    (6,  0x1a2b98, 0xA05F7480, "SB_G1RRC",          "G1-TIMING"),
+    (7,  0x1a2b9c, 0xA05F7484, "SB_G1RWC",          "G1-TIMING"),
+    (8,  0x1a2ba0, 0xA05F7490, "SB_G1CRC",          "G1-TIMING"),
+    (9,  0x1a2ba4, 0xA05F74A4, "SB_G1GDWC",         "G1-TIMING"),
+    (10, 0x1a2c50, 0xA05F7418, "SB_GDST",           "BOOT-POOLS"),
+    (11, 0x1a2c58, 0xA05F7000, "NAOMI_ROM_OFFSETH", "CART-PIO"),
+    (12, 0x1a2c5c, 0xA05F7004, "NAOMI_ROM_OFFSETL", "CART-PIO"),
+    (13, 0x1a2c68, 0xA05F7008, "NAOMI_ROM_DATA",    "CART-PIO"),
+    (14, 0x1a2d5c, 0xA05F7418, "SB_GDST",           "BOOT-POOLS"),
+    (15, 0x1a2d60, 0xA05F7004, "NAOMI_ROM_OFFSETL", "BOOT-POOLS"),
+    (16, 0x1a2d68, 0xA05F7000, "NAOMI_ROM_OFFSETH", "BOOT-POOLS"),
+    (17, 0x1a2d6c, 0xA05F7014, "NAOMI_DMA_COUNT",   "BOOT-POOLS"),
+    (18, 0x1a2d70, 0xA05F7010, "NAOMI_DMA_OFFSETL", "BOOT-POOLS"),
+    (19, 0x1a2d7c, 0xA05F700C, "NAOMI_DMA_OFFSETH", "BOOT-POOLS"),
+    (20, 0x1a2d80, 0xA05F7404, "SB_GDSTAR",         "BOOT-POOLS"),
+    (21, 0x1a2d84, 0xA05F7408, "SB_GDLEN",          "BOOT-POOLS"),
+    (22, 0x1a2d88, 0xA05F740C, "SB_GDDIR",          "BOOT-POOLS"),
+    (23, 0x1a32b4, 0xA05F700C, "NAOMI_DMA_OFFSETH", "BOOT-POOLS"),
+    (24, 0x1a419c, 0xA05F7418, "SB_GDST",           "CART-WAIT"),
+    (25, 0x1a4308, 0xA05F7418, "SB_GDST",           "CART-WAIT"),
+    (26, 0x1a432c, 0xA05F7068, "NAOMI_LED",         "BOOT-POOLS"),
+    (27, 0x1a4470, 0xA05F7418, "SB_GDST",           "CART-WAIT"),
+    (28, 0x1a4640, 0xA05F7418, "SB_GDST",           "CART-WAIT"),
+    (29, 0x1b247c, 0xA05F7418, "SB_GDST",           "BOOT-POOLS"),
+    # 30-32 exempt: 0x1b2544 SB_GDSTAR / 0x1b2548 SB_GDLEN / 0x1b254c SB_GDDIR
+]
+for _n, _off, _old, _reg, _anchor in _CART_ROWS:
+    pool(_off, _old, G1_MIRROR_P2 + (_old & 0x7FF),
+         f"#{_n} {_reg} -> G1 mirror ({_anchor})")
+assert len(_CART_ROWS) == 58, "cart pool rows: 29 per image, KB entries 1-29"
+
+# The four entry hooks (§Cart-patch sites "Four entry hooks" + §Test image
+# "Test-image hook sites"). `expect` is the entry's first opcode, byte-read
+# from senkosp.dat and cross-checked against the KB's own disassembly:
+#   0x2fe6 mov.l r14,@-r15   (FUN_8c027e5e prologue; boot_cart_dma prologue is
+#                             byte-verified as 2fe6 in the KB)
+#   0xe058 mov #0x58,r0      (FUN_8c027e34's first insn -- it loads obj->[0x58]
+#                             via `mov.l @(r0,r4),r0`, which is also the
+#                             evidence that r4, not r5, is `obj` here)
+#   0xd212 mov.l @(0x12,PC),r2 (the PIO reader's first insn, quoted verbatim in
+#                             §CART-PIO's DisasmRange listing)
+# ABIs differ per site, so each gets its own shim entry (shims/src/cart.c).
+for _off, _exp, _fn, _what in [
+    (0x007e5e, 0x2FE6, "shim_cart_service",  "CART-WAIT-A main: FUN_8c027e5e DMA-completion wait"),
+    (0x179e56, 0x2FE6, "shim_cart_service",  "CART-WAIT-A test: FUN_8c027e5e DMA-completion wait"),
+    (0x007e34, 0xE058, "shim_cart_settle",   "CART-WAIT-B main: FUN_8c027e34 settle/abort"),
+    (0x179e2c, 0xE058, "shim_cart_settle",   "CART-WAIT-B test: FUN_8c027e34 settle/abort"),
+    (0x046440, 0x2FE6, "shim_cart_boot_dma", "CART-BOOT-DMA main: boot cart DMA 0x8c066440"),
+    (0x1a2c6c, 0x2FE6, "shim_cart_boot_dma", "CART-BOOT-DMA test: boot cart DMA 0x8c050c74"),
+    (0x0463e6, 0xD212, "shim_cart_pio",      "CART-PIO-READ main: boot PIO reader 0x8c0663e6"),
+    (0x1a2c12, 0xD212, "shim_cart_pio",      "CART-PIO-READ test: boot PIO reader 0x8c050c1a"),
+]:
+    hook(_off, _exp, sym(_fn), _what)
 
 # ---- MAPLE-* (Task 11, docs/kb/phase4-conversion.md §Maple-patch sites) ---
 # NOT WIRED YET: shim_maple_service / the 5 boot-detour trampolines aren't in
@@ -249,11 +344,16 @@ for _r in _RELOC:
 #   dat_offset per image):
 #     detour(dat_off, bytes.fromhex("..."), sym("shim_maple_boot_a"), "MAPLE-BOOT-A")
 
-# ---- RESET-PATCH (Task 13, docs/kb/phase4-conversion.md §Restart stub) ----
-# NOT WIRED YET: shim_reboot_entry isn't in shim.map. Both `old` values
-# (0x8dfff000) are already byte-verified in the KB; Task 13 adds:
-#     ptr(0x047e4c, 0x8DFFF000, sym("shim_reboot_entry"), "RESET-PATCH main")
-#     ptr(0x1a4678, 0x8DFFF000, sym("shim_reboot_entry"), "RESET-PATCH test")
+# ---- RESET-PATCH (docs/kb/phase4-conversion.md §Restart stub) -------------
+# FUN_8c067e18's single `jmp @r1` loads r1 from this pool word one instruction
+# earlier and nothing between can redirect it, so rewriting this one word per
+# image turns the Naomi-BIOS re-entry (0x8dfff000, not there on a DC) into the
+# shim's reboot routine. Wired in Task 10 (not 13): the shim entry exists now,
+# and a live restart path is safer than one that jumps into nothing the moment
+# any code reaches it. The copy-destination pool (0x47e3c / 0x1a4668,
+# 0xadfff000) stays unpatched -- it is only CALL #1's argument.
+ptr(0x047e4c, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH main: restart -> DC reboot")
+ptr(0x1a4678, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH test: restart -> DC reboot")
 
 # ---- emit -------------------------------------------------------------
 def _row(dat_off, img, old, new, what):
@@ -295,6 +395,6 @@ out = [
 (ROOT / "build").mkdir(exist_ok=True)
 (ROOT / "build/patch_table.h").write_text("\n".join(out) + "\n")
 print(f"OK patch_table.h: {len(main_patches)} main + {len(test_patches)} test patches "
-      f"(Task 9: reloc heap-top + KAMUI2-VRAM seeds; cart/maple/reset scaffolded, "
-      f"not wired -- Tasks 10/11/13); G1_MIRROR_P2={G1_MIRROR_P2:#010x} "
+      f"(reloc seeds + CART-* repoints/hooks + RESET-PATCH; maple scaffolded, not "
+      f"wired -- Task 11); G1_MIRROR_P2={G1_MIRROR_P2:#010x} "
       f"MAPLE_MIRROR_P2={MAPLE_MIRROR_P2:#010x}")

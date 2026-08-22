@@ -53,6 +53,34 @@ BASE_VA = 0x8C020000       # cart offset 0 loads here (docs/kb/game.md)
 CART_BASELINE = set()
 BIOS_DATA_BASELINE = set()
 
+# Task 10: spec Decision 1's boot combo (hold A+Start on pad 1 during boot ->
+# test image) makes the loader READ pad 1 before the handoff, which is the
+# first time loader/main.o legitimately names a maple symbol. Classified, per
+# this script's own rule, rather than deleted from the gate:
+#
+#   maple_wait_scan   blocks until KOS's first periodic scan has landed
+#   maple_enum_type   walks the already-scanned device list, no bus traffic
+#   maple_dev_status  returns the driver's cached status buffer for a device
+#
+# All three are pure reads of state KOS's periodic scan already produced --
+# none builds or sends a frame, so none can reach a VMU write. (The scan
+# itself runs in every loader build regardless: KOS starts it at init, and
+# the docstring's "KOS libs legitimately contain both" clause covers it, with
+# the dynamic canary test as the real guard.) Every OTHER maple symbol, and
+# every vmu_* symbol without exception, still fails the build -- including a
+# maple_dev_status reference from anything but an undefined-symbol import.
+LOADER_MAPLE_ALLOW = {"_maple_wait_scan", "_maple_enum_type", "_maple_dev_status"}
+
+
+def _combo_read(nm_line):
+    """True for an UNDEFINED reference to one of the three allowed
+    controller-read entry points (nm format: '<blanks> U <symbol>')."""
+    parts = nm_line.split()
+    return (len(parts) == 2 and parts[0] == "U"
+            and parts[1] in LOADER_MAPLE_ALLOW
+            and "vmu" not in parts[1].lower())
+
+
 def scan(data):
     """Aligned u32 literals with (v & 0x1fffff00) == 0x005f6c00.
     find()-driven: every candidate contains the byte pair 6c 5f at u32
@@ -117,14 +145,16 @@ def main():
     nm = subprocess.run(["nm", *map(str, LOADER_OBJS)],
                         capture_output=True, text=True, check=True)
     bad = [l for l in nm.stdout.splitlines()
-           if "vmu" in l.lower() or "maple" in l.lower()]
+           if ("vmu" in l.lower() or "maple" in l.lower())
+           and not _combo_read(l)]
     if bad:
         loader_ok = False
         for l in bad:
             print(f"FAIL loader objects reference VMU/Maple: {l}")
     else:
         loader_ok = True
-        print("OK   loader main.o/handoff.o: no vmu/maple references")
+        print("OK   loader main.o/handoff.o: no unclassified vmu/maple references\n     (allowed, boot-combo controller reads only: "
+              + ", ".join(sorted(LOADER_MAPLE_ALLOW)) + ")")
     sys.exit(0 if loader_ok else 1)
 
 if __name__ == "__main__":

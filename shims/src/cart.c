@@ -1,221 +1,182 @@
+/* Cart/G1 service -- the shim half of the register mirror (Task 10).
+ *
+ * The patch table repoints every cart/G1 register constant in senkosp's image
+ * to G1_MIRROR (docs/kb/phase4-conversion.md §Cart-patch sites), so the game's
+ * DMA programming writes shim RAM instead of Dreamcast G1 registers. Nothing
+ * traps a RAM store, so four function entries are hooked to turn those mirrored
+ * writes back into real work; the four sites and their ABIs are pinned in the
+ * KB's "Four entry hooks" table, and the ABIs DIFFER (r4/r5 mean different
+ * things at each site), which is why this file has four entry points over one
+ * shared core rather than the single helper §CART-PIO floats:
+ *
+ *   CART-WAIT-A  FUN_8c027e5e(r4=snapshot flag, r5=obj)  -> shim_cart_service
+ *   CART-WAIT-B  FUN_8c027e34(r4=obj)                    -> shim_cart_settle
+ *   CART-BOOT-DMA boot_cart_dma(r4=off,r5=dst,r6=len,r7=async) -> shim_cart_boot_dma
+ *   CART-PIO-READ pio_read(r4=off, r5=dst, r6=len)       -> shim_cart_pio
+ *
+ * A single helper reading r5 as `obj` would read a scratch register at
+ * CART-WAIT-B and a destination pointer at the two boot sites -- i.e. it would
+ * write the game's completion flags through whatever happened to be in r5.
+ *
+ * All four are ENTRY hooks (generator `hook()` kind): the thunk sits at the
+ * function's first instruction and jumps, so the original body never runs and
+ * the plain SH-4 ABI applies (r0 clobbered by the thunk, r4-r7 = the args, PR
+ * = the caller's return address). No mid-body detour discipline is involved.
+ */
 #include "shim_iface.h"
 typedef unsigned int u32;
 
-typedef struct {
-    u32 head_fad, head_skip, head_take;   /* fads are cart-relative sector indices */
-    u32 body_fad, body_sect;
-    u32 tail_fad, tail_take;
-} split_t;
+/* Mirror cell offsets. G1_MIRROR fakes physical 0x5f7000-0x5f77ff, so
+ * mirror + (reg & 0x7ff) is the cell for register 0x5f7xxx -- the same rule
+ * the generator computes `new = G1_MIRROR_P2 + (old & 0x7ff)` with. */
+#define M_DMA_OFFH  0x00c   /* NAOMI_DMA_OFFSETH: cart source, high half + mode bits */
+#define M_DMA_OFFL  0x010   /* NAOMI_DMA_OFFSETL: cart source, low half */
+#define M_GDSTAR    0x404   /* SB_GDSTAR: destination */
+#define M_GDLEN     0x408   /* SB_GDLEN:  byte length (sole length source) */
+#define M_GDST      0x418   /* SB_GDST:   1 = transfer outstanding, 0 = done */
+#define M_GDLEND    0x4f8   /* SB_GDLEND: bytes transferred so far */
 
-/* Pure: decompose (byte offset, byte len) into partial-head / whole-sector
- * body / partial-tail. Compiled on host for the unit test (test/test_host.c). */
-void cart_split(u32 off, u32 len, split_t *s) {
-    u32 sec = off / 2048, skip = off % 2048;
-    s->head_fad = s->head_skip = s->head_take = 0;
-    s->body_fad = s->body_sect = 0;
-    s->tail_fad = s->tail_take = 0;
-    if (skip) {
-        u32 take = 2048 - skip; if (take > len) take = len;
-        s->head_fad = sec; s->head_skip = skip; s->head_take = take;
-        len -= take; sec++;
-    }
-    s->body_fad = sec;
-    s->body_sect = len / 2048;
-    sec += s->body_sect; len %= 2048;
-    if (len) { s->tail_fad = sec; s->tail_take = len; }
-}
+/* Fence for a mirrored destination. The shim window, its register mirrors and
+ * the pre-placed Naomi BIOS 0x60000 library all sit at the BOTTOM of RAM in
+ * this port (shim_iface.h), so the guard is a FLOOR -- not Cleopatra's ceiling,
+ * whose shim lived at 0x8cfc0000. Upper bound is the DC's 16 MB line; the
+ * relocation patches (scripts/reloc_patchset.json) put every streaming corridor
+ * under it, so a destination above it means the heap-top seed did not take. */
+#define DEST_LO  ((BIOS60000_DST + BIOS60000_LEN) & 0x1fffffff)   /* 0x0c01f000 */
+#define DEST_HI  0x0d000000u
 
-#ifndef HOST_TEST
 void shim_die(u32, u32, u32);
-void *xmemcpy(void *, const void *, u32);
-int gd_read_fad(unsigned fad, void *dst, unsigned sectors);  /* gd.c: raw-ATA PIO read */
-#if SHIM_GD_DMA
-int gd_read_fad_dma(unsigned fad, u32 phys, unsigned sectors); /* gd.c: G1-DMA body reads (not written yet) */
-#endif
+int gd_read_cart(unsigned cart_off, void *dst, unsigned len);   /* gd.c: the tested path */
+extern u32 gd_last_err;                       /* gd.c: 0xda<site><status><error> */
 void scif_puts(const char *); void scif_puthex(u32);
-void shim_mark(u32 slot, unsigned short color);   /* util.c: real-HW breadcrumb HUD */
+void shim_mark(u32 slot, unsigned short color);   /* util.c: breadcrumb HUD */
 
-/* .data (non-zero init, house style): first-read flag + activity blink counter.
- * cart_count is non-static: main.c paints a reads/sec rate from it (round 16). */
-static u32 cart_first = 1;
-u32 cart_count = 1;
-
-/* ---- HW load-time measurement (SHIM_LOADSTAT) --------------------------
- * The post-handoff black screen is dominated by the boot asset preload
- * streamed through this shim's synchronous PIO GD path (watch-item I1; the
- * loader clocked PIO at 1 MiB / 378 ms). Paint cumulative stream bytes,
- * request count, and time-in-GD (ms) LIVE, so the TV shows the counters climb
- * during the black screen and settle when the title presents -- streaming vs
- * other-init cost, read off the peak values + a stopwatch. Per-read VRAM paint
- * blacks Flycast's present (round 12; HW-only, like SHIM_HUD). Set 0 to remove. */
-#if SHIM_LOADSTAT
-void hex_paint_c(unsigned int, unsigned int, unsigned int,
-                 unsigned short, unsigned short);           /* util.c (unconditional) */
-void ls_stampA(unsigned int);                               /* main.c: init-timeline stamp */
-#define LS_FG 0x0000                                        /* black digits ... */
-#define LS_BG 0xffff                                        /* ... on a white box (splash-readable) */
-#define LS_TCNT0 (*(volatile u32 *)0xffd8000c)               /* BIOS-left free-running timer */
-#define LS_TCR0  (*(volatile unsigned short *)0xffd80010)
-static u32 ls_bytes = 0, ls_reads = 0, ls_ticks = 0, ls_sh = 0xff; /* ls_sh: .data sentinel */
-#endif
-
-#if SHIM_LOADBAR
-void loadbar_paint(unsigned int fill);                      /* util.c: 320-px bar */
-/* Boot-preload byte countdown. 10 MiB (= 320px << 15, so fill = bytes >> 15,
- * no divide) is deliberately UNDER the HW-measured ~11.4 MiB boot preload:
- * the bar hits 100% and painting stops for good BEFORE the title presents --
- * an overshoot would leave the bar short of full and let the first
- * stage-boundary stream repaint it over live gameplay.
- * ponytail: knob -- retune only if the boot preload ever shrinks below 10 MiB. */
-#define PB_TOTAL (320u << 15)
-static u32 pb_left = PB_TOTAL;         /* .data non-zero init (house style) */
-#endif
-
-extern u32 gd_last_err;                       /* gd.c: 0xda<site><status><error> of last failure */
-/* ponytail: cart_split + cart_read below duplicate gd.c's gd_plan/gd_read_cart
- * (the same head/body/tail decomposition). Task 7 reconciled the CALL SITES to
- * the new interface only -- collapsing cart_read into a single gd_read_cart()
- * call is Task 10's job, when the SHIM_GD_DMA body split and this file's
- * instrumentation get re-enabled and can be re-decided together. */
-static void gd_or_die(void *dst, u32 rel_fad, u32 n) {
-    int r = gd_read_fad(CART_FAD + rel_fad, dst, n);
-    if (r < 0) shim_die(4, rel_fad, gd_last_err);
-}
-#if SHIM_GD_DMA
-static void gd_or_die_dma(u32 phys, u32 rel_fad, u32 n) {   /* body via G1-DMA (32-aligned phys) */
-    int r = gd_read_fad_dma(CART_FAD + rel_fad, phys, n);
-    if (r < 0) shim_die(4, rel_fad, gd_last_err);
-}
-#endif
-
-/* dest_phys is a main-RAM phys addr (0x0c......). The game reads streamed cart
- * assets UNCACHED (P2, 0xa0......) or via hardware DMA (PVR/TA/AICA) -- real-DMA
- * semantics, matching the original FUN_8c03bc12 which does NO cache op. So the
- * bytes must land in RAM with nothing stale left in the D-cache. We therefore
- * write the dest through the P2 UNCACHED alias (0xa0......): the xmemcpy head/
- * tail stores AND the gd_read_fad PIO body stores all go straight to RAM,
- * bypassing the cache, so the game's P2 read (or a downstream DMA) sees current
- * data on real hardware. (Via P1 cached the bytes would sit in D-cache while RAM
- * stayed stale -> garbage graphics on real DC; Flycast has no cache so it masked
- * this.) This mirrors maple_reply + the register mirror, which are all P2.
- * The BOUNCE buffer is P2 as well (changed in Task 7): gd.c's raw-ATA driver
- * always writes its destination through the uncached alias, so a P1 read of the
- * bounce here would hit a D-cache line left over from the PREVIOUS partial read
- * -- stale bytes, intermittently, and invisible under emulation (no cache).
- * Both sides uncached = mutually coherent with no cache op. (Cleopatra could
- * keep the bounce cached: its BIOS syscall wrote whichever alias it was
- * handed, so writer and reader agreed by construction.) */
-void cart_read(u32 off, u32 len, u32 dest_phys) {
-    split_t s;
-    if (cart_first) { cart_first = 0; shim_mark(4, 0xf81f); }   /* slot4 magenta: first cart read */
-    if ((++cart_count & 31u) == 0)                              /* slot5: activity blinker */
-        shim_mark(5, (cart_count & 32u) ? 0xffe0 : 0x001f);
-    unsigned char *dst = (unsigned char *)(dest_phys | 0xa0000000); /* P2 uncached */
-    unsigned char *bounce = (unsigned char *)P2ADDR(SHIM_BOUNCE); /* P2: see above */
-    cart_split(off, len, &s);
-    if (s.head_take) {
-        gd_or_die(bounce, s.head_fad, 1);
-        xmemcpy(dst, bounce + s.head_skip, s.head_take);
-        dst += s.head_take;
-    }
-    if (s.body_sect) {
-#if SHIM_GD_DMA
-        /* dest_phys is a physical addr (0x0c..); the head bytes are already
-         * written, so the body starts head_take further in. G1-DMA needs a
-         * 32-byte-aligned dest -- off is usually sector-aligned (no head), so
-         * the body qualifies; the rare unaligned body falls back to PIO. */
-        u32 body_phys = dest_phys + s.head_take;
-        if ((body_phys & 31u) == 0)
-            gd_or_die_dma(body_phys, s.body_fad, s.body_sect);
-        else
-#endif
-            gd_or_die(dst, s.body_fad, s.body_sect);
-        dst += s.body_sect * 2048;
-    }
-    if (s.tail_take) {
-        gd_or_die(bounce, s.tail_fad, 1);
-        xmemcpy(dst, bounce, s.tail_take);
-    }
-}
-
-/* Entry hooked onto the game's DMA-completion wait FUN_8c03bc12 (KB §V3, patch
- * via Task 12). Reads the mirrored register values the game already wrote
- * (KB §patch-sites: MIRROR+0xYYY stands in for cart/G1 reg 0x5f7YYY).
- *   off  = DMA_OFFSETH(0x700c)<<16 | DMA_OFFSETL(0x7010), cart-relative bytes
- *   len  = SB_GDLEN(0x7408) bytes (sole length source; DMA_COUNT unwritten here)
- *   dest = SB_GDSTAR(0x7404) phys ; SB_GDST(0x7418) cleared => game's poll exits */
-void shim_cart_service(void) {
-    volatile u32 *m = P2(G1_MIRROR);
-    u32 off = (((m[0x0c/4] & 0xffff) << 16) | (m[0x10/4] & 0xffff)) & 0x0fffffff;
-    u32 len = m[0x408/4];               /* SB_GDLEN mirror (bytes), sole length */
-    /* ponytail: length is SB_GDLEN; DMA_COUNT (mirror+0x14) is never written by
-     * this game's arm path (FUN_8c03b81a) -- cross-check dropped */
-    u32 dest = m[0x404/4] & 0x1fffffff; /* SB_GDSTAR mirror; game programs it
-                                         * P1-aliased (0x8c..) -- mask P0/P1/P2
-                                         * region bits to physical 0x0c.. */
-    /* len sanity (>16MB is impossible for a legit cart read) BEFORE the +len
-     * comparisons so an absurd SB_GDLEN can't u32-wrap past them. Upper bound is
-     * fenced to shim home (SHIM_BASE phys 0x0cfc0000): a DMA reaching there would
-     * clobber the running shim / BIOS-data blocks -- last line protecting it. */
-    if (!len || len > 0x01000000 || off + len > CART_SIZE ||
-        (dest & 0x1f000000) != 0x0c000000 || dest + len > (SHIM_BASE & 0x1fffffff))
-        shim_die(2, off, dest);
 #ifndef SHIM_TRACE
-#define SHIM_TRACE 0
+#define SHIM_TRACE 0            /* per-read serial; ~2-3 ms SCIF spin each on real HW */
 #endif
-    if (SHIM_TRACE) {   /* per-read serial: ~2-3 ms SCIF spin each on real HW */
+
+/* .data (non-zero init, house style: the loader zero-fills the shim window, so
+ * a .bss counter would also start at 0 -- but the convention keeps every shim
+ * counter's "never ran" value distinguishable from "ran zero times"). */
+u32 cart_count = 1;             /* services completed + 1 -- read by the HUD */
+
+/* The one place a mirrored DMA turns into a disc read. Returns immediately if
+ * nothing is outstanding, which is what makes it safe at the two settle/boot
+ * sites as well as the steady wait.
+ *
+ * Destination is written UNCACHED (gd_read_cart writes its dst through P2):
+ * the game reads streamed assets uncached or hands them to PVR/TA/AICA DMA --
+ * real-DMA semantics, matching the original path, which does no cache op. Via
+ * P1 the bytes would sit dirty in the D-cache while RAM stayed stale.
+ */
+static void cart_stream(void) {
+    volatile u32 *m = P2(G1_MIRROR);
+    if (!(m[M_GDST / 4] & 1u)) return;       /* no DMA outstanding -> nothing to do */
+
+    /* Cart-relative byte offset. The high half carries mode bits the hardware
+     * masks off (naomi_cart.cpp:1032-1034 keeps only DmaOffset bits 16..30,
+     * and GetDmaPtr uses `DmaOffset & 0x1fffffff` as a BYTE offset,
+     * naomi_cart.cpp:912-919), e.g. the boot driver's 0xa000 and the PIO
+     * reader's 0x8000; 0x0fffffff drops them and still spans the 251 MB
+     * image. */
+    u32 off  = (((m[M_DMA_OFFH / 4] & 0xffffu) << 16)
+                | (m[M_DMA_OFFL / 4] & 0xffffu)) & 0x0fffffffu;
+    u32 len  = m[M_GDLEN / 4];               /* SB_GDLEN is the sole length source */
+    u32 dest = m[M_GDSTAR / 4] & 0x1fffffff; /* game programs it P1-aliased -> physical */
+
+    /* Length sanity BEFORE the +len comparisons so an absurd SB_GDLEN cannot
+     * u32-wrap past them. */
+    if (!len || len > 0x01000000u || off + len > (u32)CART_SIZE ||
+        (dest & 0x1f000000u) != 0x0c000000u ||
+        dest < DEST_LO || dest + len > DEST_HI)
+        shim_die(2, off, dest);
+
+    if (cart_count == 1) shim_mark(4, 0xf81f);          /* slot4 magenta: first stream */
+    if ((++cart_count & 31u) == 0)                      /* slot5: activity blinker */
+        shim_mark(5, (cart_count & 32u) ? 0xffe0 : 0x001f);
+    if (SHIM_TRACE) {
         scif_puts("CART off="); scif_puthex(off);
-        scif_puts(" len="); scif_puthex(len);
-        scif_puts(" dst="); scif_puthex(dest); scif_puts("\n");
+        scif_puts(" len=");     scif_puthex(len);
+        scif_puts(" dst=");     scif_puthex(dest);
+        scif_puts(" n=");       scif_puthex(cart_count);
+        scif_puts("\n");
     }
-#if SHIM_GD_DIAG
-    /* Phase marker (x=220,y=134): 0xA|count = stream requested, 0xB = data
-     * delivered + checksummed, 0xE = stream done, back to game code. A photo
-     * frozen at E pins the hang inside the game itself (data suspect). */
-    void hex_paint_c(unsigned int, unsigned int, unsigned int,
-                     unsigned short, unsigned short);
-    hex_paint_c(220, 134, 0xA0000000u | (cart_count & 0x00ffffffu), 0xffff, 0x001f);
-#endif
-#if SHIM_LOADSTAT
-    if (ls_sh == 0xff) {                   /* TCR0.TPSC -> prescaler shift (Pck 50 MHz) */
-        static const u32 sh[8] = {2, 4, 6, 8, 10, 10, 10, 10};
-        ls_sh = sh[LS_TCR0 & 7u];
-    }
-    u32 ls_t0 = LS_TCNT0;
-#endif
-    cart_read(off, len, dest);
-    m[0x418/4] = 0;                     /* SB_GDST mirror reads "done" */
-#if SHIM_GD_DIAG
-    {   /* Position-sensitive checksum (rotl1-xor) of the delivered bytes,
-         * read back uncached, painted at (220,120) -- compare against the
-         * ROM-derived expected value for this stream to prove/disprove
-         * data corruption on the wire (isoldr serve path). */
-        volatile unsigned char *p = (volatile unsigned char *)(dest | 0xa0000000u);
-        u32 ck = 0;
-        for (u32 i = 0; i < len; i++) ck = ((ck << 1) | (ck >> 31)) ^ p[i];
-        hex_paint_c(220, 120, ck, 0xffff, 0x001f);
-        hex_paint_c(220, 134, 0xB0000000u | (cart_count & 0x00ffffffu), 0xffff, 0x001f);
-    }
-#endif
-#if SHIM_LOADBAR
-    if (pb_left) {                      /* boot preload only; 0 = done forever */
-        pb_left = (len >= pb_left) ? 0 : pb_left - len;
-        loadbar_paint((PB_TOTAL - pb_left) >> 15);
-    }
-#endif
-#if SHIM_GD_DIAG
-    hex_paint_c(220, 134, 0xE0000000u | (cart_count & 0x00ffffffu), 0xffff, 0x001f);
-#endif
-#if SHIM_LOADSTAT
-    u32 ls_dt = ls_t0 - LS_TCNT0;          /* down-counter: elapsed = start - now */
-    if (ls_dt < (50000000u >> ls_sh)) ls_ticks += ls_dt;  /* skip a reload-wrap sample (>1 s) */
-    ls_bytes += len; ls_reads++;
-    ls_stampA(4);                          /* latch "streaming started" on the init timeline */
-    /* ms = ticks/rate*1000 = (ticks<<sh)/50000 -- variable shift + CONSTANT divide,
-     * so no libgcc __udivsi3 (this shim is -nostdlib). */
-    hex_paint_c(20, 152, ls_bytes,              LS_FG, LS_BG);  /* cumulative cart-stream bytes (hex) */
-    hex_paint_c(20, 166, ls_reads,             LS_FG, LS_BG);  /* cumulative stream requests */
-    hex_paint_c(20, 180, (ls_ticks << ls_sh) / 50000u, LS_FG, LS_BG);  /* time in GD path, ms */
-#endif
+
+    if (gd_read_cart(off, (void *)(dest | 0xa0000000u), len) < 0)
+        shim_die(4, off, gd_last_err);
+
+    /* Completion, in the order a poller can safely observe it: the transfer
+     * counter first, then the busy flag the game spins on. SB_GDLEND is reset
+     * to 0 at kick and reaches SB_GDLEN at the end of a real transfer
+     * (naomi.cpp:508, :133-134), so `len` is the finished value. */
+    m[M_GDLEND / 4] = len;
+    m[M_GDST / 4] = 0;
 }
-#endif /* !HOST_TEST */
+
+/* Plausibility guard for a game object pointer handed to us in a register: P1
+ * main RAM only. A hook fired with a wild pointer must not write completion
+ * flags into MMIO or over the shim. */
+static int obj_ok(u32 o) { return (o - 0x8c000000u) < 0x01000000u && (o & 3u) == 0; }
+
+/* CART-WAIT-A: replaces FUN_8c027e5e, "wait until this DMA is done"
+ * (r4 = snapshot flag, r5 = obj). This is where the steady path's streaming
+ * actually happens -- it is reached from both kick paths (directly from the
+ * confirmed kick FUN_8c027f54, and from the drain loop FUN_8c027f9a).
+ * The original's observable effects, reproduced: obj->[0x5c] takes SB_GDLEND
+ * when the caller asked for a progress snapshot, and obj->[0x60] (the
+ * "waiting" latch it sets on entry) is left clear on return. */
+void shim_cart_service(u32 flag, u32 obj);
+void shim_cart_service(u32 flag, u32 obj) {
+    cart_stream();
+    if (obj_ok(obj)) {
+        volatile u32 *o = (volatile u32 *)obj;
+        if (flag) o[0x5c / 4] = *P2(G1_MIRROR + M_GDLEND);
+        o[0x60 / 4] = 0;
+    }
+}
+
+/* CART-WAIT-B: replaces FUN_8c027e34, "settle/abort the current DMA"
+ * (r4 = obj). Needed because its native body clears the mirrored SB_GDEN and
+ * then spins on the mirrored SB_GDST -- on hardware clearing GDEN aborts the
+ * transfer and clears GDST (Naomi_DmaEnable, naomi.cpp:533-542), in RAM that
+ * write does nothing and the spin never ends. Draining rather than aborting is
+ * deliberate: FUN_8c027d7e kicks without waiting, so a pending transfer here is
+ * one whose data the game still expects. */
+void shim_cart_settle(u32 obj);
+void shim_cart_settle(u32 obj) {
+    cart_stream();
+    if (obj_ok(obj)) ((volatile u32 *)obj)[0x7c / 4] = 0;
+}
+
+/* CART-BOOT-DMA: replaces the boot cart DMA routine at 0x8c066440
+ * (r4 = cart offset rounded down to 0x20, r5 = destination, r6 = byte length,
+ * r7 != 0 = fire-and-forget). Not observed executing in any Phase 3 leg (all
+ * 672 logged kicks are the steady path's 0x8c027f72) but genuinely reachable --
+ * two bsr callers. Implemented as a real read rather than the KB's suggested
+ * "nothing pending -> return": the entry hook means the native body never
+ * programs anything, so a mirror-driven no-op would hand the caller an
+ * unfilled buffer, which is the silent-corruption failure mode the KB itself
+ * wants avoided. Leaves the mirror untouched -- it never kicked. */
+void shim_cart_boot_dma(u32 off, u32 dst, u32 len, u32 async);
+void shim_cart_boot_dma(u32 off, u32 dst, u32 len, u32 async) {
+    (void)async;                                        /* we are always synchronous */
+    if (!len) return;
+    shim_mark(6, 0x07e0);                               /* slot6 green: boot DMA path fired */
+    if (gd_read_cart(off & ~0x1fu, (void *)(dst | 0xa0000000u), len) < 0)
+        shim_die(4, off, gd_last_err);
+}
+
+/* CART-PIO-READ: replaces the boot PIO reader at 0x8c0663e6
+ * (r4 = cart offset, r5 = destination, r6 = byte length). Its native loop
+ * re-reads mirror[0x008] expecting the hardware's read-side auto-increment
+ * (naomi_cart.cpp:953-955), which RAM does not do: unhooked it would fill the
+ * buffer with one repeated half-word. Statically unreachable (no bsr and no
+ * 32-bit word in either image targets it), kept because that failure mode is
+ * silent. */
+void shim_cart_pio(u32 off, u32 dst, u32 len);
+void shim_cart_pio(u32 off, u32 dst, u32 len) {
+    if (!len) return;
+    shim_mark(7, 0x07ff);                               /* slot7 cyan: PIO path fired */
+    if (gd_read_cart(off, (void *)(dst | 0xa0000000u), len) < 0)
+        shim_die(4, off, gd_last_err);
+}

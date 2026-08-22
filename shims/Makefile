@@ -9,7 +9,11 @@ B = build
 # #if 0'd (Cleopatra-address bodies, Tasks 10-12 re-enable). Cleopatra's
 # DATA_SRCS + xxd-embed rules return here once senkosp captures its own
 # blobs.
-SRCS = src/main.c src/scif.c src/util.c src/gd.c src/gdstack.S src/cart.c src/maple.c src/jvs.c
+# gdstack.S deleted in Task 10: it trampolines into the DC BIOS GD syscall
+# vector, and this port's runtime disc path is raw ATA by design (the kernel
+# slice the loader places lands on the BIOS's own low-RAM GD state -- see
+# src/gd.c's header). Provably dead, not merely unused.
+SRCS = src/main.c src/scif.c src/util.c src/gd.c src/cart.c src/maple.c src/jvs.c
 
 .PHONY: all test clean
 all: $(B)/shim.bin $(B)/shim.map

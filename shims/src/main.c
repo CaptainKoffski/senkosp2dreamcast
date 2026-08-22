@@ -8,6 +8,51 @@
  * kept in this file -- not just git history -- for Tasks 10-12 to re-derive
  * senkosp's own addresses/blobs against and re-enable piece by piece. */
 #include "shim_iface.h"
+
+/* ---- live shim entry points (Task 10) ----------------------------------- */
+void shim_mark(unsigned int slot, unsigned short color);   /* util.c */
+
+/* RESET-PATCH target (docs/kb/phase4-conversion.md §Restart stub). The game's
+ * restart stub FUN_8c067e18 ends in `jmp @r1` with r1 loaded from pool
+ * 0x8c067e4c = 0x8dfff000 -- a Naomi-BIOS re-entry that is not there on a
+ * Dreamcast. The generator rewrites that one pool word (both images) to point
+ * here, so "restart" becomes a DC reboot: 0xa0000000 is the SH-4 reset vector
+ * through P2, i.e. the start of the DC BIOS ROM, entered uncached exactly as
+ * the CPU does out of reset. The stub's two preceding calls still run (a
+ * memcpy into the unused fixed page 0x0dfff000 and an icache-flush-shaped
+ * call) -- harmless leftovers on a path that reboots anyway; only the jump is
+ * redirected, which is why patching the single pool word suffices.
+ * slot15 white = the restart path was taken (visible for the frame or two
+ * before the BIOS blanks the screen). */
+/* SHIM_REBOOT_FREEZE (diagnostic builds only, default 0): instead of
+ * rebooting, dump the caller's return address and a slice of its stack over
+ * serial and spin. The reboot destroys the very evidence a reboot loop needs
+ * -- log tail, HUD, RAM -- so this converts the loop into one readable halt.
+ * Every 0x8c0xxxxx-looking word in the dump is a candidate saved PR, i.e. the
+ * call chain that decided to restart. */
+#ifndef SHIM_REBOOT_FREEZE
+#define SHIM_REBOOT_FREEZE 0
+#endif
+void shim_reboot(void);
+void shim_reboot(void) {
+    shim_mark(15, 0xffff);
+#if SHIM_REBOOT_FREEZE
+    {
+        void scif_puts(const char *); void scif_puthex(unsigned int);
+        unsigned int sp; __asm__ volatile ("mov r15,%0" : "=r"(sp));
+        scif_puts("SHIM REBOOT ra="); scif_puthex((unsigned int)__builtin_return_address(0));
+        scif_puts(" sp="); scif_puthex(sp); scif_puts("\nSTACK");
+        for (unsigned int i = 0; i < 64u; i++) {
+            if ((i & 7u) == 0) { scif_puts("\n +"); scif_puthex(i * 4u); scif_puts(":"); }
+            scif_puts(" "); scif_puthex(*(volatile unsigned int *)(sp + i * 4u));
+        }
+        scif_puts("\nFROZEN\n");
+        for (;;) ;
+    }
+#endif
+    ((void (*)(void))0xa0000000)();
+}
+
 #if 0  /* re-enabled per-task: see plan Tasks 10-12 */
 typedef unsigned int u32;
 typedef unsigned short u16;

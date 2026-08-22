@@ -6,28 +6,45 @@
 extern uint8 shim_bin[];        /* objcopy-embedded shim.bin, see Makefile */
 extern uint8 shim_bin_end[];
 extern uint8 bios_data[];       /* objcopy-embedded: [BIOS60000_LEN][KERNEL_A/B/C_LEN], see shim_iface.h offsets */
-extern void handoff(uint32 src, uint32 dst, uint32 len, uint32 entry);
+/* Task 10: v2 record walker -- handoff(records_p2, entry); see handoff.S. */
+extern void handoff(uint32 records_p2, uint32 entry);
 /* ../shims/src/gd.c, compiled into the loader too (Makefile) -- the loader
  * rehearses the shim's runtime raw-ATA read before handoff. */
 extern int gd_read_fad(unsigned fad, void *dst, unsigned sectors);
 extern unsigned int gd_last_err;
 extern uint8 handoff_end[];     /* end-of-stub label in handoff.S (stub is PIC) */
 
-/* Whole-sector ceiling: MAIN_LEN (1,515,512 B) is not sector-aligned (739
- * sectors + 2040 B) -- the last sector's trailing bytes belong to the test
- * image that follows it in the same track (docs/kb/game.md §Parsed .dat
- * header), harmless padding for this read-and-verify pass. */
-#define GAME_SECTORS   ((MAIN_LEN + 2047) / 2048)   /* 740 */
+/* ---- staging layout (Task 10) -------------------------------------------
+ * THE constraint of this task: KOS links this loader at 0x8c010000 with a
+ * ~838 KB footprint, so the running loader occupies 0x8c010000-0x8c0dc000
+ * (plus its heap above) -- which contains SHIM_BASE (0x8c010000),
+ * BIOS60000_DST (0x8c018000) AND GAME_LOAD_ADDR (0x8c020000)
+ * (task-6-report.md §loader/shim load-address collision). Nothing may be
+ * written to its final home while loader code/data is live, so every piece is
+ * staged HIGH here and reaches its home only inside handoff.S's record
+ * walker, which itself runs relocated + uncached out of HANDOFF_SCRATCH.
+ * (KERNEL_DST 0x8c000600 sits below the loader image, but it is the DC BIOS's
+ * own low RAM -- KOS's live cdrom/syscall world -- so it is staged too, which
+ * also keeps the placement rule uniform: one mechanism, no exceptions.)
+ *
+ * Everything lives above STAGING_ADDR + MAIN_LEN = 0x8ce71ff8 and below the
+ * KOS stack top 0x8d000000; the tail ends at ~0x8ce94040, leaving ~1.4 MB of
+ * headroom under RAM top. */
+#define STAGE_SHIM      0x8ce80000u   /* SHIM_END - SHIM_BASE = 0x8000 */
+#define STAGE_BLOB      0x8ce88000u   /* BIOS60000_LEN         = 0x7000 */
+#define STAGE_KERNEL    0x8ce8f000u   /* KERNEL_TOTAL_LEN      = 0x3200 */
+#define STAGE_RECORDS   0x8ce93000u   /* 5 * 12 B copy records */
+#define HANDOFF_SCRATCH 0x8ce94000u   /* the PIC stub, run through its P2 alias */
 
-/* PIC handoff stub runs here: outside the game copy target
- * [GAME_LOAD_ADDR, GAME_LOAD_ADDR+MAIN_LEN) (else it overwrites itself
- * mid-copy), above the staged image, below the KOS stack top (0x8d000000).
- * STAGING_ADDR + MAIN_LEN ends at 0x8ce71ff8 (senkosp's image is ~1.44 MB
- * vs Cleopatra's 1 MB, so Cleopatra's fixed 0x8ce00000 would collide here);
- * 0x8ce80000 leaves 0x180000 (1.5 MB) of headroom below RAM top. Currently
- * dead code (see #if 0 below) -- NOT re-verified against the real SP/heap
- * placement Tasks 10-12 will need (open concern, task-6-report.md). */
-#define HANDOFF_SCRATCH  0x8ce80000u
+/* The shim record covers the WHOLE shim window [SHIM_BASE, SHIM_END), not just
+ * shim.bin: SHIM_ERR / G1_MIRROR / MAPLE_MIRROR / SHIM_STATE / SHIM_BOUNCE /
+ * the GD stack all live in 0x8c014000-0x8c018000, which is loader image right
+ * now. A record that stopped at shim.bin's end would leave the game reading
+ * loader bytes as its G1 register mirror -- and the mirror invariant
+ * (mirror[0x418] == 0 when no DMA is outstanding, docs/kb/phase4-conversion.md
+ * §CART-WAIT) would be violated on the first poll. One record, one zero-fill,
+ * no separate mirror-zeroing pass. */
+#define SHIM_WINDOW     (SHIM_END - SHIM_BASE)      /* 0x8000 */
 
 /* Real-HW visibility: serial is invisible on a TV, so every stage is drawn to
  * the framebuffer (KOS init already set 640x480). A stuck screen names the
@@ -79,9 +96,22 @@ static void halt(const char *msg) {
  * image's array; only the main image is loaded this task (Tasks 10-13 bring
  * the test image's own cdrom_read_sectors + apply_patches call online). */
 static int apply_patches(uint8 *img, const patch_t *table, unsigned n, uint32 load_base) {
+    /* Cross-check: the sub-table must match the image actually loaded. `img`
+     * is derived from load_base by the SAME rule as the generator's img_of()
+     * (dat_off >= TEST_DAT_OFF -> test), so a table/image mix-up -- the only
+     * way p->dat_off - load_base can be a wild in-buffer offset -- is caught
+     * before the first memcmp instead of scribbling somewhere random. Abort,
+     * not skip: a mismatched table is a build bug, and a half-patched image
+     * boots into undefined behaviour. */
+    unsigned want_img = (load_base >= TEST_DAT_OFF) ? 1u : 0u;
     for (unsigned i = 0; i < n; i++) {
         const patch_t *p = &table[i];
         uint8 *at = img + (p->dat_off - load_base);
+        if (p->img != want_img) {
+            dbglog(DBG_INFO, "PATCH IMG MISMATCH %s @dat:%08lx img=%u want=%u\n",
+                   p->what, (unsigned long)p->dat_off, p->img, want_img);
+            return -1;
+        }
         if (memcmp(at, p->old, p->len)) {
             dbglog(DBG_INFO, "PATCH MISMATCH %s @dat:%08lx\n", p->what,
                    (unsigned long)p->dat_off);
@@ -95,7 +125,7 @@ static int apply_patches(uint8 *img, const patch_t *table, unsigned n, uint32 lo
 }
 
 int main(void) {
-    dbglog(DBG_INFO, "SENKOSP LOADER PHASE4 TASK6\n");
+    dbglog(DBG_INFO, "SENKOSP LOADER PHASE4 TASK10\n");
 
     /* Naomi BIOS splash (arcade boot feel): shown for the whole load. On the
      * real Naomi the BIOS draws this screen, not the game -- our conversion
@@ -110,17 +140,47 @@ int main(void) {
             vram_s[i] = RGB565_TO_0555(s[i]);
     }
 
-    say("SENKOSP LOADER PHASE4 TASK6");
+    say("SENKOSP LOADER PHASE4 TASK10");
+
+    /* Boot-combo: hold A+Start on pad 1 during boot -> test image (spec
+     * Decision 1). maple_wait_scan() first: maple_init() only STARTS the
+     * periodic scan, so enumerating before the first scan lands would read
+     * "no controller" and silently never select test mode. */
+    int test_boot = 0;
+    maple_wait_scan();
+    {
+        maple_device_t *cont = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
+        if (cont) {
+            cont_state_t *st = (cont_state_t *)maple_dev_status(cont);
+            if (st && (st->buttons & CONT_A) && (st->buttons & CONT_START))
+                test_boot = 1;
+        }
+    }
+    uint32 img_off = test_boot ? TEST_DAT_OFF : MAIN_DAT_OFF;
+    uint32 img_len = test_boot ? TEST_LEN     : MAIN_LEN;
+    say(test_boot ? "boot combo: TEST image" : "boot: MAIN image");
+
     cdrom_reinit();             /* inits the GD subsystem */
     say("GD init OK");
 
-    uint8 *stage = (uint8 *)STAGING_ADDR;
-    if (cdrom_read_sectors(stage, CART_FAD, GAME_SECTORS) != ERR_OK)
+    /* TEST_DAT_OFF (0x171ff8) is NOT sector-aligned: read from the containing
+     * sector and let the image start `skip` bytes into the buffer. `skip` is
+     * 4-aligned (0x7f8 % 4 == 0), which the copy record needs. Main is
+     * skip == 0, i.e. exactly the read Task 8 verified. */
+    uint32 skip = img_off % 2048;
+    uint32 fad  = CART_FAD + img_off / 2048;
+    uint32 secs = (skip + img_len + 2047) / 2048;
+    uint8 *buf   = (uint8 *)STAGING_ADDR;
+    uint8 *stage = buf + skip;
+    if (cdrom_read_sectors(buf, fad, secs) != ERR_OK)
         halt("KOS GD READ FAIL");
-    if (memcmp(stage, "NAOMI", 5)) {
+    /* Magic check only for the main image: the "NAOMI" header IS the first
+     * bytes of the main load entry (ROM 0 -> RAM 0x8c020000, docs/kb/game.md
+     * §Parsed .dat header). The test entry is raw code with no signature. */
+    if (!test_boot && memcmp(stage, "NAOMI", 5)) {
         dbglog(DBG_INFO, "bad image: %02x %02x %02x %02x %02x %02x %02x %02x @FAD %d\n",
                stage[0], stage[1], stage[2], stage[3],
-               stage[4], stage[5], stage[6], stage[7], CART_FAD);
+               stage[4], stage[5], stage[6], stage[7], (int)fad);
         halt("BAD IMAGE (KOS READ)");
     }
     say("cart read OK (KOS)");
@@ -146,89 +206,88 @@ int main(void) {
          * task-file transaction must not be interleaved with one under any
          * timing -- so take the whole ~1 ms transfer with IRQs off. */
         irq_mask_t old = irq_disable();
-        int r = gd_read_fad(CART_FAD, rawbuf, 1);
+        int r = gd_read_fad(fad, rawbuf, 1);
         irq_restore(old);
         if (r != 0) {
             sprintf(msg, "RAW-ATA READ FAIL r=%d err=%08lx", r, (unsigned long)gd_last_err);
             halt(msg);                    /* err = 0xda<site><status><error>, gd.c */
         }
-        if (memcmp(rawbuf, stage, 2048))
+        if (memcmp(rawbuf, buf, 2048))    /* same sector KOS just read */
             halt("RAW-ATA MISMATCH VS KOS READ");
         say("cart read OK (raw ATA)");
     }
 
-    /* Main image only this task -- test-image loading/patching lands with
-     * Tasks 10-13 (senkosp_patches_test[] compiles in, unused for now). */
-    if (apply_patches(stage, senkosp_patches_main, N_PATCHES_MAIN, MAIN_DAT_OFF))
+    if (apply_patches(stage,
+                      test_boot ? senkosp_patches_test : senkosp_patches_main,
+                      test_boot ? N_PATCHES_TEST : N_PATCHES_MAIN,
+                      img_off))
         halt("PATCH ABORT");
-    dbglog(DBG_INFO, "patch table: %u main / %u test entries (test image lands Task 10+)\n",
-           (unsigned)N_PATCHES_MAIN, (unsigned)N_PATCHES_TEST);
+    dbglog(DBG_INFO, "patch table: %u main / %u test entries (applied: %s)\n",
+           (unsigned)N_PATCHES_MAIN, (unsigned)N_PATCHES_TEST,
+           test_boot ? "test" : "main");
     say("patches OK");
 
-    /* Combo/test-image handoff, the real shim/BIOS-data placement, and the
-     * jump to GAME_ENTRY land in Tasks 10-12 (this task only proves the
-     * loader itself compiles and can read+verify the cart image). Kept as
-     * Cleopatra's proven single-copy handoff structure, #if 0'd whole so it
-     * still compiles (and still gets the shim.bin/bios_data.bin/splash.bin/
-     * handoff.S blobs linked in) without running -- the memcpy to SHIM_BASE
-     * below has NOT been re-verified against where this loader.elf itself
-     * actually runs (KOS's naomi/pristine LOAD_OFFSET is 0x8c010000, the
-     * SAME address as senkosp's SHIM_BASE -- see task-6-report.md); do not
-     * re-enable without checking that first. */
-#if 0  /* re-enabled per-task: see plan Tasks 10-12 */
-    /* KOS-stack-collision probe: &probe ~= current SP. */
-    volatile int probe = 0;
-    dbglog(DBG_INFO, "SP~%08lx memtop=%08lx shim=%08x..%08x scratch=%08x\n",
-           (unsigned long)&probe, (unsigned long)_arch_mem_top,
-           (unsigned)SHIM_BASE, (unsigned)SHIM_END,
-           (unsigned)HANDOFF_SCRATCH);
+    /* ---- staging (Task 10) ----------------------------------------------
+     * Nothing below is written to its FINAL home: see the STAGE_* block at the
+     * top for why (the loader's own image covers SHIM_BASE, BIOS60000_DST and
+     * GAME_LOAD_ADDR). Each piece is assembled here, high in RAM, and the
+     * record walker moves it after the loader is out of the picture. */
 
+    /* Whole shim window: shim.bin, then zero to SHIM_END. The zero-fill is
+     * both the shim's .bss (NOBITS -- absent from shim.bin, so uninitialised
+     * on real DC where RAM boots as garbage) and the fixed data blocks
+     * SHIM_ERR / G1_MIRROR / MAPLE_MIRROR / SHIM_BOUNCE / GD stack. A zeroed
+     * G1_MIRROR is exactly the mirror invariant's initial state: mirror[0x418]
+     * (SB_GDST) reads 0, so every config-time SB_GDST poll falls straight
+     * through instead of spinning on stale bytes. */
     uint32 shim_len = (uint32)(shim_bin_end - shim_bin);
-    memcpy((void *)SHIM_BASE, shim_bin, shim_len);
-    /* Zero the shim's .bss (NOBITS -- absent from shim.bin, so uninitialised on
-     * real DC where RAM boots as garbage; Flycast happens to zero RAM, masking
-     * it). */
-    memset((void *)(SHIM_BASE + shim_len), 0, SHIM_CODE_MAX - shim_len);
+    if (shim_len > SHIM_CODE_MAX) halt("SHIM TOO BIG");
+    memcpy((void *)STAGE_SHIM, shim_bin, shim_len);
+    memset((void *)(STAGE_SHIM + shim_len), 0, SHIM_WINDOW - shim_len);
+    /* SHIM_STATE[0] = boot mode (0 = main, 1 = test), read by the shim. */
+    *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE)) = (uint32)test_boot;
 
-    /* Place the BIOS-derived blocks the game reads via patched P2 pointers:
-     * the 0x60000 verify+copy library, and the three-piece Naomi RTOS kernel
-     * slice (KERNEL-SLICE pin, docs/kb/phase4-conversion.md). bios_data.bin
-     * layout (loader/Makefile) matches these offsets exactly. */
-    memcpy((void *)BIOS60000_DST, bios_data + BIOS_DATA_60000_OFF, BIOS60000_LEN);
-    memcpy((void *)(KERNEL_DST),
-           bios_data + BIOS_DATA_KERNEL_A_OFF, KERNEL_A_LEN);
-    memcpy((void *)(KERNEL_DST + KERNEL_A_LEN),
-           bios_data + BIOS_DATA_KERNEL_B_OFF, KERNEL_B_LEN);
-    memcpy((void *)(KERNEL_DST + KERNEL_A_LEN + KERNEL_B_LEN),
-           bios_data + BIOS_DATA_KERNEL_C_OFF, KERNEL_C_LEN);
-    dbglog(DBG_INFO, "bios-data placed 60000=%08x/%x kernel=%08x/%x\n",
-           (unsigned)BIOS60000_DST, (unsigned)BIOS60000_LEN,
-           (unsigned)KERNEL_DST, (unsigned)KERNEL_TOTAL_LEN);
+    /* The BIOS-derived blocks the game reads via patched P2 pointers: the
+     * 0x60000 verify+copy library, and the three-piece Naomi RTOS kernel slice
+     * (KERNEL-SLICE pin, docs/kb/phase4-conversion.md). bios_data.bin's layout
+     * (loader/Makefile) matches these offsets exactly. */
+    memcpy((void *)STAGE_BLOB, bios_data + BIOS_DATA_60000_OFF, BIOS60000_LEN);
+    memcpy((void *)STAGE_KERNEL, bios_data + BIOS_DATA_KERNEL_A_OFF,
+           KERNEL_TOTAL_LEN);   /* A|B|C are contiguous in both blob and RAM */
 
-    /* Zero the G1 mirror block (uncached P2) so config-time SB_GDST pollers
-     * don't spin on stale RAM before the first DMA. */
-    volatile uint32 *mir = (volatile uint32 *)P2ADDR(G1_MIRROR);
-    for (unsigned i = 0; i < 0x800 / 4; i++) mir[i] = 0;
+    /* Copy records, staged high like everything else: a records[] in loader
+     * .data would sit inside the game image's own copy destination and be
+     * shredded by the first record while the walker still needs it. */
+    struct rec { uint32 src, dst, len; };
+    struct rec *rec = (struct rec *)STAGE_RECORDS;
+    unsigned n = 0;
+    rec[n].src = P2ADDR((uint32)stage);     rec[n].dst = P2ADDR(GAME_LOAD_ADDR); rec[n++].len = img_len;
+    rec[n].src = P2ADDR(STAGE_SHIM);        rec[n].dst = P2ADDR(SHIM_BASE);      rec[n++].len = SHIM_WINDOW;
+    rec[n].src = P2ADDR(STAGE_KERNEL);      rec[n].dst = P2ADDR(KERNEL_DST);     rec[n++].len = KERNEL_TOTAL_LEN;
+    rec[n].src = P2ADDR(STAGE_BLOB);        rec[n].dst = P2ADDR(BIOS60000_DST);  rec[n++].len = BIOS60000_LEN;
+    rec[n].src = 0; rec[n].dst = 0; rec[n++].len = 0;                   /* terminator */
 
-    /* Zero the async-Maple register mirror so the steady engine's first
-     * cross-frame SB_MDST poll sees "not busy" (bit0=0) and triggers,
-     * instead of spinning forever on stale RAM. */
-    volatile uint32 *mmir = (volatile uint32 *)P2ADDR(MAPLE_MIRROR);
-    for (unsigned i = 0; i < MAPLE_MIRROR_LEN / 4; i++) mmir[i] = 0;
-
-    /* Relocate the PIC handoff stub out of the copy target and flush it to RAM. */
+    /* Relocate the PIC handoff stub out of every copy destination. */
     uint32 ho_len = (uint32)((uint8 *)handoff_end - (uint8 *)handoff);
     memcpy((void *)HANDOFF_SCRATCH, (void *)handoff, ho_len);
 
-    /* Write-back the CPU stores (patched image, shim code, stub) to RAM: handoff
-     * reads staging via P2 and the game/shim read the shim region freshly cached. */
-    dcache_purge_range(STAGING_ADDR, MAIN_LEN);
-    dcache_purge_range(SHIM_BASE, SHIM_CODE_MAX);
+    /* Write-back every CPU store above to RAM: the stub reads records and
+     * sources through P2 (uncached), so anything still sitting dirty in the
+     * D-cache would be invisible to it -- and the CCR write at the end of the
+     * stub INVALIDATES the cache, discarding it for good. */
+    dcache_purge_range(STAGING_ADDR, skip + img_len);
+    dcache_purge_range(STAGE_SHIM, SHIM_WINDOW);
+    dcache_purge_range(STAGE_BLOB, BIOS60000_LEN);
+    dcache_purge_range(STAGE_KERNEL, KERNEL_TOTAL_LEN);
+    dcache_purge_range(STAGE_RECORDS, n * sizeof(struct rec));
     dcache_purge_range(HANDOFF_SCRATCH, ho_len);
-    dcache_purge_range(BIOS60000_DST, BIOS60000_LEN);
-    dcache_purge_range(KERNEL_DST, KERNEL_TOTAL_LEN);
 
-    say("shim + BIOS data placed");
+    dbglog(DBG_INFO, "records=%u img=%08lx/%lx shim=%08x/%x kern=%08x/%x blob=%08x/%x\n",
+           n, (unsigned long)stage, (unsigned long)img_len,
+           (unsigned)SHIM_BASE, (unsigned)SHIM_WINDOW,
+           (unsigned)KERNEL_DST, (unsigned)KERNEL_TOTAL_LEN,
+           (unsigned)BIOS60000_DST, (unsigned)BIOS60000_LEN);
+    say("staged: shim + BIOS data + records");
     dbglog(DBG_INFO, "jumping to %08x\n", GAME_ENTRY);
     say("HANDOFF -> game");
     irq_disable();
@@ -247,11 +306,10 @@ int main(void) {
     *(volatile uint32 *)0xa05f6900 = 0xffffffff;   /* ISTNRM: clear latches */
     *(volatile uint32 *)0xa05f690c = 0xffffffff;   /* ISTERR: clear latches */
 
-    void (*ho)(uint32, uint32, uint32, uint32) =
+    void (*ho)(uint32, uint32) =
         (void *)P2ADDR(HANDOFF_SCRATCH);           /* run the stub uncached */
-    ho(P2ADDR(STAGING_ADDR), P2ADDR(GAME_LOAD_ADDR), MAIN_LEN, GAME_ENTRY);
-#endif /* re-enabled per-task: see plan Tasks 10-12 */
+    ho(P2ADDR(STAGE_RECORDS), GAME_ENTRY);
 
-    halt("PHASE4 TASK6: loader alive, image verified");
-    return 0; /* unreachable */
+    halt("HANDOFF RETURNED");                      /* unreachable */
+    return 0;
 }
