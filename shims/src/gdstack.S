@@ -24,7 +24,13 @@
  * handled manually here. Not reentrant (single static SP save) -- fine:
  * every GDC call sits sequentially in the game main thread, nothing else in
  * the shim calls GD. The vector is re-read per call (live deref, matching
- * the old GDC macro). */
+ * the old GDC macro).
+ *
+ * Forward note (Phase 4 Task 6, ahead of Task 7): senkosp's gd.c is a raw-ATA
+ * design, not a BIOS-syscall one, so this trampoline is expected to end up
+ * UNUSED there -- kept in the skeleton for reference during bring-up (it's
+ * the proven private-stack/FPU-quarantine pattern if a syscall path is ever
+ * needed after all), not because Task 7 is assumed to call it. */
 #include "shim_iface.h"
 
     .section .text
