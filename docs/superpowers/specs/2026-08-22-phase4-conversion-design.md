@@ -63,8 +63,13 @@ Two pieces are genuinely new, both forced by Phase 3 findings:
   low-RAM placement; the *runtime shim* drives the ATA registers
   directly.
 - **A new shim home.** Cleopatra's `0x8cfc0000` sits inside senkosp's
-  relocated heap. Candidate: the low window `0x8c00f000`–`0x8c018000`
-  (36 KB). See §RAM map, open question O1.
+  relocated heap. Candidate: the low window `0x8c010000`–`0x8c018000`
+  (32 KB). See §RAM map, open question O1.
+  *(Corrected 2026-08-22 during plan-writing: the window was first
+  drawn from `0x8c00f000`, but `0x8c00f000`–`0x8c00ffff` is
+  game-reserved — VBR = `0x8c00f400` set by entry-chain step 8, vectors
+  plus the 1 KB scratch block above the stack top —
+  `docs/kb/boot-binary.md` §Stack region.)*
 
 ## RAM map & placements
 
@@ -75,7 +80,8 @@ Final state at game entry (DC main RAM `0x8c000000`–`0x8d000000`):
 | `0x8c0000b0`–`0xe0` | DC syscall vectors — untouched (kernel starts at `0x600`); loader-time use only, dead at runtime | DC BIOS |
 | `0x8c000600`–`0x8c007xxx` | Naomi RTOS kernel slice from the user's BIOS dump (byte-identity recipe: `tooling.md` §Phase 3: RAM snapshot) | handoff stub |
 | up to `0x8c00f000` | boot stack (SP seed `0x8c00f000`, unpatched — target 7) | game |
-| `0x8c00f000`–`0x8c018000` | **shim home (36 KB):** code + `SHIM_ERR` + `G1_MIRROR` + maple mirror + `MAPLE_TX/RX` + 2 KB sector bounce + MIE blobs + EEPROM image + GD stack. Pending write-watch proof (O1) | handoff stub |
+| `0x8c00f000`–`0x8c00ffff` | game-reserved: VBR vectors (VBR = `0x8c00f400`, entry-chain step 8) + the 1 KB scratch block — **not free** (`boot-binary.md` §Stack region) | game |
+| `0x8c010000`–`0x8c018000` | **shim home (32 KB):** code + `SHIM_ERR` + `G1_MIRROR` + maple mirror + `MAPLE_TX/RX` + 2 KB sector bounce + MIE blobs + EEPROM image + GD stack. Pending write-watch proof (O1) | handoff stub |
 | `0x8c018000`–`0x8c01f000` | Naomi BIOS `0x60000` blob, 28,672 B (target 1, mandatory). Pre-placed: the game's signature check at `FUN_8c065ff0` fails on DC and skips its own copy; ours is already there, so the dispatch pointer (`0x8c1bf42c`) lands on real code. Zero patches; fallback = Cleopatra-style pointer redirect if the game validates more than presence | handoff stub |
 | `0x8c01f000`–`0x8c020000` | 4 KB spare | — |
 | `0x8c020000`–`0x8c191ff8` | main image (`.dat 0x0`, `0x171ff8` B) — or test image to `0x8c06dc40` (`.dat 0x171ff8`, `0x4dc40` B) on combo boot; both entry `0x8c021000` (`docs/kb/game.md` §Parsed .dat header). Reloc words pre-applied | handoff stub |
@@ -217,7 +223,7 @@ old-byte-verified at apply time.
 
 **Build:** one `make gdi` from a clean checkout + gitignored `roms/`
 + `bios/`: extract md5-checked BIOS slices → build shim (freestanding
-sh-elf, `shim.ld` at `0x8c00f000`, size-asserted ≤ `0x8c018000`) →
+sh-elf, `shim.ld` at `0x8c010000`, size-asserted ≤ `0x8c018000`) →
 build loader with embedded blobs → generate patch table →
 `make_gdi.py` **donor-clone mastering reused verbatim** (donor tracks
 1–3 + `.gdi` byte-identical; everything of ours confined to track 4:
@@ -242,7 +248,7 @@ criterion 4's fresh-checkout Ghidra re-run.
 ## Open questions the plan must resolve (pins)
 
 - **O1 — shim home proof.** A V2-style write-watch leg proving the
-  game never writes `0x8c00f000`–`0x8c018000` (harness exists;
+  game never writes `0x8c010000`–`0x8c018000` (harness exists;
   Cleopatra §V2 method). Fallback if dirty or too small: carve the
   heap top by lowering the seed — that abandons the proven rigid
   16 MB shift (24-low-bit preservation) and requires re-running the
