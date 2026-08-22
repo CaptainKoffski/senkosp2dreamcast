@@ -161,8 +161,12 @@ exactly one `MAINHANDOFF` (line 10,928 — a single boot, no mid-log
 crash-restart), and ends on a well-formed, in-sequence `MDODMA
 enter/rawdma_call/rawdma_ret/frame_done` block immediately followed by a
 normal `TAREG`/`TAEND`/`C2D` render triplet — i.e. the capture ends at a
-clean quit, not mid-line or mid-transaction. 564 `CARTDMA` events / 26.0 MB
-streamed (vs. the attract-only leg's 205 events / 31.9 MB — more
+clean quit, not mid-line or mid-transaction. 282 `CARTDMA` events / 26.0 MB
+streamed (`grep -c '^CARTDMA '` — note the trailing space: `^CARTDMA`
+without it also matches the distinct `CARTDMAPC pc=… sp=…` line type that
+immediately follows every real event, doubling the naive count to 564; the
+parser's own authoritative count below already had this right) (vs. the
+attract-only leg's 205 events / 31.9 MB — more
 *transactions*, mostly small, consistent with menu/UI assets rather than
 attract's larger stage loads) and 33 `WATERMARK region=main` sample ticks
 (~330 s of coverage at the ~10 s cadence) — enough ticks to cover a played
@@ -4014,7 +4018,7 @@ for a plain boot with no combo held.
 **Structural health, boot → hang:**
 ```
 MMUCRWR: 4 (single boot ladder, lines 1/14,032/14,136/14,141 — no reset until the hang)
-MDODMA enter: 36,945, lines 14,141-431,747 (continuous; 0 after line 431,747)
+MDODMA enter: 36,945 total (561 during the boot ladder itself, first at line 28; the rest continuous from boot-complete at line 14,141 through line 431,747; 0 after line 431,747)
 rawdma_call cmd=09 bus=0: 18,749 ≈ bus=1: 18,746 (both ports polled throughout)
 rawdma_ret outlen=10: 37,495 (all well-formed GetCondition replies)
 TAEND (frames): 87,950 total — 38,406 through line 431,747, 49,544 after
@@ -4081,8 +4085,8 @@ freeze.
 `.stdout.log`'s own timeline corroborates the same freeze point
 independently: the last HW-register-write log line (AICA `ARMRST`) is at
 **00:17:51.347**; the next and last line in the file is **00:29:50.670**
-(`SDL: Joystick … disconnected`, the process-kill signal) — a **12-minute
-33-second silent gap** with no PVR/AICA/SH4 register-write log lines at
+(`SDL: Joystick … disconnected`, the process-kill signal) — an **11-minute
+59.3-second silent gap** (`00:29:50.670 − 00:17:51.347`) with no PVR/AICA/SH4 register-write log lines at
 all, i.e. Flycast's own diagnostic logging independently confirms nothing
 interesting happened at the hardware-write level for the entire tail — the
 same tail the cartlog shows spinning on one static frame.
@@ -4290,8 +4294,8 @@ because it refines the BIOS-attribution story rather than just repeating
 it.** Listing the individual sub-`0x01`/`0x03` `trig=reg` PCs (not just the
 `CHECK` count) — 8 total with no filter, 6 with `--since-handoff`:
 ```
-no filter:        0xc03161e ×4, 0x8c025448 ×2, 0xc03161e ×2   (8 total)
---since-handoff:   0x8c025448 ×2, 0xc03161e ×4                (6 total)
+no filter (file order): 0xc03161e ×2 (lines 1,577/1,587, pre-handoff), 0x8c025448 ×2 (12,724/12,750), 0xc03161e ×4 (22,148/22,158/129,728/129,738)   (8 total)
+--since-handoff:        0x8c025448 ×2, 0xc03161e ×4                                                                                          (6 total)
 ```
 Even **after** excluding the pre-`MAINHANDOFF` BIOS era, **4 of the 6
 remaining PCs are still `0xc03161e`** — the same Naomi-BIOS PC Task 4
