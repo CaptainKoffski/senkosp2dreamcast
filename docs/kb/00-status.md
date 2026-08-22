@@ -1,8 +1,9 @@
 # Project status
 
-**Updated:** 2026-08-22 (Phase 3 Reverse Engineering — DONE; gate green with
-**two** criteria met in substance rather than literally — 2 and 4, see the
-Phase 3 checklist)
+**Updated:** 2026-08-22 (Phase 4 Task 10 — the game ENTERS and streams from
+the disc; stops at its own `I/O BD IS NOT CONNECTED` error, which Task 11's
+maple service exists to fix. Phase 3 — DONE; gate green with **two** criteria
+met in substance rather than literally — 2 and 4, see the Phase 3 checklist)
 
 ## What this is
 
@@ -295,10 +296,26 @@ and 6 are `[x]`, unqualified.
 
 ## Next step
 
-**Phase 4 — conversion** (loader + shim + patch table → bootable GDI).
-Brainstorm + spec first (superpowers loop, per the playbook cadence:
-`docs/kb/port-playbook.md`), then a plan, then implementation behind the
-gate.
+**Phase 4 — conversion** (loader + shim + patch table → bootable GDI), in
+progress. Spec + plan exist (`docs/superpowers/specs/` and `plans/`); tasks
+1–10 are done.
+
+**State as of Task 10 (2026-08-22): senkosp's own code runs on a Dreamcast
+and streams from the disc.** The loader stages everything high and a
+copy-record handoff places the shim, the Naomi kernel slice, the 0x60000 BIOS
+blob and the patched image; the game boots, enables its own MMU, initialises
+video, and performs 26 cart streams per boot through the shim's G1-register
+mirror + raw-ATA driver — destinations landing in the relocated (sub-16 MB)
+corridors, i.e. the relocation seeds work at runtime. It then hits its own
+Naomi fatal error, `I/O BD IS NOT CONNECTED TO NAOMI BD.`, and restarts,
+because nothing maple-side is patched yet. Evidence:
+`docs/kb/phase4-conversion.md` §Integration v1, legs
+`captures/phase4/entry2`–`entry4`.
+
+**Next: Task 11 — maple/MIE boot-phase service.** That error message is
+exactly what Task 11's MAPLE-BASE repoint, kick hook and five boot detours
+exist to eliminate; the pins are already in `phase4-conversion.md`
+§Maple-patch sites and §Input ABI.
 
 ### Direct inputs (everything Phase 4 needs, all produced by Phase 3)
 

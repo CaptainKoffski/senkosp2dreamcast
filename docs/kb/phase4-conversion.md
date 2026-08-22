@@ -2344,3 +2344,280 @@ For the text proof (temporary diagnostic only — do not commit with
 `LOADER_SERIAL=1`): flip `loader/main.c`'s `LOADER_SERIAL` to `1`, `make gdi`,
 capture, `grep -E "cart read OK|PHASE4|FAIL|ABORT|MISMATCH"
 captures/phase4/<leg>.stdout.log`, then revert and rebuild.
+
+---
+
+## Integration v1 — first game entry (Task 10)
+
+**Question (plan Task 10):** with the shim, the BIOS-derived blocks and the
+patched image all placed by a copy-record handoff, and the cart/G1 mirror
+serviced, does senkosp's own code run on a Dreamcast and stream from the
+disc?
+
+Legs live under `captures/phase4/entry*`. All Task 10 legs are **diagnostic
+builds** (`LOADER_SERIAL=1` in `loader/main.c`, `make -C shims
+DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'`) — the same temporary-flip recipe Task
+8 used and documented, reverted before commit. Nothing about the code path
+differs; the flags only decide whether `dbglog`/`scif_puts` reach Flycast's
+stdout (`Debug.SerialConsoleEnabled = yes`).
+
+### `entry1` — no leg (Flycast startup failure, not ours)
+
+```
+⚠️ ui/gui.cpp:1596 E[COMMON]: Verify Failed  : &mem_b[0] == ((u8*)getContext()->sq_buffer + sizeof(Sh4Context) + 0x0C000000)
+ in Init -> .../core/hw/sh4/dyna/driver.cpp : 349
+```
+Flycast's dynarec memory-layout assertion at VMEM init; the emulator never
+reached the disc (`entry1.log` was never created — only the 695-byte
+`entry1.stdout.log`). Host-side flake, reproduced zero times in the following
+legs. Kept because capture legs are primary data and are never deleted.
+
+### `entry2` — **the game enters, streams, and then reboots the console**
+
+Loader side, verbatim from `captures/phase4/entry2.stdout.log`:
+
+```
+SENKOSP LOADER PHASE4 TASK10
+boot: MAIN image
+GD init OK
+cart read OK (KOS)
+cart read OK (raw ATA)
+patched Heap-top seed, MAIN image: ... @dat:00065b50 (4)
+...
+patched CART-WAIT-A main: FUN_8c027e5e DMA-completion wait @dat:00007e5e (10)
+patched CART-WAIT-B main: FUN_8c027e34 settle/abort @dat:00007e34 (12)
+patched CART-BOOT-DMA main: boot cart DMA 0x8c066440 @dat:00046440 (12)
+patched CART-PIO-READ main: boot PIO reader 0x8c0663e6 @dat:000463e6 (10)
+patched RESET-PATCH main: restart -> DC reboot @dat:00047e4c (4)
+patches OK
+records=5 img=8cd00000/171ff8 shim=8c010000/8000 kern=8c000600/3200 blob=8c018000/7000
+staged: shim + BIOS data + records
+HANDOFF -> game
+```
+
+All 36 main-image entries applied — every `old`-byte compare passed against
+the real staged image, so the pins transcribed into
+`scripts/build_patch_table.py` are correct at runtime as well as at build
+time.
+
+Game side, immediately after the handoff (same file, verbatim):
+
+```
+CLEO-CCR write = 00000000 (was 00000105) pc=ac0210b8
+CLEO-CCR write = 00000105 (was 00000000) pc=ac02b24c
+CART off=00800000 len=00000800 dst=0c193f60 n=00000002
+CART off=00808000 len=00000800 dst=0cfe6d20 n=00000003
+CART off=0080a000 len=00000800 dst=0cfe6d20 n=00000004
+...
+CART off=00815000 len=00000800 dst=0cfe6d20 n=0000001a
+CART off=03456000 len=0000d800 dst=0ce7dc00 n=0000001b
+CLEO-CCR write = 00000000 (was 00000105) pc=ac02b2a4
+SB/HOLLY: System reset requested
+CLEO-CCR write = 00000929 (was 00000000) pc=a0000018
+CLEO-GPIO PCTRA = 000a03f0 (was 00000000) pc=8c00b87c
+```
+
+Read off that:
+
+- **The game is executing its own code.** `pc=ac0210b8` is 0x8c0210b8 through
+  its P2 alias — 0xb8 bytes past `GAME_ENTRY` (0x8c021000). The game
+  reprogrammed CCR itself as its first act.
+- **Cart streaming works.** 26 services per boot cycle, each one a real
+  raw-ATA disc read of the mirrored `SB_GDSTAR`/`SB_GDLEN`/`NAOMI_DMA_OFFSET*`
+  request. No `SHIMERR` line anywhere in the log (`grep -c SHIMERR` → 0), so
+  no destination fence trip and no GD failure at any of `gd.c`'s eight sites.
+- **The relocation patches took.** Destinations `0x0cfe6d20` and `0x0ce7dc00`
+  are corridor c5 (`0x0cfe6d20`) and corridor c4 (`0x0ce4dbe0`–`0x0ce8b480`)
+  of `docs/kb/relocation-map.md` — i.e. the Naomi 32 MB addresses shifted down
+  by exactly 0x1000000 as the heap-top seed intends. Un-relocated, the first
+  of these would have been `0x0dfe6d20`, past the DC's 16 MB line.
+- **The stop is a full console reboot**, and it repeats: 4 complete
+  loader→game→reset cycles in a 120 s leg, **26 cart services in every single
+  one** (`awk '/^HANDOFF/{c++} /^CART off/{n[c]++}'` → `1 26, 2 26, 3 26,
+  4 26`). Fully deterministic.
+
+Operator observation of the Flycast window during this leg (screen evidence,
+recorded as given): "DC BIOS swirl → Sega TM screen → what looks like a
+Naomi-style logo for ~1 second → black → the same logo screen but BLUE-tinted
+and shifted left → black → swirl again, repeating indefinitely." So the game
+also gets far enough to program video and present at least two frames.
+
+`captures/phase4/entry2.log` (fork cartlog) corroborates how far it gets:
+`MMUCRWR val=00040005 pc=8c02d630` — **senkosp turns the MMU on by design**,
+same store-queue-mapper pattern Cleopatra's round 13 found in its own game
+(the loader's `MMUCR = 0` before handoff is therefore only an initial state,
+not a policy) — followed much later by `MMUCRWR val=00000000 pc=8c02d712` and
+then the BIOS's own `pc=a0000018`. The log also carries 33,059 `MDODMA` and
+220 `MIERESP` lines: the game drives **real** Dreamcast maple hardware
+(nothing maple-side is patched yet — Task 11) and Flycast answers with
+Dreamcast controller frames, not Naomi MIE frames.
+
+### Where the reboot comes from — static trace
+
+`grep`ing the main image for the restart stub's address (`0x8c067e18`) finds
+no `bsr`/`bra` at all and exactly two pointer words, `0x8c02b210` and
+`0x8c071714`. The first is loaded 4 bytes before a `jsr`, in this fragment
+(decoded straight from `senkosp.dat`):
+
+```
+8c02b1f8  4f22   sts.l PR,@-r15
+8c02b1fa  d105   mov.l @(0x5,PC),r1   ; r1 = [8c02b210] = 8c067e18   (restart stub)
+8c02b1fc  d203   mov.l @(0x3,PC),r2   ; r2 = [8c02b20c] = a05f811c
+8c02b1fe  9304   mov.w @(0x4,PC),r3   ; r3 = 0x00ff
+8c02b200  410b   jsr @r1              ; -> the restart stub
+8c02b202  2232   _mov.l r3,@r2        ; delay slot: *(0xa05f811c) = 0xff
+8c02b204  d303   mov.l @(0x3,PC),r3   ; (dead: the stub never returns)
+8c02b206  432b   jmp @r3
+8c02b208  4f26   _lds.l @r15+,PR
+```
+
+and that wrapper (`0x8c02b1f8`) is itself reached through one pointer word,
+`0x8c085c60`, loaded at `0x8c085c30` — the tail of a shutdown sequence that
+first calls six teardown routines (`0x8c02bc26`, `0x8c06fd24`, `0x8c071798`,
+`0x8c0716c0`, `0x8c06fe0c`, `0x8c02c3fc`) and then the reboot wrapper. The
+neighbourhood is the system layer: `FUN_8c085b00`, ~0xf0 bytes earlier, is
+the system-init routine that creates the game's heap
+(`scripts/reloc_patchset.json`, heap-top seed).
+
+So the chain is **deliberate game-initiated shutdown → restart stub →
+(RESET-PATCH) → `shim_reboot` → 0xa0000000 → DC BIOS → the disc boots again**.
+This is the patched path behaving exactly as designed; the open question is
+what makes the game decide to shut down ~13 s and 26 cart streams into its
+boot. Static scanning stops here: the shutdown function's own entry has no
+static references, i.e. it is reached indirectly, so the trigger has to come
+from a dynamic probe rather than another `grep`.
+
+> **Note for anyone reading a future leg:** the reboot loop is a *consequence*
+> of RESET-PATCH being live. Without it the same trigger would jump to
+> `0x8dfff000` — a Naomi-BIOS re-entry that does not exist on a Dreamcast —
+> and the console would wedge or crash instead, which is strictly less
+> diagnosable. The loop is the good failure mode.
+
+### `entry3` — freeze-frame: the game says why
+
+`shim_reboot` gained a `SHIM_REBOOT_FREEZE` diagnostic (default 0,
+`shims/src/main.c`): instead of jumping to `0xa0000000` it dumps the caller's
+return address and 64 words of its stack over serial and spins, so the reboot
+stops destroying its own evidence. Built with
+`DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1 -DSHIM_REBOOT_FREEZE=1'`. One cycle,
+26 cart services, zero resets, then verbatim from
+`captures/phase4/entry3.stdout.log`:
+
+```
+SHIM REBOOT ra=8c02b204 sp=8c00deb0
+STACK
+ +00000000: 8c02b204 ffff0000 ffffff00 00000000 00000000 00000000 8c085c36 8c085c76
+ +00000020: 8c0ad7a0 00010040 00000000 00000000 204f2f49 49204442 4f4e2053 4f432054
+ +00000040: 43454e4e 20444554 4e204f54 494d4f41 2e444220 4147000a 41474553 41474553
+ +00000060: 41474553 41474553 41474553 41474553 41474553 41474553 41474553 41474553
+...
+FROZEN
+```
+
+Two things fall out of that dump.
+
+**The call chain, confirmed dynamically.** `ra = 0x8c02b204` is the
+instruction after the `jsr @r1` at `0x8c02b200` (the reboot wrapper);
+`[sp+0x18] = 0x8c085c36` is the instruction after the `jsr @r0` at
+`0x8c085c30` (the shutdown sequence); `[sp+0x1c] = 0x8c085c76` is the return
+address into whatever called the shutdown sequence — the frame the static
+scan could not reach, because the shutdown function's entry has no static
+references.
+
+**The reason, in the game's own words.** The little-endian words from
+`+0x30` decode to ASCII:
+
+```
+204f2f49 49204442 4f4e2053 4f432054 43454e4e 20444554 4e204f54 494d4f41 2e444220 4147000a
+ "I/O "   "BD I"   "S NO"   "T CO"   "NNEC"   "TED "   "TO N"   "AOMI"   " BD."   "\n\0GA"
+```
+
+= **`I/O BD IS NOT CONNECTED TO NAOMI BD.\n`** — a string that lives in the
+image at dat `0x168619` (RAM `0x8c188619`), between `MEMORY ALLOCATE ERROR
+!\nHEAP:%p\nSIZE:%d\n` and `I/O BD CONNECTED TO NAOMI BD DOES NOT FULFILL\nTHE
+GAME SPECS.` — i.e. the standard Naomi fatal I/O-board error pair. (The
+second of those two is the same failure Cleopatra's port hit as "specs=1".)
+
+> **Verdict — the stop is the maple/MIE boot driver, exactly as Task 10's
+> brief predicted, expressed as the driver's *failure* path rather than a
+> hang.** Nothing maple-side is patched yet (Task 11 owns MAPLE-BASE, the
+> kick hook and the five boot detours), so the game's JVS enumeration talks to
+> real Dreamcast maple, gets Dreamcast controller frames back, concludes there
+> is no I/O board, formats this message, runs its six teardown routines and
+> restarts. That the message is composed at all is itself proof the game got
+> through system init, heap creation, video init and asset streaming.
+>
+> This closes the "unexpected PC" question: the stuck state is not an
+> exception, not a wild jump and not a shim fault — it is the game's own
+> documented error handler. `SHIM_ERR` was never written in any leg
+> (`grep -c SHIMERR` → 0 in every capture).
+
+### `entry4` — release configuration, same behaviour
+
+Rebuilt with the committed defaults (`LOADER_SERIAL 0`, no shim `DEFS`) to
+confirm the diagnostic flags change nothing but visibility. 100 s leg:
+
+```
+grep -c "^CART off\|^SENKOSP" entry4.stdout.log        -> 0     (silent, as a release build must be)
+grep -c "System reset requested" entry4.stdout.log      -> 3
+grep -c "MMUCRWR val=00000000 pc=a0000018" entry4.log   -> 4     (BIOS boots = loop cycles)
+grep -c "MMUCRWR val=00040005 pc=8c02d630" entry4.log   -> 4     (game enables its MMU, every cycle)
+grep -c "MMUCRWR val=00000000 pc=8c02d712" entry4.log   -> 3     (restart path, every cycle)
+```
+
+Identical behaviour to `entry2`/`entry3` with zero guest serial output — the
+flags gate visibility only, exactly as `LOADER_SERIAL`'s Task 8 analysis says.
+
+### Task 10 findings worth carrying forward
+
+1. **senkosp runs MMU-ON by design.** `MMUCRWR val=00040005 pc=8c02d630`
+   (`entry2.log`) — the same store-queue-mapper pattern Cleopatra's round 13
+   found in its own game. The loader's `MMUCR = 0` immediately before the
+   handoff is only an initial state; the game owns MMUCR from `0x8c02d630`
+   onward, and nothing in the shim may force it back.
+2. **The four cart hooks need four entry points, not one.** The KB's
+   §CART-PIO line "Task 10 may implement all four hooks with one helper" does
+   not survive contact with the ABIs: `FUN_8c027e5e` takes `(flag, obj)` in
+   `r4/r5`, `FUN_8c027e34` takes `obj` in **`r4`** (byte-verified: its entry
+   is `e058 mov #0x58,r0` followed by `004e mov.l @(r0,r4),r0`), and the two
+   boot sites take `(cart_off, dest, len[, async])`. One helper reading `r5`
+   as `obj` would write the game's completion flags through a destination
+   pointer at the boot sites. `shims/src/cart.c` therefore has four entries
+   over one shared `cart_stream()` core.
+3. **CART-BOOT-DMA is implemented as a real read, not a no-op.** The KB's
+   "CART-WAIT-B and CART-BOOT-DMA degenerate to *nothing pending → return*"
+   is right for CART-WAIT-B (a pending transfer there is one the game still
+   wants, so it drains) but wrong for CART-BOOT-DMA: an *entry* hook means the
+   native body never programs the registers, so a mirror-driven no-op would
+   hand the caller an unfilled buffer — the silent-corruption mode the KB
+   itself wants avoided. It calls `gd_read_cart(off & ~0x1f, dest, len)`.
+4. **The mirrored-destination fence is a FLOOR in this port, not a ceiling.**
+   Cleopatra's shim lived at `0x8cfc0000` and fenced `dest + len` below it;
+   senkosp's shim, its mirrors and the 0x60000 blob are all at the BOTTOM of
+   RAM, so `cart.c`'s guard rejects `dest < 0x0c01f000` (and `dest + len >
+   0x0d000000`, the DC's 16 MB line — a destination above it means the
+   heap-top relocation seed did not take). Carrying Cleopatra's ceiling over
+   verbatim would have rejected every legitimate stream.
+5. **Nothing may be placed at its final address by loader C code.** KOS links
+   the loader over `0x8c010000`–`0x8c0eef38`, which contains `SHIM_BASE`,
+   `BIOS60000_DST` and `GAME_LOAD_ADDR`. Everything is staged in
+   `0x8ce80000`–`0x8ce94000` and moved by `handoff.S`'s record walker running
+   uncached from `HANDOFF_SCRATCH = 0x8ce94000`. The shim record covers the
+   whole `[SHIM_BASE, SHIM_END)` window (0x8000), not just `shim.bin`, so the
+   mirrors/`SHIM_ERR`/`SHIM_STATE`/bounce/GD-stack region is zero-filled by
+   construction — which is also what establishes the mirror invariant
+   (`mirror[0x418] == 0`) before the game's first `SB_GDST` poll.
+
+### Reproduction
+
+```sh
+make -C shims && make gdi
+scripts/capture_dc_leg.sh phase4/<leg> & sleep 120; pkill -9 -f "flycast-src.*Flycast"
+# diagnostic build (temporary; revert before commit -- Task 8's recipe):
+#   loader/main.c: LOADER_SERIAL -> 1
+#   make -C shims clean && make -C shims DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
+#   ... add -DSHIM_REBOOT_FREEZE=1 to halt at the restart instead of rebooting
+grep -c "^CART off" captures/phase4/<leg>.stdout.log      # cart services
+grep -c SHIMERR    captures/phase4/<leg>.stdout.log       # must stay 0
+grep -c "System reset requested" captures/phase4/<leg>.stdout.log
+```
