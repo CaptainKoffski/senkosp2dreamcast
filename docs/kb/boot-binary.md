@@ -1103,7 +1103,7 @@ under the trig-tagged fork) and static identification of the
 `MAPLEPC` fires only inside `MIEImpl::handle_86_subcommand()`, i.e. only for
 MIE command `0x86`. **`MDODMA enter` fires once per `maple_DoDma()` call**
 (`.../core/hw/maple/maple_if.cpp:195` — citation corrected 2026-08-22, Phase 4
-Task 4; `:179` is a comment line), whatever the command list contains, and
+Task 4; `:179` is a blank line), whatever the command list contains, and
 carries the same `pc=`. 89 578 `enter` lines, **12 distinct PCs** where
 `MAPLEPC` showed 2 — and the `+2` store test separates them just as cleanly:
 

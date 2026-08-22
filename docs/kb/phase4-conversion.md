@@ -1168,7 +1168,8 @@ events in `pc2.log`, 1023 in the Phase 3 leg), `0x8c066810`, `0x8c0668a2`,
 8c0669e2  mov.l 0x8c066ad4,r1      ; r1  = 0xa05f6c10  SB_MDTSEL
 8c0669e4  mov.l r7,@r1             ;   <- 0            (no vblank trigger)
 8c0669e6  mov.l 0x8c066ad8,r0      ; r0  = 0xa05f6c04  SB_MDSTAR
-8c0669ea  mov.l r2,@r0             ;   <- *(0x8c1bfe6c)
+8c0669e8  mov.l @r14,r2            ; 62e2  r2 = *(0x8c1bfe6c), the command list
+8c0669ea  mov.l r2,@r0             ;   -> SB_MDSTAR
 8c0669ec  mov.l 0x8c066adc,r4      ; r4  = 0xa05f6c18  SB_MDST
 8c0669ee  mov.l r7,@r4             ;   <- 0
 ```
@@ -1193,11 +1194,17 @@ The four sites in `FUN_8c0665fe` are the same shape with `r5` = `SB_MDST`
 byte-identical:
 
 ```
-8c066726 / 8c066810 / 8c0668a2 / 8c066926   2572   mov.l r7,@r5   ; SB_MDST <- 1
-       +2 / +2 / +2 / +2                    6252   mov.l @r5,r2   \
-       +4                                   2228   tst r2,r2       |  the poll
-       +6                                   8bfc   bf (-4)        /
+8c066724 / 8c06680e / 8c0668a0 / 8c066924   2e72   mov.l r7,@r14  ; SB_MDEN <- 1
+       +2                                   2572   mov.l r7,@r5   ; SB_MDST <- 1
+       +4                                   6252   mov.l @r5,r2   \
+       +6                                   2228   tst r2,r2       |  the poll
+       +8                                   8bfc   bf (-4)        /
+       +10                                  2ec2   mov.l r12,@r14 ; SB_MDEN <- 0
 ```
+
+Those bounds — `SB_MDEN = 1` through the poll — are the detour window chosen
+below; the table under MAPLE-BOOT-STRATEGY is authoritative for each site's
+exact extent (B stops at `+8`, its `SB_MDEN <- 0` survives).
 
 After the repoint that poll reads RAM and spins forever unless something clears
 it — the mirror invariant again. Two ways out were considered:
@@ -1260,12 +1267,15 @@ it — the mirror invariant again. Two ways out were considered:
 > > four instructions are stores. Therefore the trampoline **must save and
 > > restore `r0`, `r1`, `r3`–`r7`, `PR`, and `MACL`/`MACH`** around its call
 > > into C (`r8`–`r15` the C ABI preserves for us; `r2` and `T` are free).
-> > This is not academic: detour E's resume instruction is
-> > `8c066a66 2c72 mov.l r7,@r12` — it **reads r7**, and r7 is caller-saved, so
-> > a trampoline that let C clobber it would corrupt the very first instruction
-> > the driver executes on return. A–D are the same shape: `r5` is set once
-> > (`add #0x4,r5` at `0x8c066632`) and reused by all four kicks, and `r7` = 1
-> > throughout, so both are live across A, B and C. Contrast MAPLE-KICK-HOOK
+> > This is not academic. `r7` is set once, `mov #0x1,r7` at `0x8c066618`, and
+> > `r5` once, `add #0x4,r5` at `0x8c066632`; both are then reused by all four
+> > `FUN_8c0665fe` kicks, so both are live **across** windows A, B and C.
+> > Byte-verified example just past window C (which resumes at `0x8c0668ac`):
+> > `8c0668ac 60d2` / `8c0668ae 6002` / `8c0668b0 88ff` / `8c0668b2 8900` /
+> > **`8c0668b4 6b73 mov r7,r11`** — nothing in between writes r7, so that
+> > `mov` **reads a caller-saved register the trampoline must have preserved**;
+> > it is byte-identical in the test image at `0x8c0510e8`. A trampoline that
+> > let C clobber r7 would corrupt it. Contrast MAPLE-KICK-HOOK
 > > above, where the ABI genuinely does apply because that site is a real
 > > `jsr` and the game consumes the return value.
 >
