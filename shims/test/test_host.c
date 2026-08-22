@@ -62,6 +62,18 @@ int main(void) {
         assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~(CONT_DPAD_UP | CONT_A),
                                             0x808080c1u))
                == (JVS_UP | JVS_M | JVS_RIGHT));
+        /* ... but an opposed pair reports NEITHER, the same mutual exclusion
+           the emulator applies (maple_devs.cpp:67-71/:91-92 on the active-low
+           kcode, maple_jvs.cpp:2224-2228 on the JVS word). Reachable here
+           because stick and D-pad are OR'd and can disagree. */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_DPAD_RIGHT,
+                                            0x8080803fu)) == 0);   /* dpad R + stick L */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_DPAD_UP,
+                                            0x8080c180u)) == 0);   /* dpad U + stick D */
+        /* the exclusion is per axis and takes nothing else with it */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~(CONT_DPAD_RIGHT | CONT_A),
+                                            0x80803f3fu))
+               == (JVS_UP | JVS_M));                               /* L/R cancel, UP lives */
     }
 
     /* jvs_checksum: pure mod-256 sum over frame[0x1b..0x39] -- sanity on a

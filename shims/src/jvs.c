@@ -83,6 +83,16 @@ unsigned dc_to_jvs(unsigned dc_buttons) {
  *     `((int)raw->joyx) - 128`; direction from the emulator's own analog->DPad
  *     conversion, maple_devs.cpp:1483-1513, which presses UP for joyy below
  *     centre). The neutral band 0x40..0xc0 is that same conversion's band.
+ *     Because the stick and the D-pad are OR'd, they can disagree (stick left
+ *     + D-pad right), which an arcade lever cannot do -- so the fold ends with
+ *     the same MUTUAL EXCLUSION the emulator applies at both of its own sites:
+ *     both of an opposed pair pressed => NEITHER is reported.
+ *       maple_devs.cpp:67-71  `mutualExclusion(kcode, mask)` = if both bits are
+ *                             0 (active-low: both pressed) set both (release
+ *                             both), applied at :91-92 right before the reply
+ *       maple_jvs.cpp:2224-2228  the same rule on the active-high JVS word:
+ *                             `if ((button & (UP|DOWN)) == (UP|DOWN))
+ *                                  button &= ~(UP|DOWN);`
  * L trigger is deliberately unmapped -- input-map.md §DC pad layout: "L
  * trigger | unbound (Phase 4 may duplicate Barrage if playtest wants it)". */
 #define DC_TRIG_ON  128     /* R trigger digital threshold, 0-255 */
@@ -96,6 +106,11 @@ unsigned dc_cond_to_pressed(unsigned w2, unsigned w3) {
     if (y > DC_AXIS_HI) p |= CONT_DPAD_DOWN;
     if (x < DC_AXIS_LO) p |= CONT_DPAD_LEFT;
     if (x > DC_AXIS_HI) p |= CONT_DPAD_RIGHT;
+    /* opposed pair both pressed -> report neither (see the header comment) */
+    if ((p & (CONT_DPAD_UP | CONT_DPAD_DOWN)) == (CONT_DPAD_UP | CONT_DPAD_DOWN))
+        p &= ~(CONT_DPAD_UP | CONT_DPAD_DOWN);
+    if ((p & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) == (CONT_DPAD_LEFT | CONT_DPAD_RIGHT))
+        p &= ~(CONT_DPAD_LEFT | CONT_DPAD_RIGHT);
     return p;
 }
 

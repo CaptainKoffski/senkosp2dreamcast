@@ -194,14 +194,23 @@ def rebuild_sub03(raw):
         0x24 game header  1 (4 B)   0x28 game header  2 (4 B)  -- asserted equal
         0x2c game data    1 (n B)   0x2c+n game data 2 (n B)   -- n from header
         tail: zero
+    The header is `[0x24..0x25] CRC | [0x26] record size | [0x27] record PADDED
+    size` (`../flycast4naomi2dreamcast/core/hw/naomi/naomi_flashrom.cpp:86-94`,
+    which annotates 39 with "record padded size (crc is done on this)"). The
+    duplication stride and the CRC span are the PADDED size -- the emulator's
+    writer uses `EEPROM[39]` for both (`:127-134`) -- so this uses `[0x27]`, not
+    the record size at `[0x26]`. They are equal (0x10) in senkosp's image, so
+    this is a correctness point for a future re-bake against some other image,
+    not a change to the bytes emitted today.
     (Layout corroborated by the game-era reply this repo's KB decodes,
     docs/kb/phase4-conversion.md §EEPROM replies.)"""
     ee = bytearray(128)
     ee[:60] = raw[4:64]
     assert ee[0:18] == ee[18:36], "EEPROM system copies differ -- layout wrong"
     assert ee[0x24:0x28] == ee[0x28:0x2C], "EEPROM game headers differ"
-    n = ee[0x26]                          # game-section data length
-    assert n == ee[0x2A] and 0 < n <= 16, f"game-section length {n} unusable"
+    n = ee[0x27]                          # game-section PADDED length (= EEPROM[39])
+    assert n >= ee[0x26], f"padded size {n} < record size {ee[0x26]}"
+    assert n == ee[0x2B] and 0 < n <= 16, f"game-section length {n} unusable"
     assert 0x2C + 2 * n <= 128, "game section overruns the image"
     ee[0x2C + n:0x2C + 2 * n] = ee[0x2C:0x2C + n]     # copy 2 = copy 1
     return raw[0:4] + bytes(ee)

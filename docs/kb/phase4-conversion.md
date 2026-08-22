@@ -3058,6 +3058,19 @@ Three normalizations, each cited in `jvs.c`:
    emulator's own analog→D-pad conversion, `maple_devs.cpp:1483-1513`, which
    presses UP for a `joyy` below centre). The neutral band **`0x40`…`0xc0`** is
    that same conversion's band, not an invented number.
+4. **Opposed directions cancel.** Because the stick and the D-pad are OR'd they
+   can disagree — stick left while the D-pad is held right — which no arcade
+   lever can do, and which would otherwise put `LEFT|RIGHT` (`0x0c00`) on the
+   wire. The fold therefore ends with the **mutual exclusion the emulator
+   applies at both of its own sites**: if both of an opposed pair are pressed,
+   *neither* is reported.
+   - `maple_devs.cpp:67-71` `mutualExclusion(kcode, mask)` — on the active-low
+     `kcode`, "if both bits are 0 (both pressed), set both" — invoked at `:91-92`
+     immediately before the controller reply is built.
+   - `maple_jvs.cpp:2224-2228` — the same rule on the active-high JVS word:
+     `if ((button & (UP|DOWN)) == (UP|DOWN)) button &= ~(UP|DOWN);`
+   Host-tested both ways: D-pad-right + stick-left reports nothing, and the
+   cancellation is per axis (a simultaneous UP survives an L/R cancellation).
 
 **Deviation from Cleopatra, deliberate.** Cleopatra's `maple_getcond` returned
 the raw active-low word and its `dc_to_jvs` inverted internally. This port's
@@ -3207,23 +3220,48 @@ the baked image already carries free play, and the DC build already shows it.
    > assignment **#27 (free-play) is mapped to `0x1A`**."
    > — `../cleopatra/tools/netboot/docs/naomi.md:180` (layout verified there
    > against nulldc/demul/MAME and one de-soldered MIE EEPROM dump)
-   Corroborated independently by the emulator's own layout comment, which lists
-   offset `9` as "coin setting (-1)" — i.e. stored value = setting − 1, so
-   `0x1a` = setting 27 — with 8 = cabinet type, 10 = coin-to-credit, 11/12 =
-   chute multipliers (`../flycast4naomi2dreamcast/core/hw/naomi/
-   naomi_flashrom.cpp:96-114`, and the writer `write_naomi_eeprom` at `:117`
-   which keeps both copies and the CRC in sync).
-   senkosp's image decodes cleanly against that layout: serial `"BMP0"` at
-   `[3..6]`, `0x10` attract-sound-on at `[2]`, `0x10` = 2P cabinet at `[8]`,
-   `0x1a` at `[9]`.
+   Corroborated by the emulator's own layout comment
+   (`../flycast4naomi2dreamcast/core/hw/naomi/naomi_flashrom.cpp:96-114`), whose
+   line for this byte is quoted here **in full**:
+   > ```
+   > // 8	b0: coin chute type (0 common, 1 individual)
+   > //      b4-5: cabinet type (0: 1P, 10: 2P, 20: 2P, 30: 4P)
+   > // 9	coin setting (-1), 27 is manual
+   > // 10   coin to credit
+   > ```
+   > and the writer `write_naomi_eeprom` at `:117`, which keeps both copies and
+   > the CRC in sync.
+   >
+   > **The two sources agree on the encoding and disagree on the label for
+   > setting 27.** Both say byte `9` is the coin setting stored zero-indexed
+   > (`setting − 1`), so `0x1a` = setting **27** either way. `naomi.md` calls
+   > setting 27 *free-play* (twice: `:180` and `:40` "1-27 correspond to
+   > standard coin settings and 28 corresponds to manual coin setting. Just
+   > like in the system settings, 27 is free-play"); the emulator comment's
+   > "27 is manual" reads either as *stored* 27 (`0x1b`) = manual — which
+   > matches `naomi.md:40`'s setting 28 exactly, both sources then agreeing —
+   > or as *setting* 27 = manual, which contradicts it. The comment alone
+   > cannot settle which it means, so **this KB does not treat it as
+   > independent confirmation of the word "free-play"** — only of the encoding.
+   > What settles the meaning is `naomi.md`'s explicitness, its
+   > game-side mechanism (item 3), and item 7: `FREE PLAY` on the target's own
+   > screen.
+   senkosp's image decodes cleanly against that layout regardless: serial
+   `"BMP0"` at `[3..6]`, `0x10` attract-sound-on at `[2]`, `0x10` = 2P cabinet +
+   common chute at `[8]`, `0x1a` at `[9]`, `01 01 01` at `[10..12]`.
 3. **The game reads it.** The same document names the mechanism: the game
    parses the EEPROM into a settings struct and "loads this and compares it
    against `0x1A` at some point to see if the system is in free-play mode"
    (`naomi.md:202`).
-4. **On the target.** `docs/kb/img/phase4-dc-attract.png` — the Task 11
-   headless framebuffer grab from an unattended DC-profile leg — shows
-   **`FREE PLAY`** on senkosp's attract screen, with the shim serving that
-   image. The chain is closed on the real target, not on paper.
+4. **On the target, through THIS build's EEPROM path.**
+   `docs/kb/img/phase4-dc-steady.png` — the headless framebuffer grab from the
+   **release** leg `steady3-release` — shows **`PRESS 1P OR 2P START BUTTON`**
+   and **`FREE PLAY`** on senkosp's attract screen. That is the load-bearing
+   one: this section rewrote the sub-`0x03` handler to serve a *RAM copy*, and
+   this screenshot is free play arriving through the rewrite.
+   `docs/kb/img/phase4-dc-attract.png` (Task 11, the canned-blob path) shows
+   the same string from the same image and is the earlier, independent
+   instance. The chain is closed on the real target, not on paper.
 5. **The image is internally valid, so the game has no reason to reset it.**
    Both Naomi EEPROM CRCs recompute correctly against the emulator's own
    `eeprom_crc` (`naomi_flashrom.cpp:26-51`, CRC-16 seeded `0xdebdeb00` with a
@@ -3328,6 +3366,7 @@ proves the real-pad path did not disturb attract.
 | `steady1` | diagnostic, real pads live | attract cycles unchanged; the numbers below |
 | `steady2` | + `hdrA`/`hdrB` in the `IN` trace | reproduction; both pad reply headers healthy |
 | `steady3-release` | **release config** + `FLYCAST_SHOT` | 10,169 frames, 0 resets, 0 game-PC maple DMA; the `FREE PLAY` screenshot |
+| `steady4` | + opposed-direction mutual exclusion (review fix) | idle behaviour unchanged: same `IN` line, same `crc=0x22`, 0 resets |
 
 `steady1`, verbatim counters (handoff at cartlog line 14,332, all figures
 post-handoff):
@@ -3467,6 +3506,44 @@ identical to the ones already shipped.
 4. **The `IN` trace is change-gated**, so a leg with a stuck button prints once
    and goes quiet. That is the intended shape (it makes a 4-minute leg readable),
    but "no `IN` lines" means "nothing changed", not "nothing was pressed".
+5. **PHASE 5, REAL HARDWARE: the per-poll pad read is unthrottled, and Cleopatra
+   already hit exactly this.** `mie_poll` issues **two blocking** GetCondition
+   DMAs on every sub-`0x33`, unconditionally. In Flycast that is free — the
+   emulator's memory and maple are instant, which is why no Phase 4 leg can
+   ever observe the cost — but on the wire each transaction is real: ~0.5–1 ms
+   at the DC bus's 2 Mbps plus fixed per-transaction overhead. Measured rate
+   here: **13,283 polls / 15,202 frames = 0.87 polls per frame × 2 ports**, so
+   roughly **1–2 ms of blocking per 16.6 ms frame**, spent inside the game's own
+   maple service.
+   The sibling port found this the hard way and its fix is sitting `#if 0`'d in
+   `shims/src/main.c` (the Cleopatra reference block, `jvs_digital`): a
+   **TCNT0-keyed ~8 ms cache** —
+   ```c
+   u32 now = TCNT0;
+   if (in_tcnt - now > pad_thresh) {        /* down-counter: elapsed = last - now */
+       in_tcnt = now;
+       raw_cache_a = maple_getcond(0);
+       raw_cache_b = maple_getcond(1);
+   }
+   ```
+   with `pad_thresh` derived from `TCR0`'s prescaler (`(50000000 >> shift) / 125`
+   = ticks per 8 ms). Its recorded symptom was "2P mode very slow on real HW
+   only" — instant in Flycast, visible on hardware.
+   **Not applied now, deliberately**: it is a hardware mitigation with no
+   observable effect on this phase's target, and adding it blind would ship
+   untested timing code plus a second input-latency behaviour that no leg here
+   can compare against. It is the *first* thing to try if the Phase 5 hardware
+   round reports input lag or slow 2P, and the code to copy is in this repo.
+6. **A future EEPROM re-bake must use the PADDED record size.** The game
+   section's header is `[0x24..0x25] CRC | [0x26] record size | [0x27] record
+   padded size`, and the emulator annotates 39 (`= 0x27`) with "crc is done on
+   this" and uses `EEPROM[39]` for *both* the duplication stride and the CRC
+   span (`naomi_flashrom.cpp:86-94`, `:127-134`).
+   `scripts/extract_mie_blobs.py` originally duplicated with `[0x26]`; it now
+   uses `[0x27]` and asserts `[0x27] >= [0x26]`. In senkosp's image both are
+   `0x10`, so the emitted blob is **byte-identical either way** (verified by
+   diffing the generated file across the change) — this is a correctness point
+   for a re-bake against some other image, not a change to what ships today.
 
 ### Reproduction
 
