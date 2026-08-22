@@ -58,7 +58,47 @@ void shim_mark(u32 slot, unsigned short color);   /* util.c: breadcrumb HUD */
 /* .data (non-zero init, house style: the loader zero-fills the shim window, so
  * a .bss counter would also start at 0 -- but the convention keeps every shim
  * counter's "never ran" value distinguishable from "ran zero times"). */
-u32 cart_count = 1;             /* services completed + 1 -- read by the HUD */
+u32 cart_count = 1;             /* streams completed + 1 (HUD slot 4/5 blinker) */
+
+/* Request fence, on EVERY read path. gd_read_cart validates the cart offset
+ * (gd.c:319-321) but never the destination, so this is the last line
+ * protecting the shim window, its register mirrors and the pre-placed 0x60000
+ * blob from a wild game-supplied `dest`. Length sanity comes FIRST so an
+ * absurd length cannot u32-wrap past the `+ len` comparisons. Callers handle
+ * len == 0 themselves (both native boot bodies return early on it, so a die
+ * there would be a regression, not a catch). */
+static void fence_or_die(u32 off, u32 dest, u32 len) {
+    if (!len || len > 0x01000000u || off + len > (u32)CART_SIZE ||
+        (dest & 0x1f000000u) != 0x0c000000u ||
+        dest < DEST_LO || dest + len > DEST_HI)
+        shim_die(2, off, dest);
+}
+
+/* Both boot bodies compose their cart offset as
+ *   (r4 >> 16) | *(u32 *)0x8c1bf18c | mode_bit
+ * into NAOMI_DMA_OFFSETH / NAOMI_ROM_OFFSETH (docs/kb/phase4-conversion.md
+ * §CART-BOOT-POOLS 8c06645c/8c066480 and §CART-PIO 8c0663fe, both
+ * byte-verified there). The hardware keeps the low bits of that word as real
+ * cart-offset bits 16..30 -- naomi_cart.cpp:1032-1034 (`DmaOffset |= (data &
+ * 0x7fff) << 16`) and :1010-1013 (`RomPioOffset |= (data << 16) &
+ * 0x7fff0000`) -- so `r4` alone is only the whole offset while that runtime
+ * word's low half is zero. It lives at 0x8c1bf18c, past the main image's end,
+ * i.e. it is written at runtime and unknowable statically.
+ *
+ * ponytail: die rather than OR it in. Neither boot path has ever been observed
+ * executing (all 672 Phase 3 kicks are the steady path's 0x8c027f72), so a
+ * non-zero base would mean the offset model for these hooks is unvalidated --
+ * this word could be a board-window base that does not map onto a flat .dat
+ * offset at all. ORing would silently read the wrong region on a guess; the
+ * die paints the value and lands the operator in the debug-loop protocol with
+ * the one number needed to decide. Upgrade path: if a leg ever trips this,
+ * decode 0x8c1bf18c's writer, then OR (or translate) here.
+ * cart_stream is unaffected -- it reads the mirror the game already OR'd. */
+#define CART_BASE_WORD (*(volatile u32 *)0x8c1bf18c)
+static void boot_base_or_die(u32 off) {
+    u32 base = CART_BASE_WORD;
+    if (base & 0x7fffu) shim_die(2, off, base);   /* bits the HW folds into the offset */
+}
 
 /* The one place a mirrored DMA turns into a disc read. Returns immediately if
  * nothing is outstanding, which is what makes it safe at the two settle/boot
@@ -78,18 +118,16 @@ static void cart_stream(void) {
      * and GetDmaPtr uses `DmaOffset & 0x1fffffff` as a BYTE offset,
      * naomi_cart.cpp:912-919), e.g. the boot driver's 0xa000 and the PIO
      * reader's 0x8000; 0x0fffffff drops them and still spans the 251 MB
-     * image. */
+     * image. Any base word the game OR'd in is already part of this value. */
     u32 off  = (((m[M_DMA_OFFH / 4] & 0xffffu) << 16)
                 | (m[M_DMA_OFFL / 4] & 0xffffu)) & 0x0fffffffu;
     u32 len  = m[M_GDLEN / 4];               /* SB_GDLEN is the sole length source */
-    u32 dest = m[M_GDSTAR / 4] & 0x1fffffff; /* game programs it P1-aliased -> physical */
+    /* Game programs SB_GDSTAR P1-aliased -> physical; hardware then transfers
+     * to `SB_GDSTAR & 0x1FFFFFE0` (naomi.cpp:517), so round down the same way.
+     * A no-op on every request observed so far (all 0x20-aligned). */
+    u32 dest = m[M_GDSTAR / 4] & 0x1fffffe0;
 
-    /* Length sanity BEFORE the +len comparisons so an absurd SB_GDLEN cannot
-     * u32-wrap past them. */
-    if (!len || len > 0x01000000u || off + len > (u32)CART_SIZE ||
-        (dest & 0x1f000000u) != 0x0c000000u ||
-        dest < DEST_LO || dest + len > DEST_HI)
-        shim_die(2, off, dest);
+    fence_or_die(off, dest, len);
 
     if (cart_count == 1) shim_mark(4, 0xf81f);          /* slot4 magenta: first stream */
     if ((++cart_count & 31u) == 0)                      /* slot5: activity blinker */
@@ -107,9 +145,11 @@ static void cart_stream(void) {
 
     /* Completion, in the order a poller can safely observe it: the transfer
      * counter first, then the busy flag the game spins on. SB_GDLEND is reset
-     * to 0 at kick and reaches SB_GDLEN at the end of a real transfer
-     * (naomi.cpp:508, :133-134), so `len` is the finished value. */
-    m[M_GDLEND / 4] = len;
+     * to 0 at kick and converges to `(SB_GDLEN + 31) & ~31` -- the hardware
+     * moves whole 32-byte bursts (naomi.cpp:508, :131-134) -- so that, not
+     * `len`, is the finished value. Identical for every request observed so
+     * far (all 32-byte-aligned lengths). */
+    m[M_GDLEND / 4] = (len + 31u) & ~31u;
     m[M_GDST / 4] = 0;
 }
 
@@ -124,7 +164,11 @@ static int obj_ok(u32 o) { return (o - 0x8c000000u) < 0x01000000u && (o & 3u) ==
  * confirmed kick FUN_8c027f54, and from the drain loop FUN_8c027f9a).
  * The original's observable effects, reproduced: obj->[0x5c] takes SB_GDLEND
  * when the caller asked for a progress snapshot, and obj->[0x60] (the
- * "waiting" latch it sets on entry) is left clear on return. */
+ * "waiting" latch it sets on entry) is left clear on return.
+ * Deliberately NOT reproduced: the native early-out on the obj->[0x70]
+ * error/abort latch. It only decides whether the original loops again; this
+ * hook never loops -- it services once and returns -- and its exit state
+ * (obj->[0x60] = 0) is the same on both native branches. */
 void shim_cart_service(u32 flag, u32 obj);
 void shim_cart_service(u32 flag, u32 obj) {
     cart_stream();
@@ -160,9 +204,13 @@ void shim_cart_settle(u32 obj) {
 void shim_cart_boot_dma(u32 off, u32 dst, u32 len, u32 async);
 void shim_cart_boot_dma(u32 off, u32 dst, u32 len, u32 async) {
     (void)async;                                        /* we are always synchronous */
-    if (!len) return;
+    if (!len) return;                                   /* native: tst r6,r6 ; bt/s 8c0664ae */
     shim_mark(6, 0x07e0);                               /* slot6 green: boot DMA path fired */
-    if (gd_read_cart(off & ~0x1fu, (void *)(dst | 0xa0000000u), len) < 0)
+    off &= ~0x1fu;                                      /* native: and r2,r4 at 8c06644a */
+    dst &= 0x1fffffe0u;                                 /* native: SB_GDSTAR & 0x1FFFFFE0 */
+    boot_base_or_die(off);
+    fence_or_die(off, dst, len);
+    if (gd_read_cart(off, (void *)(dst | 0xa0000000u), len) < 0)
         shim_die(4, off, gd_last_err);
 }
 
@@ -175,8 +223,13 @@ void shim_cart_boot_dma(u32 off, u32 dst, u32 len, u32 async) {
  * silent. */
 void shim_cart_pio(u32 off, u32 dst, u32 len);
 void shim_cart_pio(u32 off, u32 dst, u32 len) {
-    if (!len) return;
+    if (!len) return;                                   /* native: r6>>1 == 0 exits at once */
     shim_mark(7, 0x07ff);                               /* slot7 cyan: PIO path fired */
+    boot_base_or_die(off);
+    /* dst is a CPU address here (the native loop does `mov.w r2,@r5`), not a
+     * DMA physical -- mask to physical for the fence, and no 32-byte rounding:
+     * the PIO path stores half-words at whatever address it is handed. */
+    fence_or_die(off, dst & 0x1fffffffu, len);
     if (gd_read_cart(off, (void *)(dst | 0xa0000000u), len) < 0)
         shim_die(4, off, gd_last_err);
 }

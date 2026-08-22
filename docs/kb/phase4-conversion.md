@@ -2621,3 +2621,74 @@ grep -c "^CART off" captures/phase4/<leg>.stdout.log      # cart services
 grep -c SHIMERR    captures/phase4/<leg>.stdout.log       # must stay 0
 grep -c "System reset requested" captures/phase4/<leg>.stdout.log
 ```
+
+### `entry5` — review-fix confirmation, and two latent boot-hook bugs closed
+
+Task 10's review found two Important latent defects, both on the two boot
+hooks that have never yet fired (`shim_cart_boot_dma`, `shim_cart_pio`) —
+i.e. neither could show up in `entry2`–`entry4`, and neither would have been
+caught by any leg until the day one of those paths actually ran.
+
+**1. The boot hooks dropped the native offset's high-half base.** Both native
+bodies compose their cart offset as
+`(r4 >> 16) | *(u32 *)0x8c1bf18c | mode_bit` into `NAOMI_DMA_OFFSETH` /
+`NAOMI_ROM_OFFSETH` (§CART-BOOT-POOLS `8c06645c`/`8c066480`, §CART-PIO
+`8c0663fe`, byte-verified in both). The hardware **keeps** the low bits of
+that word as real cart-offset bits 16..30:
+
+```
+naomi_cart.cpp:1032-1034   DmaOffset    |= (data & 0x7fff) << 16;      // DMA side
+naomi_cart.cpp:1010-1013   RomPioOffset |= (data << 16) & 0x7fff0000;  // PIO side
+```
+
+so `r4` alone is the whole offset only while that word's low half is zero.
+`0x8c1bf18c` sits past the main image's end — written at runtime, unknowable
+statically. `cart_stream` is unaffected: it reads the mirror the game has
+already OR'd.
+
+> **Disposition: `shim_die`, not a silent OR.** Neither boot path has ever
+> been observed executing (all 672 Phase 3 kicks are the steady path's
+> `0x8c027f72`), so a non-zero base would mean the offset model for these
+> hooks is *unvalidated* — that word could be a board-window base that does
+> not map onto a flat `.dat` offset at all, in which case ORing it in reads
+> the wrong region silently, which is precisely the failure mode §CART-PIO
+> says these hooks exist to prevent. `boot_base_or_die()` dies on
+> `base & 0x7fff` (the bits both hardware paths fold into the offset) and
+> paints the value, landing the operator in the debug-loop protocol with the
+> one number needed to decide. Upgrade path: decode `0x8c1bf18c`'s writer,
+> then OR or translate.
+
+**2. The destination fence was not applied on the boot hooks.** `cart_stream`
+fenced `dest` against `DEST_LO`/`DEST_HI`, but both boot entries handed the
+game-supplied `dst` straight to `gd_read_cart`, which validates only the cart
+offset (`gd.c:319-321`) and never the destination — so a wild `dst` could
+write over the shim, its mirrors or the 0x60000 blob. Fixed by factoring the
+check into `fence_or_die(off, dest, len)` and calling it from all three read
+paths. `len == 0` stays a caller-side early return, not a die: both native
+bodies return early on it, so dying there would be a regression, not a catch.
+
+Also folded in, matching the hardware more exactly (no-ops on every request
+observed so far, all 32-byte aligned): `dest` is rounded down with
+`& 0x1fffffe0` on the DMA paths (`SB_GDSTARD = SB_GDSTAR & 0x1FFFFFE0`,
+`naomi.cpp:517`) and `SB_GDLEND` completes at `(len + 31) & ~31` rather than
+`len` (`naomi.cpp:131-134` — the engine moves whole 32-byte bursts). The PIO
+hook gets neither: its native loop stores half-words at whatever address it is
+handed.
+
+**Confirmation leg.** Same diagnostic build, one 120 s leg:
+
+```
+grep -c SHIMERR                         entry5.stdout.log -> 0
+grep -c "^HANDOFF -> game"              entry5.stdout.log -> 4
+grep -c "System reset requested"        entry5.stdout.log -> 4
+awk '/^HANDOFF/{c++} /^CART off/{n[c]++}'                 -> 1 26, 2 26, 3 26, 4 26
+CART off=00800000 len=00000800 dst=0c193f60 n=00000002     (first, identical to entry2)
+CART off=03456000 len=0000d800 dst=0ce7dc00 n=0000001b     (26th, identical to entry2)
+```
+
+and the strongest form of "the live path was not disturbed": `entry2.log` and
+`entry5.log` have **identical cartlog class histograms** (`diff <(awk '{print
+$1}' entry2.log | sort | uniq -c) <(… entry5.log …)` → no output) and diverge
+on exactly one field in 79,205 lines — a KOS-side maple descriptor address,
+`mdstar=0c0f0b40` vs `0c0f0bc0`, shifted because the shim blob grew 140 bytes
+(2,912 → 3,052 B) and moved a loader-side allocation.
