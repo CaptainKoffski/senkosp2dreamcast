@@ -29,17 +29,20 @@ the index, that file is the answer.
 | 3 | Placement provenance | **One provenance site for all five corridors** (heap-top seed `0x8c085b50`) + **one for VRAM** (kmInitDevice size pool `0x8c03203c`) → 4-word patch set | — | — | — | **`docs/kb/relocation-map.md` §Provenance, §Patch set** |
 | 4 | Relocation dry run | **PASSED** — 3 legs on `senkosp-reloc.dat`, all three gate CHECKs green, `exit=0`; operator-confirmed playable | — | — | — | **`docs/kb/relocation-map.md` §Dry-run evidence** |
 | 5 | Input-decode function | **`FUN_8c02532a`, `0x8c02532a`–`0x8c025505`**; maple kick = `SB_MDST` store at `0x8c025446`. The per-frame poll is **sub `0x33`**, not sub `0x15` | `WhichFunc.java` body bounds; `mov.l r12,@(0x18,r2)` at `pc-2` read from the image = `SB_MDST`; base pointer supplied by the `0xa05f6c00` accessor `FUN_8c026b30` | **80 392** `MAPLEPC` sub-`0x33` events at `8c025448` (= store + 2), ~50/s = frame rate; `JVSREPORT` 83 220 ≈ `0x33`+`0x15` 83 268 | Phase 4's Maple/JVS shim must serve **sub `0x33`** (the boot-time driver `0x8c0665fe`–`0x8c066b0f` is real but boot-phase only) | §Target: input function; §`MDODMA` |
-| 6 | EEPROM path | **Reads confirmed on the same path** (`FUN_8c02532a`, sub `0x01`/`0x03`). **Write call site NOT identified** — all 16 sub-`0x0b` events carry the vblank-artifact PC `0c03161e` | Static: no separate MMIO path — the `0x0b` frame is a payload on the same maple DMA (no constant of its own to xref) | 16 sub-`0x0b` writes observed (test-menu leg) — first ever seen in this project; PC unattributable by two independent probes (`MAPLEPC`, `MDODMA`) | Free-play forcing must be done by **subcommand filtering in the shim**, not by patching a call site. Naming the site needs a fork probe change (tag `maple_DoDma` caller) — Phase 4 flag | §Target: EEPROM; §Why three checks cannot pass |
+| 6 | EEPROM path | **Reads confirmed on the same path** (`FUN_8c02532a`, sub `0x01`/`0x03`). **Write call site NOT identified** — all 16 sub-`0x0b` events (Phase 3 test-menu leg) carry PC `0c03161e`, now confirmed **`trig=reg`** (a real guest store, not a vblank artifact — Phase 4 Task 1) from a second, uncharacterized maple-triggering function | Static: no separate MMIO path — the `0x0b` frame is a payload on the same maple DMA (no constant of its own to xref) | 16 sub-`0x0b` writes observed (test-menu leg) — first ever seen in this project; PC confirmed real (`trig=reg`, Phase 4 Task 1) but the call site's **function** is still unidentified | Free-play forcing must be done by **subcommand filtering in the shim**, not by patching a call site. Naming the site needs Ghidra disassembly of physical ≈`0x03161e` (the fork probe that would have told reg-vs-vblank already shipped and confirmed reg) — Phase 4 flag | §Target: EEPROM; §Why three checks cannot pass |
 | 7 | Stack-pointer verdict | **Final SP `0x8c00f000`** (phys `0x0c00f000`) — 60 KB above the bottom of RAM. **No SP relocation needed.** senkosp is **multi-stack**: a second (task) stack at `0x8c1d4984`, bounded to static BSS | `DumpEntryChain.java` — three SP writes, the last via pointer indirection `[0x8c021118]`→`[0x8c170c14]`, value byte-verified in `tools/boot.bin` | 672 `CARTDMAPC` SPs in two clusters: 118 in the boot stack (confirms it), 554 at `0x8c1d4984` | No patch. **But** the DC BIOS syscall vector block overlaps the stack region — matters only if the shim needs GD syscalls after SP init | §SP verdict, §Stack region, §SP — two stacks |
 | 8 | RTC / SCIF / watchdog | **All three: ignore, no shim.** RTC = 5 words / 5 functions (2 live readers on a periodic tick, 3 writers behind an **unreferenced** setter `0x8c029b04`); SCIF = 1 boot-path `SCSPTR2` pin write + a crash-dump console on an exception vector; WDT = **0 refs** (all 43 hits are `1.5f`/`-1.5f` floats and CPG `STBCR`) | `FindMmioXrefs.java` + a raw whole-image word scan + `DisasmRange.java … force` to recover the undefined span; every register semantic cited to flycast source | **Static-only by nature** (spec §8: "the code never fires, so only disassembly can rule it dead"). Phase 2's "0 runtime pokes" was **retracted** — a null instrument (`FLYCAST_HWLOG` never set) | Nothing to shim: all three registers exist on DC at the same addresses. Note the live RTC *write* path would set the DC's own clock if ever reached | §RTC / SCIF / watchdog |
 | 9 | Control layout | DC pad bindings, user-approved 2026-08-19 | Decided in the spec, not measured | Wire bits from Phase 2's 13/13 map | Phase 4 loader binds them; Test/Service access mechanism is a loader decision | **`docs/kb/input-map.md` §DC pad layout** |
 
 **Open items carried into Phase 4, in one place** (each argued where cited):
 the BIOS blob at `0x0c018000` (target 1, mandatory); the EEPROM-write call
-site (target 6, needs a fork probe change); the game's restart path, which
-jumps into Naomi BIOS (`relocation-map.md` §Deliberately not patched); and
-the low-RAM syscall-vector overlap (target 7). `00-status.md` §Phase 4 flags
-carries the full list.
+site (target 6 — the fork probe shipped 2026-08-22 and confirmed the write
+is a real `trig=reg` store, not a vblank artifact; the call site's
+**function** still needs Ghidra identification plus a repeat operator leg,
+§Why three checks cannot pass as written addendum); the game's restart
+path, which jumps into Naomi BIOS (`relocation-map.md` §Deliberately not
+patched); and the low-RAM syscall-vector overlap (target 7). `00-status.md`
+§Phase 4 flags carries the full list.
 
 ## Entry chain & SP
 
@@ -1104,6 +1107,15 @@ without resolving the vblank problem below. Joining the 16 sub-`0x0b` EEPROM
 writes to their `enter` lines puts **all 16 on `0c03161e`** — the write call
 site stays unknown by a second, independent route.
 
+> **Corrected 2026-08-22 (Phase 4 Task 1) — the "vblank trigger" `Where`
+> label above is wrong; the PCs and counts next to it are not.** The fork
+> now tags which function actually called `maple_DoDma()`, and every one of
+> these six P0 PCs (including `0c03161e`) measures `trig=reg` — a real guest
+> store, same as the six P1 PCs. None of them are the hardware vblank
+> trigger. See §Why three checks cannot pass as written's addendum for the
+> full evidence; this table's row data (PCs, per-PC counts, `pc-2`
+> instructions) is unaffected and still accurate.
+
 ### Why three checks cannot pass as written — the maple-trigger artifact
 
 `MAPLEPC` is emitted inside `MIEImpl::handle_86_subcommand()`
@@ -1367,12 +1379,23 @@ CHECK sp_consistent: FAIL — 672 SPs vs static stack region
 ```
 
 The four remaining `FAIL`s (`input_pc_in_input_fn`, `eeprom_read_seen`,
-`eeprom_write_seen`, `sp_consistent`) are the two findings above — the
-maple-trigger probe limitation, which accounts for three of them, and the
-second stack, which accounts for the fourth — not unresolved range errors. Both need
-work outside this repo (a fork probe change; an `r15` water-mark probe) before
-a green line is honest. **`tools/pc-parse.txt` is left in place regardless: the
-`PCPAIR` data it carries comes from the cart path, which is fully confirmed.**
+`eeprom_write_seen`, `sp_consistent`) were explained *at the time* as the
+two findings above — a maple-trigger probe limitation (vblank-triggered
+transactions unattributable), which was thought to account for three of
+them, and the second stack, which accounts for the fourth — not unresolved
+range errors. Both needed work outside this repo: a fork probe change, and
+an `r15` water-mark probe.
+
+**Superseded 2026-08-22 (Run C, below) — the vblank half of this
+explanation was wrong.** The fork probe shipped and measured directly:
+every transaction in the new leg is `trig=reg`, zero `trig=vbl` — senkosp
+never arms the hardware vblank trigger at all (§Why three checks cannot
+pass as written, addendum below). Three of the four FAILs persist, but for
+a different, now-precise reason (a second, unidentified `trig=reg` call
+site outside the confirmed range, plus missing write evidence) — not the
+vblank artifact this paragraph originally blamed. `sp_consistent` closes.
+**`tools/pc-parse.txt` is left in place regardless: the `PCPAIR` data it
+carries comes from the cart path, which is fully confirmed.**
 
 Run C — 2026-08-22, Phase 4 Task 1, trig=/sp=-tagged fork
 (`../flycast4naomi2dreamcast@0d55a1812`), same ranges as Run B, against the
@@ -1418,6 +1441,6 @@ trigger) — see §Target: EEPROM's 2026-08-22 update.
 | --- | --- | --- | --- |
 | cart-read fn | `0x8c0661e0-0x8c066560`, `0x8c0678c2-0x8c067e18` | **`FUN_8c027f54` `0x8c027f54`–`0x8c027f99`**, 672/672 kicks | static — register-programming layer mistaken for the trigger; base-pointer + 16-bit-offset blind spots |
 | input fn | `0x8c0665fe-0x8c066b0f` | **`FUN_8c02532a` `0x8c02532a`–`0x8c025505`**, 80 392 sub `0x33` | *not* the wrong code — the candidate really does kick maple DMA (1035×, `MDODMA`), it is the **boot-time** driver. Wrong *phase*, and the check filters the boot-phase sub `0x15` instead of the per-frame sub `0x33` |
-| EEPROM fn | `0x8c0665fe-0x8c066b0f` | reads share `FUN_8c02532a`; **write call site unknown** | neither — probe cannot see vblank-triggered transactions |
+| EEPROM fn | `0x8c0665fe-0x8c066b0f` | reads share `FUN_8c02532a`; **write call site unknown** | neither — corrected 2026-08-22 (Run C): not a vblank-unattributable transaction (the fork probe measures **100% `trig=reg`**, zero `trig=vbl`, over the whole leg); the write's real cause is a second, unidentified `trig=reg` call site (≈`0x03161e`) outside the confirmed range, and the unattended leg has zero write evidence pending the operator leg |
 | SP | `0x8c000000-0x8c00f000` | boot stack confirmed (118 SPs); **second stack at `0x8c1d4984`** (554 SPs) | static — correct but incomplete; senkosp is multi-stack |
 | BIOS call | no confirmed BIOS-code call | `no_bios_exec` PASS, 0 lines | agree — verdict closed for code |
