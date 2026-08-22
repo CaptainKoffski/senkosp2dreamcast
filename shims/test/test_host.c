@@ -76,6 +76,25 @@ int main(void) {
                == (JVS_UP | JVS_M));                               /* L/R cancel, UP lives */
     }
 
+    /* dc_to_jvs_test (Task 13): P1-only test-mode remap -- Start->Test
+       (reported via *test_bit, NOT folded into the word: §TESTBIT-INJECT),
+       A->Service (0x4000, folded into the word like any other control);
+       everything else keeps its normal dc_to_jvs() binding. */
+    {
+        unsigned tb;
+        assert(dc_to_jvs_test(0, &tb) == 0 && tb == 0);                /* idle */
+        assert(dc_to_jvs_test(CONT_START, &tb) == 0 && tb == 1);       /* Start: Test only, no JVS_START */
+        assert(dc_to_jvs_test(CONT_A, &tb) == JVS_SERVICE && tb == 0); /* A: Service only, no JVS_M */
+        assert(dc_to_jvs_test(CONT_START | CONT_A, &tb)
+               == JVS_SERVICE && tb == 1);                             /* both held: both fire */
+        assert(dc_to_jvs_test(CONT_DPAD_UP, &tb)
+               == JVS_UP && tb == 0);                                  /* rest of the layout live */
+        assert(dc_to_jvs_test(CONT_START | CONT_DPAD_UP, &tb)
+               == JVS_UP && tb == 1);                                  /* Start doesn't leak into the word */
+        assert(dc_to_jvs_test(CONT_X | CONT_B | CONT_Y | CONT_RTRIG, &tb)
+               == (JVS_S | JVS_A | JVS_BARRAGE | JVS_OD) && tb == 0);  /* X/B/Y/R unaffected */
+    }
+
     /* jvs_checksum: pure mod-256 sum over frame[0x1b..0x39] -- sanity on a
        trivial buffer (senkosp's own golden reply frame is a later task's
        capture; jvs_hasdata is Cleopatra-specific and #if 0'd out here). */

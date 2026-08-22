@@ -3572,3 +3572,338 @@ awk -v h=$H 'NR>h' captures/phase4/steadyN.log \
 awk -v h=$H 'NR>h' captures/phase4/steadyN.log \
   | grep -A1 'rawdma_call cmd=09' | grep rawdma_ret | sort | uniq -c   # all outlen=10
 ```
+
+## Test menu — round trip (Task 13, criterion 4)
+
+**Criterion 4:** combo boot → test menu renders and navigates → exit →
+console reboot → main boot to attract. The operator was AFK for the whole
+task, so this section proves everything that does not need hands: the
+input mapping, the test-image sub-table's completeness, the exit path's
+readiness, and — via a transient diagnostic build — that the test image
+boots and its own menu renders. The hold/navigate/exit leg itself is handed
+to the operator below.
+
+### Test-mode input mapping
+
+`shim_maple_service`'s per-frame poll (`mie_poll`, `shims/src/main.c`) now
+branches on `SHIM_STATE[0]` (seeded by Task 10's boot combo,
+`loader/main.c`'s `*(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE)) =
+(uint32)test_boot`, unchanged this task — verified live before writing any
+code):
+
+```c
+if (UW(SHIM_STATE) == 1u) {         /* test boot: P1 Start->Test, A->Service */
+    unsigned test_bit;
+    j1 = dc_to_jvs_test(maple_getcond(0), &test_bit);
+    f[0x1f] = (u8)(test_bit ? 0x80 : 0x00);
+} else {
+    j1 = dc_to_jvs(maple_getcond(0));   /* DC port A -> P1 */
+}
+j2 = dc_to_jvs(maple_getcond(1));       /* DC port B -> P2, unchanged in both modes */
+```
+
+`dc_to_jvs_test` (`shims/src/jvs.c`, pure, host-tested) is the whole new
+policy:
+
+```c
+unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned *test_bit) {
+    *test_bit = (dc_buttons & CONT_START) ? 1u : 0u;
+    return dc_to_jvs(dc_buttons & ~(CONT_START | CONT_A))
+         | ((dc_buttons & CONT_A) ? JVS_SERVICE : 0u);
+}
+```
+
+Three decisions, each pinned against §Input ABI / §TESTBIT-INJECT rather
+than the brief's shorthand:
+
+1. **Test is not folded into the 16-bit P1/P2 word.** The brief names it
+   "bit 18" because that is the emulator's *internal* kcode constant
+   (`NAOMI_TEST_KEY == 1<<18`, `maple_devs.h:97`) — a bit position in
+   Flycast's own digital-input abstraction, not a wire offset. The actual
+   has-data frame carries Test in its own byte, `+0x1f` bit 7
+   (`maple_jvs.cpp:2243`), which is exactly what §TESTBIT-INJECT's verdict
+   already warned about: "a shim that sets `1 << 18` … somewhere in a
+   16-bit word would be silently wrong." So `dc_to_jvs_test` reports Test
+   through an out-param, and `mie_poll` places it at the pinned frame byte
+   itself — never OR'd into `j1`.
+2. **Service genuinely is a word bit** (`0x4000`, byte `+0x20` bit 6, the
+   same byte Start's `0x8000` lives in — input-map.md's measured bit,
+   §TESTBIT-INJECT: "Service *is* a bit") — so unlike Test it is folded
+   into the returned word like any other control.
+3. **P1 only, and only Start/A change.** `dc_buttons & ~(CONT_START |
+   CONT_A)` is passed straight through the *existing* `dc_to_jvs`, so
+   D-pad/X/B/Y/R keep their live game bindings in test mode too ("leave the
+   rest of the layout live" per the task brief) — reusing the one function
+   Task 12 already host-tested rather than duplicating its table. P2 is not
+   touched at all: `j2 = dc_to_jvs(maple_getcond(1))` is the exact Task 12
+   line, unconditional, in both modes. This is a P1-only decision, not
+   proven from a source — arcade Test/Service buttons are operator-panel
+   hardware, one pair per cabinet, not per player, and pad 1 is the same
+   pad the boot combo itself reads — recorded as a decision, not a citation.
+
+**Normal-mode regression is by construction, not just by test:** the
+`else` branch is the literal line Task 12 shipped, so a normal boot takes
+an *identical* instruction path to before this task — the only new
+runtime cost is the `SHIM_STATE[0]` read itself. `make test`'s idle-frame
+equivalence assert (`scripts/extract_mie_blobs.py`) does not exercise
+`SHIM_STATE` at all (it asserts the *build-time* transform on the captured
+blob) and still passes; the live confirmation is the `teststatic1` leg
+below.
+
+Seven new host asserts (`shims/test/test_host.c`) pin `dc_to_jvs_test`
+directly: idle, Start-only (Test, no `JVS_START` leak), A-only (Service, no
+`JVS_M` leak), both held, a D-pad control alone (rest of the layout live),
+Start layered on a D-pad press (Start still doesn't leak into the word),
+and X/B/Y/R together (unaffected). `make test`: `PASS test_host dc_to_jvs +
+jvs_checksum`.
+
+### Test-image sub-table completeness audit
+
+The brief asked for an audit against the KB's own accounting, not new
+generator code, and that is what this found: **both images' test columns
+were already fully dispositioned before this task touched anything.**
+
+| table | main | test | disposition |
+| --- | --- | --- | --- |
+| §Cart-patch sites, 32 raw words | 32/32 | 32/32 | 1 CART-BASE repoint + 28 own `pool()` entries + 3 written exemptions, both images (§Cart-patch sites Completeness accounting) |
+| §Cart-patch sites, entry hooks | 4/4 | 4/4 | CART-WAIT-A/B, CART-BOOT-DMA, CART-PIO-READ, both images |
+| §Maple-patch sites, 20 raw words | 20/20 | 20/20 | 1 MAPLE-BASE repoint + 17 own `pool()` entries + 2 written exemptions, both images (§Maple-patch sites Completeness accounting) |
+| §Maple-patch sites, hooks | 6/6 | 6/6 | MAPLE-KICK-HOOK `ptr()` + 5 boot detours, both images |
+| §Restart stub, RESET-PATCH | 1/1 | 1/1 | `scripts/build_patch_table.py:470-471` — main dat `0x47e4c`, **test dat `0x1a4678`** (§Restart stub's pin, Task 10 wired both, re-verified present by line number above) |
+
+Cross-checked against the generator's own output, unchanged by this task:
+
+```
+OK patch_table.h: 60 main + 60 test patches (reloc seeds + CART-* repoints/hooks
++ MAPLE-* repoints/detours + RESET-PATCH); G1_MIRROR_P2=0xac014800
+MAPLE_MIRROR_P2=0xac015000
+```
+
+60 = 60 across both images, and `make test`'s own accounting agrees: `OK (a)
+old-byte fidelity (120 rows), (b) img tagging (60 test-image rows)`. **No
+entry was missing; `scripts/build_patch_table.py` was not modified.** The
+audit's job was to *prove* completeness, not assume it from Task 9–11's
+prose — done by re-reading both Completeness accounting tables and the
+RESET-PATCH pin line-by-line above, and independently by the diagnostic
+leg below, which applies all 60 test-image entries at runtime with zero
+`PATCH MISMATCH`/`PATCH IMG MISMATCH` (`patches OK`, `patch table: 60 main
+/ 60 test entries (applied: test)`).
+
+### Exit-path readiness
+
+The test menu's SYSTEM MENU EXIT drives senkosp's own restart stub
+(`FUN_8c067e18`'s test-image twin, §Restart stub) → the patched jump target
+(RESET-PATCH, dat `0x1a4678`) → `shim_reboot()` → `((void
+(*)(void))0xa0000000)()`, i.e. the SH-4 reset vector through P2 — the same
+mechanism Task 10 proved fires (`entry2`/`entry3`'s reboot loop, `entry3`'s
+freeze-frame naming the exact restart call chain). Nothing about this path
+is test-image-specific: §Restart stub already established that the restart
+stub's opcode bytes, including the one `jmp` that matters, are
+byte-identical between images except four relocation-dependent pool words,
+none of which is the jump target. **This task did not need to add
+anything to make the exit path work — it was already wired by Task 10 —
+only to confirm, for the operator, what "it worked" will look like.**
+
+**The honesty note the brief asked for, restated precisely:** on real
+Naomi hardware, "restart" re-enters the BIOS, which re-runs the Naomi boot
+sequence and lands back at whichever image the operator's DIP switches (or
+last boot combo) select. On this Dreamcast conversion, "restart" is a jump
+to `0xa0000000` — the DC BIOS ROM entry, exactly where the CPU lands out of
+a real hardware reset. **What the operator should expect and both count as
+success:**
+
+- **Most likely (matches Task 10's four observed reboot cycles):** the
+  screen goes black, the DC BIOS runs its own boot sequence (swirl / Sega
+  TM screen), and it re-boots the GD-ROM — landing back at the loader,
+  which re-reads pad state fresh. If A+Start is not still held at that
+  point (it should not be — the operator already exited the combo to
+  navigate the menu), the loader selects the **main** image, and the game
+  proceeds to attract. This is the literal criterion: "exit → console
+  reboot → main boot to attract."
+- **Also acceptable (the brief's named fallback):** Flycast's DC profile
+  parks in its own BIOS file-manager/menu screen instead of immediately
+  re-invoking the GDI's `1ST_READ.BIN`. If the disc is bootable from that
+  screen (as Task 8's GDI mastering verified — a plain DC-profile boot
+  already reaches the loader once), that still satisfies the reboot
+  contract: the console left the game and came back through the BIOS, the
+  same reset instruction real hardware would take. The note travels to
+  Phase 5 rather than blocking this criterion, per the brief.
+- **Failure, not either of the above:** a hang, a black screen that never
+  recovers, or a crash signature (Flycast's `Verify Failed` class of
+  message). That is a real finding, not a variant of success — apply the
+  debug-loop protocol and record it.
+
+### Diagnostic-leg evidence
+
+Two unattended legs, both diagnostic builds (`LOADER_SERIAL=1`, shim
+`DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'`), both reverted before commit and
+re-verified by a clean release rebuild + `make test` afterward.
+
+**`teststatic1` — regression: normal (no-combo) boot is unaffected.**
+Same evidence standard as Task 12's `steady4`:
+
+```
+boot: MAIN image
+IN p1=00000000 p2=00000000 crc=00000022 hdrA=03230008 hdrB=03634008 n=000001bb
+345   MB boot transactions      (the Naomi count, exactly, as every prior task)
+0     MIE odd / MIE skip / SHIMERR / System reset requested
+1     HANDOFF -> game
+49    CART off= streams observed in the ~85s window (attract asset loads)
+```
+
+Post-handoff, from the emulator's side of the wire (`H` = the loader's own
+final MMU-off `MMUCRWR`, the same marker Task 12's reproduction recipe
+uses):
+
+```
+post-handoff MDODMA PCs: 8c0112d4 (probe_devinfo, x2), 8c01134c (maple_getcond,
+  x5,323), 8c01138c (maple_getcond's second dynarec block, x317) -- shim.map
+  symbols only, no game PC (Cleopatra's lesson (b) still holds)
+rawdma_call cmd=09 reci=20 bus=0: 2,820  ==  reci=60 bus=1: 2,820   (0 retries)
+rawdma_ret outlen=10: 5,640                                        (ALL of them)
+TAEND (frames presented): 5,594
+```
+
+Byte-for-byte the same idle line Task 12's `steady1`/`steady4` legs
+produced (`crc=0x22`, `345`, `0` tripwires) — the strongest form of "the
+test-mode branch did not perturb normal mode" available without a second
+diff tool: the *output*, not just the source diff, is unchanged.
+
+**`testboot-diag1` — the test image boots and renders its own menu.** A
+transient diagnostic define, `LOADER_FORCE_TEST_BOOT` (`loader/main.c`,
+same shape and same revert discipline as `LOADER_SERIAL`), forces
+`test_boot = 1` with no operator holding anything — sanctioned by the
+brief as the `LOADER_SERIAL` precedent (Task 8), one leg, reverted, honestly
+documented. The live combo check still runs underneath it unmodified (it
+can only ever *set* `test_boot = 1`, never clear the forced value), so a
+real A+Start hold keeps working in every other build.
+
+```
+boot combo: TEST image
+records=5 img=8cd007f8/4dc40 shim=8c010000/8000 kern=8c000600/3200 blob=8c018000/7000
+patches OK
+patch table: 60 main / 60 test entries (applied: test)
+HANDOFF -> game                                          (x1 -- no PATCH ABORT)
+IN p1=00000000 p2=00000000 crc=00000022 hdrA=03230008 hdrB=03634008 n=000001bc
+MB n=00000159                                            (345 decimal -- same
+                                                           boot-transaction count
+                                                           as the main image)
+MS n=00001a00                                            (6,656 steady maple
+                                                           services -- stayed up
+                                                           through the whole leg)
+0     MIE odd / MIE skip / SHIMERR / System reset requested (whole cartlog)
+```
+
+Post-handoff, same shim-only-PC shape as `teststatic1`, larger counts
+because this leg ran longer (extended to reach and hold the menu, plus one
+`kill -USR1` for the screenshot):
+
+```
+post-handoff MDODMA PCs: 8c0112d4 (x2), 8c01134c (x12,113), 8c01138c (x871)
+rawdma_call bus=0: 6,492  ==  bus=1: 6,492                          (0 retries)
+TAEND (frames presented): 12,982
+```
+
+**The screenshot is the decisive piece of evidence**
+(`docs/kb/img/phase4-dc-testmenu.png`, `FLYCAST_SHOT` + `kill -USR1`, the
+Task 8/11/12 mechanism): senkosp's own **GAME TEST MENU**, listing `INPUT
+TEST`, `GAME ASSIGNMENTS`, `BOOKKEEPING`, `BACKUP DATA CLEAR`, `-> EXIT`,
+with the game's own instruction line at the bottom —
+
+> **`SELECT WITH SERVICE BUTTON AND PRESS TEST BUTTON`**
+
+— which is independent, in-game confirmation of the exact convention this
+task wired (Test advances the cursor, Service selects the highlighted
+entry): the game names its own controls, in its own on-screen text,
+matching `dc_to_jvs_test`'s Start→Test / A→Service mapping without this
+task having asserted anything about menu semantics beyond the brief's
+"arcade convention" line. The idle `IN` line (`crc=0x22`, same as normal
+mode) is the frame the menu was rendered from: `SHIM_STATE[0]==1` was live,
+`dc_to_jvs_test`'s idle output (`test_bit=0`, `j1=0`) is identical to
+`dc_to_jvs`'s idle output, so the checksum did not move — confirming the
+test-mode branch produces a well-formed frame even before this leg's
+screenshot proved the menu draws from it.
+
+Symbol confirmation (`shims/build/shim.map`, this build):
+`8c011204 T _dc_to_jvs_test` — compiled in, sized normally (`shim.bin`
+6.8 KB / 16 KB budget in both the regression and diagnostic builds, no
+change from Task 12).
+
+### Pending operator round trip (criterion 4)
+
+**Not run, and cannot be run without a human**: holding a combo, navigating
+a menu by feel, and confirming a reboot lands somewhere specific are all
+judgment/timing actions. Exact procedure:
+
+1. **Build** (release is fine — this leg needs no serial output, the
+   screen tells the whole story): `make gdi`.
+2. **Boot holding A+Start on pad 1** from power-on (or console reset) until
+   the test menu appears — `docs/kb/img/phase4-dc-testmenu.png` is exactly
+   what to expect (this leg proved the render; only the *hold* is
+   untested).
+3. **Navigate**: press **Start** to advance the cursor (`-> ` moves down
+   the list — `INPUT TEST` / `GAME ASSIGNMENTS` / `BOOKKEEPING` / `BACKUP
+   DATA CLEAR` / `EXIT`), **A** to select the highlighted entry (Service).
+   Optionally descend into one submenu and back out, to exercise Test
+   navigating *inside* a submenu too — not required by the criterion, but
+   cheap confirmation that the mapping holds beyond the top menu.
+4. **Exit**: navigate to `EXIT` (or the `SYSTEM MENU EXIT` submenu entry
+   below the top level, per what the game actually presents) and select it
+   with A/Service.
+5. **Expect**: the screen goes to the DC BIOS boot sequence (see §Exit-path
+   readiness above for the two outcomes that both count as success), then
+   the loader runs again with no combo held, selects the **main** image,
+   and the game reaches attract — the same attract Task 11/12 already
+   proved (`docs/kb/img/phase4-dc-attract.png` /
+   `phase4-dc-steady.png` for what "back to attract" looks like).
+6. **Evidence to capture**: a screenshot (or phone photo) at three points —
+   the test menu on entry, the moment EXIT is selected, and attract after
+   the reboot — plus a plain description of what appeared in between (BIOS
+   swirl? Flycast's own file-manager screen? anything else?). No serial
+   capture is required for this leg; if something goes wrong, *then* switch
+   to the diagnostic build (`LOADER_SERIAL=1`, shim
+   `DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'`) and re-run with
+   `scripts/capture_dc_leg.sh phase4/testmenu-roundtrip1` for an `IN`/`MB`/
+   `MS` trace of exactly where it diverged.
+
+### Findings worth carrying forward
+
+1. **The audit closed clean because Tasks 9–11 already closed it.** This
+   task's "sub-table completeness" step found zero gaps — worth recording
+   explicitly so a future reader does not re-derive the same 32/32, 20/20,
+   1/1 tables from scratch: they are cited above, not re-scanned.
+2. **P1-only Test/Service is a decision, not a citation** (§Test-mode input
+   mapping, point 3) — if a future task finds the real cabinet wires
+   Service to P2 as well (twin-cabinet convention), the fix is one more
+   line in `mie_poll`'s test-mode branch, not a redesign.
+3. **The reboot's landing screen is genuinely unverified**, same class of
+   gap as Task 10's honesty note about the DC profile's reset handling —
+   this task added the expected-behavior note per the brief but did not
+   (could not) observe which of the two acceptable outcomes actually
+   happens.
+
+### Reproduction
+
+```sh
+make test                                # incl. 7 new dc_to_jvs_test host asserts
+
+# regression leg (diagnostic build, revert LOADER_SERIAL before committing)
+make -C shims clean && make -C shims DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
+# loader/main.c: LOADER_SERIAL -> 1
+make gdi && scripts/capture_dc_leg.sh phase4/teststaticN &
+# ... then: kill -9 $(pgrep -f "Flycast.app/Contents/MacOS/Flycast")
+# ... and wait for the .stdout.log size to settle before reading it
+
+# diagnostic test-boot leg (same shim; loader/main.c: LOADER_FORCE_TEST_BOOT -> 1)
+make gdi
+FLYCAST_SHOT=docs/kb/img/phase4-dc-testmenu.png scripts/capture_dc_leg.sh phase4/testboot-diagN &
+# ... let it reach the menu, kill -USR1 <pid> for the screenshot, then
+# ... kill -9 <pid>; wait for .stdout.log to settle
+# revert BOTH LOADER_SERIAL and LOADER_FORCE_TEST_BOOT to 0, rebuild release,
+# re-run `make test` before committing
+
+tr '\r' '\n' < captures/phase4/teststaticN.stdout.log > /tmp/t.txt
+grep '^IN '   /tmp/t.txt      # idle: crc=00000022, hdrA/hdrB ...08
+grep -c 'MIE odd\|MIE skip\|SHIMERR\|System reset requested' /tmp/t.txt   # 0
+grep -m1 'boot:\|boot combo' /tmp/t.txt   # confirms which image this leg selected
+```

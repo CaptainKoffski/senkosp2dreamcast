@@ -1,10 +1,12 @@
 # Project status
 
-**Updated:** 2026-08-22 (Phase 4 Task 11 — **the game reaches its attract
-cycle on the Dreamcast profile**: maple mirrored, the MIE firmware ladder and
-the JVS I/O-board enumeration serviced by the shim, the per-frame input poll
-running, attract assets streaming from the GD-ROM. Gate criterion 1 met.
-Next: Task 12 — live pad input + free-play. Phase 3 — DONE; gate green with
+**Updated:** 2026-08-22 (Phase 4 Task 13 — **the test image's own GAME TEST
+MENU renders on the Dreamcast profile**, reached by a transient diagnostic
+boot (no operator), with Start/A mapped to Test/Service in the synthesized
+JVS frame. Gate criterion 4's boot+render half is proven unattended; the
+combo-hold → navigate → exit → reboot round trip still needs the operator.
+Task 11: gate criterion 1 met (attract). Task 12: live pad input + free-play
+wired, criteria 2/3/5 pending the operator. Phase 3 — DONE; gate green with
 **two** criteria met in substance rather than literally — 2 and 4, see the
 Phase 3 checklist)
 
@@ -337,10 +339,41 @@ a CRC that validates, and `FREE PLAY` on the target's own screen
 (`docs/kb/img/phase4-dc-steady.png`). Evidence:
 `docs/kb/phase4-conversion.md` §Steady input, legs `captures/phase4/steady*`.
 
-**Pending — needs the operator at the controls (criteria 2, 3, 5):** a 1P
-playtest pressing every control, a 2P leg on port B, and Start-with-no-credit
-at the title screen. Exact commands and the evidence each yields:
-`docs/kb/phase4-conversion.md` §Steady input → Pending operator verifications.
+**State as of Task 13 (2026-08-22): the test image's boot combo, input
+mapping and menu render are proven unattended; the round trip itself needs
+the operator (gate criterion 4).** `SHIM_STATE[0]` (seeded by Task 10's boot
+combo) now gates a P1-only remap in `mie_poll`: DC Start → Test (frame
+`+0x1f` bit 7, its own byte per §TESTBIT-INJECT — not folded into the 16-bit
+button word) and DC A → Service (`0x4000`, genuinely a word bit); every other
+control, and P2 entirely, keep their live `dc_to_jvs()` mapping, so the
+normal-mode code path is byte-for-byte what Task 12 shipped. A completeness
+audit against §Cart-patch sites / §Maple-patch sites found both images' test
+columns already fully dispositioned (32/32, 20/20) and RESET-PATCH's test
+entry (dat `0x1a4678`) already wired (Task 10) — no generator changes were
+needed. A transient diagnostic build (`LOADER_FORCE_TEST_BOOT=1`, reverted
+before commit, same precedent as `LOADER_SERIAL`) forced the test-image path
+with no operator: the loader selected and patched the TEST image (`patch
+table: … applied: test`), the game reached its steady MIE poll under
+`SHIM_STATE[0]==1`, and the on-screen result is senkosp's own **GAME TEST
+MENU**, its own instruction line reading `SELECT WITH SERVICE BUTTON AND
+PRESS TEST BUTTON` — independent, in-game confirmation of the exact
+Start/A → Test/Service convention this task wired. 12,982 frames rendered,
+6,492 GetConditions per port (equal, zero retries), 0 resets, 0 tripwires.
+A same-session regression leg with the identical diagnostic shim but a
+normal (no-combo) boot reproduced Task 12's exact idle evidence
+(`crc=0x22`, 345 boot transactions, 0 tripwires, all post-handoff maple DMA
+from shim PCs only). Evidence: `docs/kb/phase4-conversion.md` §Test menu,
+legs `captures/phase4/teststatic1`, `captures/phase4/testboot-diag1`,
+`docs/kb/img/phase4-dc-testmenu.png`.
+
+**Pending — needs the operator at the controls (criteria 2, 3, 4, 5):** a 1P
+playtest pressing every control, a 2P leg on port B, Start-with-no-credit at
+the title screen, and the criterion-4 round trip itself (hold A+Start at
+boot, navigate the now-confirmed-rendering test menu with Test/Service,
+SYSTEM MENU EXIT, confirm the reboot lands back at attract). Exact commands
+and the evidence each yields: `docs/kb/phase4-conversion.md` §Steady input →
+Pending operator verifications (criteria 2/3/5) and §Test menu → Pending
+operator round trip (criterion 4).
 
 **State as of Task 10 (2026-08-22): senkosp's own code runs on a Dreamcast
 and streams from the disc.** The loader stages everything high and a

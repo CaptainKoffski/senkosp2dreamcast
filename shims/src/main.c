@@ -106,6 +106,7 @@ extern const unsigned char mie_jvsdflt[]; extern const unsigned int mie_jvsdflt_
  * owns the frame checksum. */
 unsigned int  maple_getcond(unsigned int port);         /* src/maple.c */
 unsigned      dc_to_jvs(unsigned dc_buttons);           /* src/jvs.c */
+unsigned      dc_to_jvs_test(unsigned dc_buttons, unsigned *test_bit); /* src/jvs.c, Task 13 */
 unsigned char jvs_checksum(const unsigned char *f);     /* src/jvs.c */
 void *xmemcpy(void *, const void *, u32);               /* src/util.c */
 
@@ -131,8 +132,10 @@ static void put1(u32 rcv, u32 w) { *(volatile u32 *)P2ADDR(rcv) = w; }
  * words and the checksum they feed. Offsets and the checksum rule are pinned
  * in docs/kb/phase4-conversion.md §Input ABI / §TESTBIT-INJECT, re-derived
  * from the emitter:
- *   +0x1f  Test byte (bit 7)  -- left as captured: Test/Service have no pad
- *          binding on this port (input-map.md §DC pad layout).
+ *   +0x1f  Test byte (bit 7)  -- left as captured (0x00) in NORMAL mode, no
+ *          pad binding on this port for the live game (input-map.md §DC pad
+ *          layout). In TEST mode (SHIM_STATE[0]==1, Task 13) P1's Start is
+ *          remapped to it -- see dc_to_jvs_test() in src/jvs.c.
  *   +0x20  P1 buttons, hi then lo   (maple_jvs.cpp:2248, :2252 -- JVS_OUT of
  *   +0x22  P2 buttons, hi then lo    inputs[player]>>8 then inputs[player],
  *                                    once per player, big-endian on the wire)
@@ -143,7 +146,14 @@ static void put1(u32 rcv, u32 w) { *(volatile u32 *)P2ADDR(rcv) = w; }
  * Everything else -- both maple frame headers, the JVS sync/length/status, the
  * eight idle 0x8000 analog channels, and the trailing ack frame at +0x3c -- is
  * replayed byte-for-byte, which is what makes an idle-pad build byte-identical
- * to the captured idle frame (the equivalence check in the Task 12 report). */
+ * to the captured idle frame (the equivalence check in the Task 12 report).
+ *
+ * TEST mode (Task 13, criterion 4): SHIM_STATE[0] is seeded by the loader's
+ * boot combo (loader/main.c, Task 10). Only P1's word/branch changes -- P2
+ * always takes the plain dc_to_jvs() path below, live in both modes -- and
+ * the else-branch for P1 is untouched from Task 12, so a NORMAL boot (the
+ * idle-frame equivalence assert's own regime) executes the exact same
+ * instructions it always did. */
 static void mie_poll(u32 rcv) {
     u8 f[68] = {0};                     /* = mie_sub33_len by capture; zeroed so
                                          * a short blob can never feed the
@@ -151,7 +161,13 @@ static void mie_poll(u32 rcv) {
     u32 n = mie_sub33_len, j1, j2;
     if (n > sizeof f) n = sizeof f;     /* bounded: never read past the blob */
     xmemcpy(f, mie_sub33, n);
-    j1 = dc_to_jvs(maple_getcond(0));   /* DC port A -> P1 */
+    if (UW(SHIM_STATE) == 1u) {         /* test boot: P1 Start->Test, A->Service */
+        unsigned test_bit;
+        j1 = dc_to_jvs_test(maple_getcond(0), &test_bit);
+        f[0x1f] = (u8)(test_bit ? 0x80 : 0x00);
+    } else {
+        j1 = dc_to_jvs(maple_getcond(0));   /* DC port A -> P1 */
+    }
     j2 = dc_to_jvs(maple_getcond(1));   /* DC port B -> P2 (no pad -> 0 = idle) */
     f[0x20] = (u8)(j1 >> 8); f[0x21] = (u8)j1;
     f[0x22] = (u8)(j2 >> 8); f[0x23] = (u8)j2;

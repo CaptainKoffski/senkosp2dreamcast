@@ -55,6 +55,33 @@ unsigned dc_to_jvs(unsigned dc_buttons) {
     return w;
 }
 
+/* Test-mode remap (Task 13, criterion 4): when SHIM_STATE[0]==1 (combo boot
+ * into the test image, loader/main.c seeds it), the MIE test menu takes over
+ * pad 1's Start and A -- Start advances (Test), A selects (Service), the
+ * arcade convention (docs/kb/phase4-conversion.md §TESTBIT-INJECT). Only P1
+ * (port 0, the same pad the boot combo itself reads) is remapped; P2 keeps
+ * calling plain dc_to_jvs() untouched in src/main.c, and every OTHER P1
+ * control (D-pad, X, B, Y, R) keeps its normal game binding here too --
+ * "leave the rest of the layout live" per the task brief.
+ *
+ * Test is NOT a bit of the 16-bit P1/P2 button word. The emulator's internal
+ * kcode constant NAOMI_TEST_KEY == 1<<18 (maple_devs.h:97) names a bit
+ * position in Flycast's *own* digital-input abstraction, not a wire offset;
+ * the actual has-data frame carries Test in its own byte, +0x1f bit 7
+ * (maple_jvs.cpp:2243, confirmed by this port's §TESTBIT-INJECT verdict).
+ * OR-ing 1<<18 into this 16-bit word would be exactly the "silently wrong"
+ * mistake that verdict exists to prevent, so Test is reported through
+ * *test_bit instead, for the caller (src/main.c mie_poll) to place at its
+ * own pinned frame byte. Service, unlike Test, genuinely IS bit 0x4000 of
+ * the button word -- the same byte Start's 0x8000 lives in (input-map.md's
+ * measured bit, §TESTBIT-INJECT: "Service *is* a bit") -- so it is folded
+ * into the returned word like any other control. */
+unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned *test_bit) {
+    *test_bit = (dc_buttons & CONT_START) ? 1u : 0u;
+    return dc_to_jvs(dc_buttons & ~(CONT_START | CONT_A))
+         | ((dc_buttons & CONT_A) ? JVS_SERVICE : 0u);
+}
+
 /* Raw DC GetCondition reply words -> the PRESSED mask dc_to_jvs() takes above.
  * This is the whole hardware-shaped half of the input path; keeping it here
  * (pure, no MMIO) is what lets test/test_host.c cover it.

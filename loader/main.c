@@ -146,7 +146,17 @@ int main(void) {
      * Decision 1). maple_wait_scan() first: maple_init() only STARTS the
      * periodic scan, so enumerating before the first scan lands would read
      * "no controller" and silently never select test mode. */
-    int test_boot = 0;
+#ifndef LOADER_FORCE_TEST_BOOT
+#define LOADER_FORCE_TEST_BOOT 0   /* Task 13 diagnostic (LOADER_SERIAL precedent):
+                                    * transient -- forces the test-image path with
+                                    * no operator holding the combo, so the
+                                    * unattended testboot-diag leg can prove the
+                                    * boot half of criterion 4. Revert to 0 before
+                                    * commit; the real combo check below still
+                                    * runs and can only ever ADD test_boot=1, so a
+                                    * live A+Start still works either way. */
+#endif
+    int test_boot = LOADER_FORCE_TEST_BOOT;
     maple_wait_scan();
     {
         maple_device_t *cont = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
