@@ -1,0 +1,101 @@
+# Requires: source ../cleopatra/tools/kos/environ.sh (KOS reused from the
+# Cleopatra port -- this repo has no local KOS checkout; docs/kb/tooling.md).
+TARGET = loader.elf
+OBJS = main.o handoff.o shim_blob.o bios_data.o splash_blob.o
+CFLAGS += -I../shims/include -I../build
+BIOS = ../bios/naomi/epr-21576h.ic27   # Naomi Japan bios0 (gitignored ROM)
+all: ../build/1ST_READ.BIN
+include $(KOS_BASE)/Makefile.rules
+$(TARGET): $(OBJS)
+	kos-cc -o $(TARGET) $(OBJS)
+# main.c #includes ../build/patch_table.h (Task 6 stub; Task 9 generates the
+# real table) and shim_iface.h. KOS Makefile.rules has no header-dependency
+# tracking, so declare both explicitly: without this a header change (new
+# patch addresses, new CART_FAD) would NOT rebuild main.o and the loader
+# would silently keep the stale values (bit Cleopatra in B5: CART_FAD change
+# didn't take until an unrelated main.c edit).
+main.o: ../build/patch_table.h ../shims/include/shim_iface.h
+# Phase 4 Task 6 stub: zero patches, mechanism kept (patch_t / PATCH_COUNT /
+# apply_patches loop all live in loader/main.c unchanged). Task 9 replaces
+# this rule with the real generator (scripts/build_patch_table.py, resolving
+# shim symbol addresses from ../shims/build/shim.map) once senkosp's own
+# patch sites are known -- not written yet, so there is nothing to resolve
+# against and no shim.map/boot.bin dependency to declare here.
+../build/patch_table.h:
+	mkdir -p ../build
+	{ echo '/* STUB (Phase 4 Task 6): zero patches. Task 9 generates the real'; \
+	  echo ' * table from ../shims/build/shim.map via scripts/build_patch_table.py. */'; \
+	  echo 'typedef struct { unsigned int addr, len;'; \
+	  echo '  const unsigned char *old, *neu; const char *what; } patch_t;'; \
+	  echo 'static const patch_t patches[1] = { {0,0,0,0,0} };'; \
+	  echo 'enum { PATCH_COUNT = 0 };'; \
+	} > $@
+# shim.bin embedded as _shim_bin / _shim_bin_end (C's leading-underscore prefix;
+# raw objcopy names verified with sh-elf-nm against the ../shims/build/shim.bin path).
+shim_blob.o: ../shims/build/shim.bin
+	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
+	  --redefine-sym _binary____shims_build_shim_bin_start=_shim_bin \
+	  --redefine-sym _binary____shims_build_shim_bin_end=_shim_bin_end \
+	  $< $@
+# KERNEL-SLICE pin (docs/kb/phase4-conversion.md §"Low-RAM placements — spec
+# pin P6 (KERNEL-SLICE), BLOB-CHECK", Task 5): the plan's single-dd recipe
+# does not work (a ROM offset for RAM 0x600 would be negative) -- the window
+# [0x600,0x3800) is three pieces, byte-compare verified against
+# tools/ram-snapshot.bin. Literal numbers mirror
+# ../shims/include/shim_iface.h's KERNEL_A/B/C_LEN + BIOS60000_LEN (the C
+# header is the single source of truth for the shim/loader; this Makefile
+# needs the same numbers to build bios_data.bin, and
+# shims/test/test_shim_iface.c asserts the header's own arithmetic).
+BIOS60000_OFF     = 393216   # 0x60000
+BIOS60000_LEN     = 28672    # 0x7000
+KERNEL_A_SNAP_OFF = 1536     # 0x600 in tools/ram-snapshot.bin
+KERNEL_A_LEN      = 512      # 0x200: snapshot-only (no ROM source)
+KERNEL_B_LEN      = 2048     # 0x800: zero-fill (snapshot reads all-zero here)
+KERNEL_ROM_OFF    = 2048     # 0x800: piece C ROM skip
+KERNEL_C_LEN      = 10240    # 0x2800: ROM-identical to RAM 0x1000-0x3800
+BIOS_DATA_TOTAL   = 41472    # 0xa200 = BIOS60000_LEN + KERNEL_A_LEN + KERNEL_B_LEN + KERNEL_C_LEN
+# bios_data.bin layout: [BIOS60000_LEN blob][KERNEL_A_LEN][KERNEL_B_LEN][KERNEL_C_LEN]
+# concatenated -- matches shim_iface.h's BIOS_DATA_*_OFF constants, so the
+# loader indexes by name, not by re-deriving offsets.
+# .DELETE_ON_ERROR + size check (final review, Cleopatra): dd exits 0 on
+# short/past-EOF reads, so a wrong/truncated BIOS or missing snapshot would
+# silently embed a short blob and the loader memcpys fixed lengths past its
+# end. Explicit existence check on the snapshot (gitignored, regenerable)
+# because it is NOT a normal timestamp-tracked prerequisite here (34 MB,
+# effectively static -- tracking its mtime would force a rebuild on every
+# `git checkout`); the check still fails the build with a clear message
+# rather than a short silent blob.
+.DELETE_ON_ERROR:
+../build/bios_data.bin: $(BIOS)
+	mkdir -p ../build
+	@test -f ../tools/ram-snapshot.bin || { echo "bios_data.bin: ../tools/ram-snapshot.bin missing (gitignored, regenerable -- docs/kb/tooling.md Phase 3: RAM snapshot)"; exit 1; }
+	dd if=$(BIOS) bs=1 skip=$(BIOS60000_OFF) count=$(BIOS60000_LEN) 2>/dev/null > $@
+	dd if=../tools/ram-snapshot.bin bs=1 skip=$(KERNEL_A_SNAP_OFF) count=$(KERNEL_A_LEN) 2>/dev/null >> $@
+	dd if=/dev/zero bs=1 count=$(KERNEL_B_LEN) 2>/dev/null >> $@
+	dd if=$(BIOS) bs=1 skip=$(KERNEL_ROM_OFF) count=$(KERNEL_C_LEN) 2>/dev/null >> $@
+	@test $$(stat -f%z $@) -eq $(BIOS_DATA_TOTAL) || { echo "bios_data.bin wrong size (bad BIOS/snapshot?)"; rm -f $@; exit 1; }
+# Embedded as _bios_data / _bios_data_end (C's leading-underscore prefix).
+bios_data.o: ../build/bios_data.bin
+	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
+	  --redefine-sym _binary____build_bios_data_bin_start=_bios_data \
+	  --redefine-sym _binary____build_bios_data_bin_end=_bios_data_end \
+	  $< $@
+# Boot splash: the real Naomi BIOS logo frame (BIOS property, not game
+# content -- same epr-21576h.ic27 Cleopatra captured it from, reused as-is).
+# splash.png is gitignored (BIOS-rendered output, same category as the BIOS
+# ROM) -- regenerate with ../cleopatra's scripts/capture_naomi_splash.sh if
+# ever missing. sips is stock macOS; converter is stdlib-only.
+../build/splash.bin: splash.png ../scripts/bmp2rgb565.py
+	mkdir -p ../build
+	sips -s format bmp splash.png --out ../build/splash.bmp > /dev/null
+	python3 ../scripts/bmp2rgb565.py ../build/splash.bmp $@
+splash_blob.o: ../build/splash.bin
+	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
+	  --redefine-sym _binary____build_splash_bin_start=_splash_bin \
+	  --redefine-sym _binary____build_splash_bin_end=_splash_bin_end \
+	  $< $@
+../build/1ST_READ.BIN: $(TARGET)
+	mkdir -p ../build
+	sh-elf-objcopy -R .stack -O binary $(TARGET) $@
+clean:
+	rm -f $(TARGET) $(OBJS) ../build/1ST_READ.BIN ../build/bios_data.bin ../build/patch_table.h

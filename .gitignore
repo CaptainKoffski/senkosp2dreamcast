@@ -10,3 +10,11 @@
 /captures/
 __pycache__/
 .idea/
+
+# Phase 4 build outputs (ROM/BIOS-derived bytes; never commit)
+/build/
+/shims/build/
+/shims/data/
+loader/*.o
+loader/*.elf
+loader/splash.png

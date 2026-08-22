@@ -578,3 +578,42 @@ fully recorded in that table) and is not part of this inventory.
 sampling — Task 9's precedent, reused for Task 1) need `= no`; **restore
 `= yes` after** — later legs depend on it. Verified restored 2026-08-22
 after Task 1's captures.
+
+### sh-elf / KOS toolchain — reused install (Phase 4 Task 6)
+
+This repo has no local toolchain or KOS checkout — both reused in place
+from the Cleopatra port, same pattern as the Ghidra/Flycast entries above.
+
+- **sh-elf (dc-chain):** `/opt/toolchains/dc/sh-elf/bin/` — machine-wide
+  install, not per-repo. `sh-elf-gcc --version` → `sh-elf-gcc (GCC) 15.2.0`.
+  Used directly by `shims/Makefile` (`CC`/`NM`/`OBJCOPY` point at this path)
+  and indirectly by KOS's `kos-cc` wrapper (below).
+- **KOS:** `../cleopatra/tools/kos` — reused checkout, not copied into this
+  repo. `source ../cleopatra/tools/kos/environ.sh` before any `make -C
+  loader` or top-level `make loader`/`make test`; sets `KOS_BASE` to the
+  Cleopatra-repo path (absolute), `KOS_CC_BASE=/opt/toolchains/dc/sh-elf`,
+  `KOS_ARCH=dreamcast`, `KOS_SUBARCH` unset (defaults to `pristine` — this
+  loader boots as a normal DC homebrew via GDEMU, not native Naomi).
+  `kos-cc --version` → `sh-elf-gcc (GCC) 15.2.0` (kos-cc wraps sh-elf-gcc
+  with KOS's include/lib paths).
+- **BIOS used by the loader build:** `bios/naomi/epr-21576h.ic27`
+  (senkosp2dreamcast's own copy, not Cleopatra's — same filename, Naomi
+  Japan bios0), md5 `d1e4be4862f1f9592b17a042abc5831e`.
+- **Finding (Task 6, load-address collision):** KOS's default link origin
+  for this pristine-subarch target is `0x8c010000`
+  (`../cleopatra/tools/kos/utils/ldscripts/shlelf.xc` line 10,
+  `LOAD_OFFSET = ... 0x8c010000`) — confirmed empirically:
+  `sh-elf-nm loader/loader.elf` places `_start`/`__executable_start` at
+  `0x8c010000` and `_main` at `0x8c010158`, with a combined text+data+bss
+  footprint of 838,704 B (`sh-elf-size loader/loader.elf`), i.e. the running
+  loader occupies roughly `0x8c010000`–`0x8c0dc000`. This is the SAME
+  address as senkosp's `SHIM_BASE` (`shims/include/shim_iface.h`) and
+  overlaps `GAME_LOAD_ADDR` (`0x8c020000`) too. Cleopatra never hit this
+  because its shim home was `0x8cfc0000` (near RAM top, far from
+  `LOAD_OFFSET`); senkosp's shim home moved to low RAM (spec-pinned,
+  `docs/kb/phase4-conversion.md` §Shim home) specifically because
+  Cleopatra's old high placement collides with senkosp's own relocated heap
+  (`docs/kb/relocation-map.md` §Provenance). The loader code that would
+  `memcpy` the shim into place is present (Task 6 copies it in, from
+  Cleopatra) but kept behind `#if 0` — this collision is why it must stay
+  disabled until a later task resolves it (see task-6-report.md).
