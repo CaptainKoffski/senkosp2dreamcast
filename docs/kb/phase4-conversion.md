@@ -1704,9 +1704,9 @@ byte-identical copy), so the "test-exit path must be re-derived from its own
 exit code" fallback in the brief does not apply.
 
 > **Test-image stub location.** `FUN_8c067e18`'s test-image twin starts at
-> dat `0x1a4644` (RAM `0x8c052c4c`, via `dat_offset = 0x171ff8 + (addr −
+> dat `0x1a4644` (RAM `0x8c05264c`, via `dat_offset = 0x171ff8 + (addr −
 > 0x8c020000)`, `docs/kb/game.md` §Parsed `.dat` header). Its jump-target
-> pool word is at dat `0x1a4678` (RAM `0x8c052c80`), old value `0x8dfff000`
+> pool word is at dat `0x1a4678` (RAM `0x8c052680`), old value `0x8dfff000`
 > — byte-verified.
 
 ### `0x8c067e3c` (dest pool) — value and role, and why patching only `…e4c` suffices
@@ -1735,7 +1735,7 @@ program `senkosp3`; verbatim, PR/delay-slot markers as emitted):
 
 **This is decisive.** `FUN_8c067e18` contains exactly **one** unconditional
 control-transfer instruction — the `jmp @r1` at `8c067e32` — and `r1` is
-loaded from pool `0x8c067e4c` two instructions earlier, with nothing between
+loaded from pool `0x8c067e4c` in the immediately preceding instruction, with nothing between
 the load and the jump that could redirect it. `0x8c067e3c` (loaded into `r4`
 at entry) is consumed only as an *argument* to `CALL #1` (the memcpy-style
 helper) and never referenced again; it has no bearing on where control ends
@@ -1748,7 +1748,7 @@ itself lands wherever the patched `…e4c`/`0x1a4678` word points, so the
 Naomi-BIOS re-entry (`0xa0082262` etc., baked *inside* the copied `0x60c`-B
 payload, never reached once the jump is redirected) is never executed. The
 same reasoning applies unchanged to the test image: its opcode bytes at
-`8c052c4c`–`8c052c86` (dat `0x1a4644`–`0x1a4680`) are byte-identical to the
+`8c05264c`–`8c052688` (dat `0x1a4644`–`0x1a4680`) are byte-identical to the
 main image's at this span except the four relocation-dependent pool words
 already tabulated, so its control-flow shape — one `jsr`, one `jsr`, one
 `jmp` through the same relative pool slot — is identical.
@@ -1771,6 +1771,20 @@ already tabulated, so its control-flow shape — one `jsr`, one `jsr`, one
 > `0x8c067e3c`/its test-image twin at dat `0x1a4668` (both `0xadfff000`,
 > both **not** patched) are recorded for completeness: they are the copy
 > destination, consumed only by `CALL #1`, never by the jump.
+
+### Residual risks — for Task 9/10 to close, not silently inherit
+
+`CALL #1` (pool `…e40`, `0x8c069754` main / `0x8c053ec4` test) and `CALL #2`
+(pool `…e48` OR'd with the P2 mask, `0x8c02b320` main / `0x8c02b208` test —
+see the word table above) were identified only by their *role in the
+control flow* (a memcpy-shaped call, then a P2-aliased call right before the
+jump) — their own bodies were not disassembled or decompiled. This task's
+claim that both are side-effect-only (memcpy into a fixed unused page,
+icache-flush-shaped) is inferred from the calling convention and from
+`relocation-map.md`'s prior finding, not independently proven per-instruction.
+If Task 10's shim reboot routine turns out to be reached with caches or
+memory state that behaves unexpectedly, decompiling these two callees is the
+first thing to check.
 
 ### Reproduction
 
@@ -1921,6 +1935,19 @@ range: 0xc018374 - 0xc01862c
 > home `0x8c010000`–`0x8c017fff` (`docs/kb/phase4-conversion.md` §Shim home
 > found clean over that exact span). The map does not need to shrink;
 > `FUN_8c065ff0`'s consumers are satisfied by pre-placement as designed.
+
+### Residual risks — for Task 6 to close, not silently inherit
+
+Piece A (`0x600`–`0x800`, 512 B) is pinned as **snapshot-only content**
+because no clean single-source ROM recipe exists for it, but this task did
+not determine *what it is* beyond "boot-time-constructed, not a straight
+ROM copy" — the fragment evidence (two ~20–60 B chunks matching ROM at
+non-uniform offsets `0x1494`/`0x1e74`, separated by zero) is consistent with
+a hand-assembled vector stub/table, not proven to be one. If Task 6's
+snapshot re-derivation ever produces a *different* 512 bytes for this
+window (e.g. a value that varies boot-to-boot, such as an RTC seed or a
+computed jump-table entry), the "one fixed 512 B slice" plan breaks and the
+window needs its own targeted disassembly before Task 6 bakes it in.
 
 ### Reproduction
 
