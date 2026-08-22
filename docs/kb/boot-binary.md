@@ -29,7 +29,7 @@ the index, that file is the answer.
 | 3 | Placement provenance | **One provenance site for all five corridors** (heap-top seed `0x8c085b50`) + **one for VRAM** (kmInitDevice size pool `0x8c03203c`) → 4-word patch set | — | — | — | **`docs/kb/relocation-map.md` §Provenance, §Patch set** |
 | 4 | Relocation dry run | **PASSED** — 3 legs on `senkosp-reloc.dat`, all three gate CHECKs green, `exit=0`; operator-confirmed playable | — | — | — | **`docs/kb/relocation-map.md` §Dry-run evidence** |
 | 5 | Input-decode function | **`FUN_8c02532a`, `0x8c02532a`–`0x8c025505`**; maple kick = `SB_MDST` store at `0x8c025446`. The per-frame poll is **sub `0x33`**, not sub `0x15` | `WhichFunc.java` body bounds; `mov.l r12,@(0x18,r2)` at `pc-2` read from the image = `SB_MDST`; base pointer supplied by the `0xa05f6c00` accessor `FUN_8c026b30` | **80 392** `MAPLEPC` sub-`0x33` events at `8c025448` (= store + 2), ~50/s = frame rate; `JVSREPORT` 83 220 ≈ `0x33`+`0x15` 83 268 | Phase 4's Maple/JVS shim must serve **sub `0x33`** (the boot-time driver `0x8c0665fe`–`0x8c066b0f` is real but boot-phase only) | §Target: input function; §`MDODMA` |
-| 6 | EEPROM path | **Reads confirmed on the same path** (`FUN_8c02532a`, sub `0x01`/`0x03`). **Write call site NOT identified** — all 16 sub-`0x0b` events (Phase 3 test-menu leg) carry PC `0c03161e`, now confirmed **`trig=reg`** (a real guest store, not a vblank artifact — Phase 4 Task 1) from a second, uncharacterized maple-triggering function | Static: no separate MMIO path — the `0x0b` frame is a payload on the same maple DMA (no constant of its own to xref) | 16 sub-`0x0b` writes observed (test-menu leg) — first ever seen in this project; PC confirmed real (`trig=reg`, Phase 4 Task 1) but the call site's **function** is still unidentified | Free-play forcing must be done by **subcommand filtering in the shim**, not by patching a call site. Naming the site needs Ghidra disassembly of physical ≈`0x03161e` (the fork probe that would have told reg-vs-vblank already shipped and confirmed reg) — Phase 4 flag | §Target: EEPROM; §Why three checks cannot pass |
+| 6 | EEPROM path | **Reads confirmed on the same path** (`FUN_8c02532a`, sub `0x01`/`0x03`; `eeprom_read_seen` **PASS**, Run D). **Writes are the Naomi BIOS's** — all 16 sub-`0x0b` events (Phase 3 test-menu leg) carry PC `0c03161e`, `trig=reg` (Task 1) and identified as BIOS code by Task 4; the game itself has never been observed writing the EEPROM | Static: no separate MMIO path — the `0x0b` frame is a payload on the same maple DMA (no constant of its own to xref); and no maple pool word in either image belongs to any function but `FUN_8c026b30`/`FUN_8c0665fe`/`FUN_8c066964` | 16 sub-`0x0b` writes observed (test-menu leg); every event of that PC family is **pre-`MAINHANDOFF`**, i.e. before the game's first instruction (Task 4) | Free-play forcing must be done by **subcommand filtering in the shim** over a baked EEPROM image, not by patching a call site — there is no game call site to patch. `eeprom_write_seen` cannot be satisfied by a game PC in this title | §Target: EEPROM; §Addendum — Phase 4 Task 4; `phase4-conversion.md` §R5 |
 | 7 | Stack-pointer verdict | **Final SP `0x8c00f000`** (phys `0x0c00f000`) — 60 KB above the bottom of RAM. **No SP relocation needed.** senkosp is **multi-stack**: a second (task) stack at `0x8c1d4984`, bounded to static BSS | `DumpEntryChain.java` — three SP writes, the last via pointer indirection `[0x8c021118]`→`[0x8c170c14]`, value byte-verified in `tools/boot.bin` | 672 `CARTDMAPC` SPs in two clusters: 118 in the boot stack (confirms it), 554 at `0x8c1d4984` | No patch. **But** the DC BIOS syscall vector block overlaps the stack region — matters only if the shim needs GD syscalls after SP init | §SP verdict, §Stack region, §SP — two stacks |
 | 8 | RTC / SCIF / watchdog | **All three: ignore, no shim.** RTC = 5 words / 5 functions (2 live readers on a periodic tick, 3 writers behind an **unreferenced** setter `0x8c029b04`); SCIF = 1 boot-path `SCSPTR2` pin write + a crash-dump console on an exception vector; WDT = **0 refs** (all 43 hits are `1.5f`/`-1.5f` floats and CPG `STBCR`) | `FindMmioXrefs.java` + a raw whole-image word scan + `DisasmRange.java … force` to recover the undefined span; every register semantic cited to flycast source | **Static-only by nature** (spec §8: "the code never fires, so only disassembly can rule it dead"). Phase 2's "0 runtime pokes" was **retracted** — a null instrument (`FLYCAST_HWLOG` never set) | Nothing to shim: all three registers exist on DC at the same addresses. Note the live RTC *write* path would set the DC's own clock if ever reached | §RTC / SCIF / watchdog |
 | 9 | Control layout | DC pad bindings, user-approved 2026-08-19 | Decided in the spec, not measured | Wire bits from Phase 2's 13/13 map | Phase 4 loader binds them; Test/Service access mechanism is a loader decision | **`docs/kb/input-map.md` §DC pad layout** |
@@ -937,6 +937,18 @@ mirrors — `PCSAMPLE` finds the guest in `8c02/8c04/8c05` and in `0c02/0c03/0c0
 `0x0c020000`–`0x0c191ff8`, 0 of 672 overlap), so `tools/boot.bin` *is* the code
 that ran at these addresses. The split has a mechanical cause, given below.
 
+> **Corrected 2026-08-22 (Phase 4 Task 4) — the paragraph above is wrong from
+> "senkosp genuinely executes from both mirrors" onward; the table is not.**
+> senkosp executes **only** at P1. Every P0-form PC in this document is the
+> **Naomi BIOS**, which runs a maple/JVS driver out of RAM *before* it loads
+> the cart image over that RAM — which is exactly why decoding `pc-2` out of
+> `tools/boot.bin` (the game image) never finds a store there: those bytes
+> were not in RAM when those PCs executed. The cart-DMA-overlap check quoted
+> above does not detect it, because the image arrives by **BIOS PIO**, not by
+> cart DMA. Evidence and the four consequences: §Addendum 2026-08-22 — Phase 4
+> Task 4, below. The `+2` rule itself, and every row of the table above, are
+> unaffected.
+
 ### Target: cart-read function — **CONFIRMED** `FUN_8c027f54`
 
 All **672** DMA kicks report one single PC, `8c027f74` → the store is at
@@ -1027,7 +1039,9 @@ not yet traced call by call, same caveat as the cart base above.
 a ~27-minute leg (1614 one-per-second `PCSAMPLE` lines) is ~50/s — frame rate.
 Sub `0x15`'s 2876 events are ~1.8/s and cannot be a per-frame poll. `0x33` is
 *"Receive then transmit with repeat (15 then 21)"*
-(`.../core/hw/maple/maple_jvs.cpp:1888`) — it calls `receive_jvs_messages`
+(`.../core/hw/maple/maple_jvs.cpp:1889` — citation corrected 2026-08-22,
+Phase 4 Task 4; the `case 0x33:` label is at `:1889`, not `:1888`) — it calls
+`receive_jvs_messages`
 then `send_jvs_messages`, the combined per-frame transaction. The
 correspondence with `JVSREPORT` confirms it: 83 220 JVS reports vs 80 392 +
 2876 = 83 268 `0x33`+`0x15` transactions.
@@ -1063,6 +1077,26 @@ either trigger — attract-mode bookkeeping never touches the EEPROM. Closing
 this needs both a repeat operator test-menu leg (to re-observe the write
 under the trig-tagged fork) and static identification of the
 `0c03161e`-region function (see the addendum above) — neither done here.
+
+> **2026-08-22 (Phase 4 Task 4) — the write call site is named: the Naomi
+> BIOS.** `0c03161e` is not a function in either image; it is BIOS code
+> running out of RAM before the BIOS loads the cart image over it (evidence:
+> §Addendum 2026-08-22 — Phase 4 Task 4 below, and
+> `docs/kb/phase4-conversion.md` §R5 — every one of that PC family's events
+> is pre-`MAINHANDOFF`, i.e. before the game's first instruction). So all 16
+> observed sub-`0x0b` EEPROM writes were the BIOS's, and **senkosp itself has
+> never been observed writing the EEPROM in any leg**.
+>
+> **What that changes.** The static conclusion above stands and gains a
+> reason: there is no game call site to patch, so free-play must be forced by
+> **subcommand filtering in the shim over a baked EEPROM image**, exactly as
+> this doc's answer index already ruled. `eeprom_write_seen` cannot be
+> satisfied by a game PC and should not be expected to: the check is asking
+> for evidence that does not exist in this title. The pending operator
+> test-menu leg is still worth running — it exercises the game's *test menu*
+> path, which is a different image (`.dat` entry 2) — but it is no longer the
+> blocker for naming this site. The game's own EEPROM **reads** are confirmed
+> at `FUN_8c02532a` (`pc=8c025448`, sub `0x01`/`0x03`, post-handoff — Run D).
 
 ### `MDODMA` — the wider maple probe, and the boot-time driver it reveals
 
@@ -1121,6 +1155,13 @@ site stays unknown by a second, independent route.
 > trigger. See §Why three checks cannot pass as written's addendum for the
 > full evidence; this table's row data (PCs, per-PC counts, `pc-2`
 > instructions) is unaffected and still accurate.
+>
+> **Completed 2026-08-22 (Phase 4 Task 4): the correct `Where` for all six P0
+> rows is "Naomi BIOS".** They are BIOS-era, every one of them
+> pre-`MAINHANDOFF`; the `pc-2` bytes in those rows were decoded out of the
+> game image, which had not been loaded yet, so they describe nothing. Row
+> data for the six P1 rows is unaffected. See §Addendum 2026-08-22 — Phase 4
+> Task 4.
 
 ### Why three checks cannot pass as written — the maple-trigger artifact
 
@@ -1209,6 +1250,13 @@ follow-up task:** disassemble physical ≈`0x03161e`-`0x032100` (P1 mirror
 ≈`0x8c03161e`-`0x8c032100`) and determine whether it is a legitimate second
 input/EEPROM path or a distinct subsystem that happens to share the MIE.
 
+> **Closed 2026-08-22 (Phase 4 Task 4): neither — it is the Naomi BIOS.**
+> Refusing to widen the range was the right call: there is nothing at
+> `0x8c03161e` to widen *to*, because the PC belongs to code that was in RAM
+> only before the game image was loaded there. The checks pass once
+> BIOS-era events are excluded rather than absorbed — Run D, §Check lines,
+> `--since-handoff`. Full evidence: §Addendum 2026-08-22 — Phase 4 Task 4.
+
 **`eeprom_write_seen` — still zero evidence, unattended.** `pc2.log` (boot→
 attract, no operator input) carries **zero** sub-`0x0b` `MAPLEPC` lines of
 either trigger — attract-mode bookkeeping does not touch the EEPROM in this
@@ -1219,6 +1267,64 @@ leg is likely to reproduce "write happens, call site still unidentified"
 rather than newly confirm `FUN_8c02532a`. The operator leg
 (`phase4/pc2-testmenu`) is still the documented next step, but expectations
 are revised accordingly.
+
+### Addendum 2026-08-22 — Phase 4 Task 4: the second call site is the
+### **Naomi BIOS**, and every P0-form PC in this doc is BIOS-era
+
+The open item the addendum above carried — *"disassemble physical
+≈`0x03161e`…and determine whether it is a legitimate second input/EEPROM path
+or a distinct subsystem"* — is closed, and the answer is neither: **it is not
+game code at all.** `0c03161e` and its five siblings are the **Naomi BIOS's own
+maple/JVS driver**, running out of RAM before the BIOS loads the cart image
+over that same RAM and jumps to the game. Full evidence, tables and
+consequences: `docs/kb/phase4-conversion.md` §R5. In brief, from
+`captures/phase4/pc2.log`:
+
+| | pre-`MAINHANDOFF` (BIOS) | post-`MAINHANDOFF` (game) |
+| --- | --- | --- |
+| `MDODMA` PCs | the six `0c03…`/`0c032…` (lines 174–11102) | the six `8c0…` (lines 11200–340955) |
+| `PCSAMPLE` | 26 P0-form + 1 `a000` ROM | 271 P1-form, **zero** P0 |
+| `SOFWR` PCs | four P0-form (383/384/384/4) | one P1-form, `8c032146` |
+| maple buffers | `SB_MDSTAR 0x0c296a20`, recv `0x0c296220` | `0x0dfe7f40`/`0x0dfeaf40`, `0x0c1bfa80` |
+| `sp` | `0x0cbffdc4`–`0x0cbfff9c` | `0x8c1d4a1c`, `0x8c00efa4`–`0x8c00efd8` |
+
+`MAINHANDOFF` is the fork's one-shot marker at the first bulk cart→RAM
+transfer (`cartlog_handoff()`,
+`../flycast4naomi2dreamcast/core/hw/naomi/naomi.cpp:334-352`); its
+ARAM/VRAM/MAIN triple lands at lines 11150–11152 of this leg. The two
+families do not overlap by a single event.
+
+**Four claims in this document are corrected by that, and one is confirmed:**
+
+1. **§The `+2` rule — "senkosp genuinely executes from both mirrors" is
+   wrong.** senkosp executes only at P1. The P0-form PCs are the BIOS. The `+2`
+   rule itself is *unaffected and still correct*: it was applied to the P0 PCs
+   against `tools/boot.bin`, which is the game image that had not yet been
+   loaded when those PCs executed — so `pc-2` was decoded out of bytes that
+   were not in RAM at the time. That is why no store was ever found there, and
+   the "mechanical cause" paragraph in §Why three checks cannot pass as written
+   (a vblank/store split) is superseded twice over: first by Task 1 (`trig=reg`
+   everywhere), now by this.
+2. **§`MDODMA`'s "vblank trigger" `Where` column** — already corrected to "not
+   vblank" by Task 1; the correct label for all six P0 rows is **Naomi BIOS**.
+   The PCs, counts and `pc-2` bytes in that table remain accurate as logged.
+3. **§Why three checks cannot pass as written — the checks *can* pass.**
+   `input_pc_in_input_fn` and `eeprom_read_seen` were failing because BIOS
+   maple traffic was being charged against a game-image function range. Drop
+   the pre-handoff events and both pass against the **unchanged** Run B/C
+   ranges — see Run D in §Check lines. No range was widened; `FUN_8c02532a`'s
+   `0x8c02532a`–`0x8c025505` was right all along.
+4. **§SP — the "third region" at `sp≈0x0cbffdc4` is the BIOS's stack**, dead
+   before the game's first instruction. It needs no Phase 4 RAM reservation and
+   no depth measurement; `sp_consistent`'s two-cluster model is complete for
+   the game.
+5. **Confirmed, not corrected:** senkosp never arms the hardware vblank maple
+   trigger. Task 1 measured it dynamically (zero `trig=vbl`); the static side
+   now agrees — `FUN_8c066964` stores 0 to `SB_MDTSEL` at `0x8c0669e2`, and the
+   boot init-pair table writes `SB_MDTSEL = 0` too
+   (`phase4-conversion.md` §MIE-DESC).
+
+**The EEPROM write call site is therefore named — see §Target: EEPROM.**
 
 ### SP — two stacks, not one
 
@@ -1283,7 +1389,7 @@ diagnostic capture) makes this unambiguous:
 | --- | --- | --- | --- |
 | `8c025448` | `FUN_8c02532a` (confirmed input/EEPROM path) | 848 | constant `8c1d4a1c` |
 | `8c066728` (+4 siblings) | `FUN_8c0665fe` (confirmed boot device-scan) | 345 | `8c00efa4`-`8c00efd8` (inside the confirmed boot-stack region) |
-| `0c03161e` (+5 siblings) | *unidentified* | 748 | `0cbffdc4`-`0cbfff9c` (neither known stack) |
+| `0c03161e` (+5 siblings) | **Naomi BIOS** (identified 2026-08-22, Task 4; was *unidentified*) | 748 | `0cbffdc4`-`0cbfff9c` — the BIOS's stack, not a game stack |
 
 So the two **confirmed** functions land exactly where the static model says
 (task stack, boot stack); the *unidentified* function is what pollutes a
@@ -1304,6 +1410,15 @@ until the function is identified its *actual stack depth* (not just this one
 sampled value) is unmeasured. Flag for whichever task does the DC RAM-budget
 accounting; not blocking here since `0x8c1d4b64`/`0x8c1de200` already bound
 the confirmed heap/stack layout independently of this region.
+
+> **Withdrawn 2026-08-22 (Phase 4 Task 4) — there is no third region to plan
+> for.** `sp≈0x0cbffdc4` is the **Naomi BIOS's** stack: every sample of it is
+> pre-`MAINHANDOFF`, and the BIOS is gone before the game's first instruction
+> (and does not exist at all on the Dreamcast target). Nothing to reserve,
+> nothing to measure. The two-cluster model — boot stack + task stack — is
+> complete for the game. `sp_consistent`'s scoping to fn-confirmed PCs remains
+> the right construction regardless: it is what kept the BIOS out of the
+> check. See §Addendum 2026-08-22 — Phase 4 Task 4.
 
 ### `SOFWR` — Task 10 input, and its cap
 
@@ -1400,6 +1515,8 @@ pass as written, addendum below). Three of the four FAILs persist, but for
 a different, now-precise reason (a second, unidentified `trig=reg` call
 site outside the confirmed range, plus missing write evidence) — not the
 vblank artifact this paragraph originally blamed. `sp_consistent` closes.
+**Run D (Phase 4 Task 4) closes two more:** that "second call site" is the
+Naomi BIOS, not game code; only `eeprom_write_seen` remains.
 **`tools/pc-parse.txt` is left in place regardless: the `PCPAIR` data it
 carries comes from the cart path, which is fully confirmed.**
 
@@ -1437,9 +1554,49 @@ addendum above): every transaction here is `trig=reg`, so it is not a
 vblank-artifact-vs-store split any more — `FUN_8c02532a` and the
 uncharacterized `0c03161e`-region function are **both** real, attributable,
 register-triggered call sites, and only one of them is in the candidate
-range. `eeprom_write_seen` FAILs on an empty set: this leg is unattended
+range. (**Superseded by Run D:** the second one is the Naomi BIOS, so "only
+one is in the candidate range" is not a gap in the range — the other one is
+not game code at all.) `eeprom_write_seen` FAILs on an empty set: this leg is unattended
 attract-mode only and never touches the EEPROM (0 sub-`0x0b` lines of either
 trigger) — see §Target: EEPROM's 2026-08-22 update.
+
+Run D — 2026-08-22, Phase 4 Task 4, **same leg and the same ranges as Run C**,
+with the Naomi-BIOS era excluded (`--since-handoff`; the flag drops
+`CARTDMAPC`/`MAPLEPC` events logged before the one-shot `MAINHANDOFF` marker —
+§Addendum 2026-08-22 — Phase 4 Task 4). No function range was widened:
+
+```
+python3 scripts/parse_cartlog.py captures/phase4/pc2.log \
+    --cart-fn 8c027f54-8c027f99 \
+    --input-fn 8c02532a-8c025505 --eeprom-fn 8c02532a-8c025505 \
+    --stack 8c000000-8c00f000 --since-handoff --pc-report      # exit=1
+```
+
+```
+CHECK dest_known: PASS — every DMA dest in a known window (main/vram/aram/ta); 0 outside
+CHECK len_aligned_32: PASS — every DMA len a whole number of 0x20-byte DMA_COUNT units
+CHECK beyond_boot_read: PASS — at least one cart read past the 1 MB boot region (runtime streaming)
+CHECK main_watermark_boot: PASS — main watermark 0x1ffffa5 >= boot-load end 0x191ff8
+CHECK no_bios_exec: PASS — 0 BIOSEXEC lines (expect 0)
+CHECK shim_home_clean: PASS — 0 SHIMWATCH2 lines (expect 0)
+CHECK dma_pc_in_cart_fn: PASS — 83 DMA-kick PCs vs cart fn
+CHECK input_pc_in_input_fn: PASS — 7 sub=15 trig=reg PCs vs input fn
+CHECK eeprom_read_seen: PASS — 2 sub=01/03 trig=reg PCs vs eeprom fn
+CHECK eeprom_write_seen: FAIL — 0 sub=0b trig=reg PCs vs eeprom fn
+CHECK sp_consistent: PASS — 36 boot-cluster SPs vs [(2348810240, 2348871680)]; 15822 task-cluster (fn-confirmed) SPs, min=0x8c1d4a1c vs floor 0x8c1c0000
+```
+
+**Two of the three remaining FAILs close, and the ranges never moved.**
+Run C's `input_pc_in_input_fn` counted 376 sub-`0x15` PCs, of which **369 were
+the BIOS's** (`pc=0c03161e`) and 7 the game's (`pc=8c025448`);
+`eeprom_read_seen` counted 4, of which 2 were the BIOS's and 2 the game's.
+Excluding the BIOS era leaves only game PCs, all inside `FUN_8c02532a` — the
+range Run B derived and Run C tested. `eeprom_write_seen` still FAILs on an
+empty set (0 sub-`0x0b` events in an unattended attract leg) and, per §Target:
+EEPROM's Task 4 update, **cannot be satisfied by a game PC in this title at
+all**: the only EEPROM writer this project has ever observed is the Naomi
+BIOS. `shim_home_clean` appears here and not in Run C because it was added to
+the parser after Run C was recorded; it is not affected by this change.
 
 ### Reconciliation ledger
 
@@ -1447,6 +1604,6 @@ trigger) — see §Target: EEPROM's 2026-08-22 update.
 | --- | --- | --- | --- |
 | cart-read fn | `0x8c0661e0-0x8c066560`, `0x8c0678c2-0x8c067e18` | **`FUN_8c027f54` `0x8c027f54`–`0x8c027f99`**, 672/672 kicks | static — register-programming layer mistaken for the trigger; base-pointer + 16-bit-offset blind spots |
 | input fn | `0x8c0665fe-0x8c066b0f` | **`FUN_8c02532a` `0x8c02532a`–`0x8c025505`**, 80 392 sub `0x33` | *not* the wrong code — the candidate really does kick maple DMA (1035×, `MDODMA`), it is the **boot-time** driver. Wrong *phase*, and the check filters the boot-phase sub `0x15` instead of the per-frame sub `0x33` |
-| EEPROM fn | `0x8c0665fe-0x8c066b0f` | reads share `FUN_8c02532a`; **write call site unknown** | neither — corrected 2026-08-22 (Run C): not a vblank-unattributable transaction (the fork probe measures **100% `trig=reg`**, zero `trig=vbl`, over the whole leg); the write's real cause is a second, unidentified `trig=reg` call site (≈`0x03161e`) outside the confirmed range, and the unattended leg has zero write evidence pending the operator leg |
+| EEPROM fn | `0x8c0665fe-0x8c066b0f` | reads share `FUN_8c02532a` (**`eeprom_read_seen` PASS**, Run D); **writes are the Naomi BIOS's, not the game's** | neither, then the *check* — corrected twice: 2026-08-22 Run C killed the vblank theory (**100% `trig=reg`**, zero `trig=vbl`); 2026-08-22 Task 4 identified the "second `trig=reg` call site (≈`0x03161e`)" as the **Naomi BIOS**, running pre-`MAINHANDOFF` out of RAM the game image later overwrites. `FUN_8c02532a`'s range was never wrong — BIOS traffic was being charged against it. `eeprom_write_seen` has no game PC to find |
 | SP | `0x8c000000-0x8c00f000` | boot stack confirmed (118 SPs); **second stack at `0x8c1d4984`** (554 SPs) | static — correct but incomplete; senkosp is multi-stack |
 | BIOS call | no confirmed BIOS-code call | `no_bios_exec` PASS, 0 lines | agree — verdict closed for code |

@@ -92,10 +92,29 @@ and 6 are `[x]`, unqualified.
       call site (target 6 — observed 16×, PC unattributable by two
       independent probes) and the second stack's *extent* (target 7 — bounded
       to static BSS, not measured).
-- [~] **2 — Parser cross-checks on the PC-capture leg: 7 of 10 PASS**
-      (Phase 4 Task 1, 2026-08-22, re-run against `captures/phase4/pc2.log`
-      with the trig=/sp=-tagged fork — `docs/kb/boot-binary.md` §Check lines,
-      verbatim, run C).
+- [~] **2 — Parser cross-checks on the PC-capture leg: 10 of 11 PASS**
+      (Phase 4 Task 4, 2026-08-22, same leg `captures/phase4/pc2.log` and the
+      **same function ranges** as run C, with the Naomi-BIOS era excluded —
+      `docs/kb/boot-binary.md` §Check lines, verbatim, **run D**. Was 7 of 10
+      at run C; `shim_home_clean` is the eleventh line, added to the parser
+      after run C was recorded).
+      **What Task 4 found:** the "second, unidentified `trig=reg` call site"
+      that run C blamed is the **Naomi BIOS**, running its own maple/JVS
+      driver out of RAM before it loads the cart image over that RAM — every
+      event of that PC family is pre-`MAINHANDOFF`, i.e. before the game's
+      first instruction (`docs/kb/phase4-conversion.md` §R5;
+      `docs/kb/boot-binary.md` §Addendum 2026-08-22 — Phase 4 Task 4).
+      `input_pc_in_input_fn` and `eeprom_read_seen` were failing on BIOS
+      traffic charged against a game-image range, so **both now PASS with no
+      range widened** (`parse_cartlog.py --since-handoff`); `FUN_8c02532a`'s
+      `0x8c02532a`–`0x8c025505` was correct all along.
+      **Still `[~]`, one sub-check open: `eeprom_write_seen` FAILs on an
+      empty set** — 0 sub-`0x0b` events in this unattended attract leg, and
+      the only EEPROM writer this project has ever observed is the BIOS, so
+      no game PC can satisfy it in this title. The pending operator
+      test-menu leg exercises the *test image*, a different `.dat` entry, and
+      is the remaining evidence that could change that.
+      Historical detail from run C follows.
       `dest_known`, `len_aligned_32`, `beyond_boot_read`,
       `main_watermark_boot`, `no_bios_exec`, `dma_pc_in_cart_fn` — PASS
       (six lines, Phase 2/3 carry-overs), plus **`sp_consistent` now PASSes**
@@ -117,21 +136,18 @@ and 6 are `[x]`, unqualified.
       (≥ the `0x8c1c0000` floor) and the confirmed boot-time device-scan
       function inside the confirmed boot-stack region — both exactly where
       the static model predicted.
-      **Still FAIL: `input_pc_in_input_fn`, `eeprom_read_seen`,
-      `eeprom_write_seen`** — for a *different, newly precise* reason than
-      Phase 3 recorded: a second, real `trig=reg` call site (physical
-      ≈`0x03161e`, function unidentified) issues genuine sub-`15`/`01`/`03`
-      maple transactions outside `FUN_8c02532a`'s confirmed range, so the
-      range — not the trigger — is what's incomplete. `eeprom_write_seen`
-      additionally has zero sub-`0x0b` evidence in this unattended leg
-      (attract-mode never touches the EEPROM).
-      **What would close it now:** static (Ghidra) identification of the
-      `0x03161e`-region function, plus a repeat operator test-menu leg to
-      re-observe the EEPROM write under the trig-tagged fork. Both are
-      follow-up work, out of Task 1's fork-probe scope. Carried as a Phase 4
-      flag; the phase is not blocked on it because every affected target has
-      independent confirming evidence (input via sub `0x33`, `docs/kb/boot-binary.md`
-      §Target: input function).
+      **FAIL at run C, closed at run D: `input_pc_in_input_fn`,
+      `eeprom_read_seen`** — run C explained them as "a second, real
+      `trig=reg` call site (physical ≈`0x03161e`, function unidentified)
+      issues genuine sub-`15`/`01`/`03` maple transactions outside
+      `FUN_8c02532a`'s confirmed range, so the range — not the trigger — is
+      what's incomplete." **Half right:** the call site is real and
+      register-triggered, but it is the Naomi BIOS and the range was never
+      incomplete (Task 4, above). `eeprom_write_seen` FAILed then and still
+      FAILs, on zero sub-`0x0b` evidence in this unattended leg.
+      The phase was never blocked on this, because every affected target has
+      independent confirming evidence (input via sub `0x33`,
+      `docs/kb/boot-binary.md` §Target: input function).
 - [x] **3 — Dry run passes.** `docs/kb/relocation-map.md` §Dry-run evidence:
       three legs on `senkosp-reloc.dat` (`md5 a80f03676c0595bcae1bebcc5f16f884`),
       `parse_cartlog.py --dryrun` → **`exit=0`**, with

@@ -225,6 +225,34 @@ assert rep_lines == [
 
 print("OK pc_checks self-check")
 
+# --since-handoff: PC events logged before MAINHANDOFF are the Naomi BIOS's,
+# not the game's (docs/kb/boot-binary.md §Addendum 2026-08-22 — Phase 4
+# Task 4). A BIOS-era MAPLEPC at a P0 pc outside every game-image range makes
+# input_pc_in_input_fn fail when counted, and vanishes when it is not.
+BIOSLEG = """\
+MAPLEPC cmd=86 sub=15 pc=0c03161e trig=reg sp=0cbffdc4
+CARTDMAPC pc=0c031700 sp=0cbffdc4
+MAINHANDOFF baselined size=2000000 trigger=pio
+""" + PCLEG
+assert P.parse_leg("b", BIOSLEG)["maplepc"][0][1] == 0x0C03161E     # counted by default
+assert P.parse_leg("b", BIOSLEG, since_handoff=True)["maplepc"] == \
+    P.parse_leg("b", PCLEG)["maplepc"]
+assert P.parse_leg("b", BIOSLEG, since_handoff=True)["dmapc"] == \
+    P.parse_leg("b", PCLEG)["dmapc"]
+fnargs = dict(cart_fn=[(0x8C03BD00, 0x8C03BE00)],
+              input_fn=[(0x8C031000, 0x8C031FFF)],
+              eeprom_fn=[(0x8C032000, 0x8C032200)],
+              stack=[(0x8C000000, 0x8C00F000)])
+raw = dict((n, ok) for n, ok, _ in P.pc_checks([P.parse_leg("b", BIOSLEG)], **fnargs))
+cut = dict((n, ok) for n, ok, _ in
+           P.pc_checks([P.parse_leg("b", BIOSLEG, since_handoff=True)], **fnargs))
+assert raw["input_pc_in_input_fn"] is False and cut["input_pc_in_input_fn"] is True, (raw, cut)
+# non-PC lines survive the filter either way (beyond_boot_read needs them)
+assert P.parse_leg("b", BIOSLEG, since_handoff=True)["dma"] == \
+    P.parse_leg("b", PCLEG)["dma"]
+
+print("OK since_handoff self-check")
+
 # no_bios_exec is unconditional: a flagless CLI parse must still print it
 # (it's a safety tripwire), while the flag-gated PC checks stay silent.
 with tempfile.TemporaryDirectory() as d:

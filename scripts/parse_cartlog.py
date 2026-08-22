@@ -107,13 +107,29 @@ def region_of(dest):
     return "other", p
 
 
-def parse_leg(name, text):
+def parse_leg(name, text, since_handoff=False):
+    """Parse one capture leg.
+
+    since_handoff=True drops the PC-attribution events (CARTDMAPC, MAPLEPC)
+    logged BEFORE the one-shot MAINHANDOFF marker. Everything before that
+    marker is the Naomi BIOS, not the game: the BIOS runs its own maple/JVS
+    driver out of RAM and is only then overwritten by the cart image it
+    loads, so its PCs can never fall inside a game-image function range and
+    charging them against one is a category error (docs/kb/boot-binary.md
+    §Addendum 2026-08-22 — Phase 4 Task 4). Marker: cartlog_handoff(),
+    ../flycast4naomi2dreamcast/core/hw/naomi/naomi.cpp:334-352.
+    Non-PC lines (CARTDMA, CARTPIO, WATERMARK, ...) are always parsed --
+    beyond_boot_read and main_watermark_boot need the BIOS-era image load.
+    """
     leg = {"name": name, "dma": [], "pio": set(), "pio_bytes": 0, "wm": {},
            "prof": {}, "hist": {}, "regs": None, "vramregs": [], "serial": [],
            "mie": [], "jvs": [], "hw": {}, "dmapc": [], "pcpairs": [],
            "maplepc": [], "biosexec": [], "sofwr": collections.Counter(),
            "spwater": None, "shimwatch2": []}
+    game_era = not since_handoff
     for line in text.splitlines():
+        if line.startswith("MAINHANDOFF"):
+            game_era = True
         m = _DMA.match(line)
         if m:
             src, dest, ln = (int(g, 16) for g in m.groups())
@@ -177,6 +193,8 @@ def parse_leg(name, text):
             continue
         m = _DMAPC.match(line)
         if m:
+            if not game_era:
+                continue
             pc, sp = int(m.group(1), 16), int(m.group(2), 16)
             leg["dmapc"].append((pc, sp))
             if leg["dma"]:   # CARTDMAPC immediately follows its CARTDMA (naomi.cpp:468-470)
@@ -185,6 +203,8 @@ def parse_leg(name, text):
             continue
         m = _MPC.match(line)
         if m:
+            if not game_era:
+                continue
             leg["maplepc"].append((int(m.group(1), 16), int(m.group(2), 16),
                                    m.group(3) or "?",
                                    int(m.group(4), 16) if m.group(4) else None))
@@ -612,13 +632,17 @@ def main(argv):
     ap.add_argument("--eeprom-fn", help="LO-HI[,LO-HI] P1 hex, no 0x")
     ap.add_argument("--stack", help="LO-HI[,LO-HI] P1 hex, no 0x")
     ap.add_argument("--pc-report", action="store_true")
+    ap.add_argument("--since-handoff", action="store_true",
+                    help="ignore CARTDMAPC/MAPLEPC events logged before the "
+                         "MAINHANDOFF marker (Naomi-BIOS era, not game code)")
     ap.add_argument("--dryrun", metavar="ANCHOR.log",
                     help="parse ANCHOR.log as an extra leg (not merged) and add the "
                          "dryrun_main_below_16m/dryrun_vram_below_8m/dryrun_stream_shape "
                          "checks, run against the logs given on the command line")
     args = ap.parse_args(argv)
     legs = [parse_leg(os.path.splitext(os.path.basename(p))[0],
-                      open(p, encoding="utf-8", errors="replace").read())
+                      open(p, encoding="utf-8", errors="replace").read(),
+                      since_handoff=args.since_handoff)
             for p in args.logs]
     rows = merge(legs)
     attract = next((l for l in legs if l["name"] == args.attract_leg), None)
