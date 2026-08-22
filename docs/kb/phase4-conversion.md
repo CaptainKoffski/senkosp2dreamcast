@@ -2277,6 +2277,16 @@ between them never compiles in, so reaching `"patches OK"` on serial
 final commit (`git diff loader/main.c` → empty; md5s above are the
 **release**-build artifacts).
 
+**Why the diagnostic build's text is trustworthy evidence, not just a
+different run:** `LOADER_SERIAL`'s only effect is which `dbgio_init` gets
+linked — `loader/main.c:52-55`, `#if !LOADER_SERIAL` strong-overrides KOS's
+weak `dbgio_init` with a no-op that keeps `dbgio_enabled` at `0`. It gates
+nothing else: no branch of the cart-read/verify/rehearse/patch/halt control
+flow reads `LOADER_SERIAL`, so flipping it changes only whether `dbglog`'s
+existing calls reach the serial port, not what code executes or in what
+order. The diagnostic build is therefore the exact same control flow as the
+release build, with a debug-only speaker turned on.
+
 **Screenshot — `docs/kb/img/phase4-loader-alive.png`.** Two capture
 mechanisms were tried; both hit environment-level limits in this session,
 documented here so a future run knows what to expect:

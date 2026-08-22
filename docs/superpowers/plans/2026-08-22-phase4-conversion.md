@@ -512,6 +512,8 @@ wholesale — this is the RAM map made executable):
  * track04 = [loader zero-padded to the donor 3,538,944 B boot region][.dat] */
 #define CART_FAD        451878      /* = donor CART_LBA 451728 + 150 */
 #define CART_SIZE       0x0efb0000  /* 251,342,848 = len(senkosp.dat) */
+/* [superseded 2026-08-22: actual value 0x0efb3000 -- see
+ * docs/kb/phase4-conversion.md §First DC boot, CART_SIZE correction] */
 
 #define P2ADDR(a)       ((a) | 0xa0000000)
 #ifndef HOST_TEST
