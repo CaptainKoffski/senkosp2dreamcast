@@ -29,6 +29,41 @@ int main(void) {
     assert(dc_to_jvs(CONT_START | CONT_DPAD_UP) == (JVS_START | JVS_UP));   /* chord */
     assert(dc_to_jvs(CONT_C) == 0);                              /* C has no JVS mapping */
 
+    /* dc_cond_to_pressed: raw GetCondition words 2/3 -> the pressed mask above.
+       w2 = buttons | rtrig<<16 | ltrig<<24 (buttons ACTIVE-LOW), w3 = joyx |
+       joyy<<8 | ... (0-255, 128 centred, low = up/left). */
+    {
+        const unsigned NEUTRAL3 = 0x80808080u;      /* all four axes centred */
+        assert(dc_cond_to_pressed(0xffff, NEUTRAL3) == 0);          /* idle pad */
+        /* one button held: its wire bit goes to 0 */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_START, NEUTRAL3))
+               == JVS_START);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_Y, NEUTRAL3))
+               == JVS_BARRAGE);
+        /* R trigger is analog: below 128 idle, at/above 128 -> OverDrive */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (127u << 16), NEUTRAL3)) == 0);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (128u << 16), NEUTRAL3))
+               == JVS_OD);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (255u << 16), NEUTRAL3))
+               == JVS_OD);
+        /* L trigger (bits 24-31) is unbound -- a full press changes nothing */
+        assert(dc_cond_to_pressed(0xffff | (255u << 24), NEUTRAL3) == 0);
+        /* analog stick drives the same 8-way as the D-pad; neutral band
+           0x40..0xc0 inclusive stays idle */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x8080803fu)) == JVS_LEFT);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x808080c1u)) == JVS_RIGHT);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x80803f80u)) == JVS_UP);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x8080c180u)) == JVS_DOWN);
+        assert(dc_cond_to_pressed(0xffff, 0x80804080u) == 0);        /* band edge */
+        assert(dc_cond_to_pressed(0xffff, 0x8080c080u) == 0);        /* band edge */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x80803f3fu))
+               == (JVS_UP | JVS_LEFT));                              /* diagonal */
+        /* D-pad and analog OR together, and coexist with buttons */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~(CONT_DPAD_UP | CONT_A),
+                                            0x808080c1u))
+               == (JVS_UP | JVS_M | JVS_RIGHT));
+    }
+
     /* jvs_checksum: pure mod-256 sum over frame[0x1b..0x39] -- sanity on a
        trivial buffer (senkosp's own golden reply frame is a later task's
        capture; jvs_hasdata is Cleopatra-specific and #if 0'd out here). */

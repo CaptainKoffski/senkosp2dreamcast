@@ -101,6 +101,14 @@ extern const unsigned char mie_jvs13[];   extern const unsigned int mie_jvs13_le
 extern const unsigned char mie_jvs14[];   extern const unsigned int mie_jvs14_len;
 extern const unsigned char mie_jvsdflt[]; extern const unsigned int mie_jvsdflt_len;
 
+/* Live pad path (Task 12): src/maple.c does the real DC GetCondition DMA and
+ * returns the normalized pressed mask; src/jvs.c maps it to the JVS word and
+ * owns the frame checksum. */
+unsigned int  maple_getcond(unsigned int port);         /* src/maple.c */
+unsigned      dc_to_jvs(unsigned dc_buttons);           /* src/jvs.c */
+unsigned char jvs_checksum(const unsigned char *f);     /* src/jvs.c */
+void *xmemcpy(void *, const void *, u32);               /* src/util.c */
+
 #define MMIR(o) (*(volatile u32 *)P2ADDR(MAPLE_MIRROR + (o)))   /* mirror cell */
 #define UW(a)   (*(volatile u32 *)P2ADDR(a))    /* DMA-source view: uncached */
 #define UB(a)   (*(volatile u8  *)P2ADDR(a))
@@ -116,6 +124,85 @@ static void put(u32 rcv, const unsigned char *b, u32 n) {
     while (n--) *rx++ = *b++;
 }
 static void put1(u32 rcv, u32 w) { *(volatile u32 *)P2ADDR(rcv) = w; }
+
+/* ---- the steady per-frame input poll (sub 0x33) ------------------------- *
+ * The captured blob IS senkosp's idle has-data frame, so the shim builds each
+ * poll by copying it and overwriting only the live fields: the two player
+ * words and the checksum they feed. Offsets and the checksum rule are pinned
+ * in docs/kb/phase4-conversion.md §Input ABI / §TESTBIT-INJECT, re-derived
+ * from the emitter:
+ *   +0x1f  Test byte (bit 7)  -- left as captured: Test/Service have no pad
+ *          binding on this port (input-map.md §DC pad layout).
+ *   +0x20  P1 buttons, hi then lo   (maple_jvs.cpp:2248, :2252 -- JVS_OUT of
+ *   +0x22  P2 buttons, hi then lo    inputs[player]>>8 then inputs[player],
+ *                                    once per player, big-endian on the wire)
+ *   +0x25/+0x27 coin counters -- left as captured (free play, no coin binding)
+ *   +0x3a  JVS checksum = sum(frame[0x1b..0x39]) & 0xff (maple_jvs.cpp:
+ *          2487-2491: `for (i = 1; i < length; i++) calc_crc += buffer_out[i]`
+ *          with buffer_out[0] = the 0xE0 sync at frame +0x1a).
+ * Everything else -- both maple frame headers, the JVS sync/length/status, the
+ * eight idle 0x8000 analog channels, and the trailing ack frame at +0x3c -- is
+ * replayed byte-for-byte, which is what makes an idle-pad build byte-identical
+ * to the captured idle frame (the equivalence check in the Task 12 report). */
+static void mie_poll(u32 rcv) {
+    u8 f[68] = {0};                     /* = mie_sub33_len by capture; zeroed so
+                                         * a short blob can never feed the
+                                         * checksum uninitialized bytes */
+    u32 n = mie_sub33_len, j1, j2;
+    if (n > sizeof f) n = sizeof f;     /* bounded: never read past the blob */
+    xmemcpy(f, mie_sub33, n);
+    j1 = dc_to_jvs(maple_getcond(0));   /* DC port A -> P1 */
+    j2 = dc_to_jvs(maple_getcond(1));   /* DC port B -> P2 (no pad -> 0 = idle) */
+    f[0x20] = (u8)(j1 >> 8); f[0x21] = (u8)j1;
+    f[0x22] = (u8)(j2 >> 8); f[0x23] = (u8)j2;
+    f[0x3a] = jvs_checksum(f);
+    if (SHIM_TRACE) {                   /* change-gated: one line per press */
+        static u32 in_last = 0xffffffffu;
+        u32 key = (j1 << 16) | j2;
+        if (key != in_last) {
+            /* hdrA/hdrB are the raw maple reply headers of the two
+             * GetConditions (src/maple.c). Low byte 8 = DATATRF, i.e. the pad
+             * answered; ffffffff = no device; 0 = the DMA never wrote the
+             * buffer. Printed with every input change so an operator leg
+             * reporting "button X does nothing" separates a dead transaction
+             * from a wrong mapping without opening the cartlog. */
+            extern u32 maple_hdr[2];
+            in_last = key;
+            scif_puts("IN p1=");  scif_puthex(j1);
+            scif_puts(" p2=");    scif_puthex(j2);
+            scif_puts(" crc=");   scif_puthex(f[0x3a]);
+            scif_puts(" hdrA=");  scif_puthex(maple_hdr[0]);
+            scif_puts(" hdrB=");  scif_puthex(maple_hdr[1]);
+            scif_puts(" n=");     scif_puthex(maple_count & 0xffffu);
+            scif_puts("\n");
+        }
+    }
+    put(rcv, f, n);
+}
+
+/* ---- EEPROM ------------------------------------------------------------- *
+ * The shim serves the baked image (the captured sub-0x03 reply: 4-byte maple
+ * header + the 128-byte EEPROM, maple_jvs.cpp:1931-1940) out of a RAM copy, so
+ * that a sub-0x0b write is visible to the next read. SESSION-ONLY: there is no
+ * backing store on this port -- the EEPROM lives on the MIE, which does not
+ * exist on a Dreamcast, and the shim has no VMU/flash writer -- so anything
+ * changed in the game's own test menu holds until power-off and then reverts
+ * to the baked image. Free play is baked in (image byte 9 = 0x1a, KB §Steady
+ * input), so the one setting the port depends on survives a reset regardless.
+ *
+ * Bytes 60..127 of the baked image are RECONSTRUCTED from the Naomi dual-copy
+ * layout, not captured (Task 11, scripts/extract_mie_blobs.py rebuild_sub03;
+ * verified byte-identical against the EEPROM Flycast itself saved for this ROM,
+ * which is a different code path but not a capture). */
+static u8 ee[132];                  /* 4-byte reply header + the 128-B image */
+static u8 ee_state = 0xff;          /* 0xff = not yet loaded (.data sentinel) */
+static void ee_load(void) {
+    u32 n = mie_sub03_len;
+    if (ee_state != 0xff) return;
+    ee_state = 0;
+    if (n > sizeof ee) n = sizeof ee;
+    xmemcpy(ee, mie_sub03, n);
+}
 
 /* BaseMIE's JVSGetId body, verbatim: two frames, 28 + 20 bytes of a 56-byte
  * literal (maple_jvs.cpp:1391-1400). Only the first 48 bytes are ever sent. */
@@ -170,22 +257,52 @@ static void mie_86(u32 desc, u32 rcv, u32 plen) {
         default:   put(rcv, mie_jvsdflt, mie_jvsdflt_len); break;
         }
         break;
-    case 0x33: put(rcv, mie_sub33, mie_sub33_len); break;  /* per-frame poll */
-    case 0x03: put(rcv, mie_sub03, mie_sub03_len); break;  /* EEPROM read */
-    case 0x01: put(rcv, mie_sub01, mie_sub01_len); break;  /* EEPROM ready ACK */
+    case 0x33: mie_poll(rcv); break;        /* per-frame poll: live DC pads */
+    case 0x03:                              /* EEPROM read. `address` is a byte
+                                             * offset (dma_buffer_in[1] % 128,
+                                             * maple_jvs.cpp:1931-1940); the
+                                             * declared word count is always
+                                             * 0x20 but only 128-address bytes
+                                             * are written. Every read in the
+                                             * capture asks for 0. */
+        {   u32 a = UB(desc + 0x0d) & 0x7fu;
+            ee_load();
+            put(rcv, ee, 4);
+            put(rcv + 4, ee + 4 + a, 128u - a);
+        }
+        break;
+    case 0x01: put(rcv, mie_sub01, mie_sub01_len); break;  /* ready ACK: fixed
+                                             * `87 00 20 01 | 02 00 00 00`,
+                                             * image-independent
+                                             * (maple_jvs.cpp:1972-1978) */
     case 0x13: put(rcv, mie_sub13, mie_sub13_len); break;  /* store repeat req */
     case 0x31: put(rcv, mie_sub31, mie_sub31_len); break;  /* DIP switches */
-    case 0x0b:                              /* EEPROM write: ack, drop payload.
-                                             * Nothing to persist -- the only
-                                             * writer this project ever observed
-                                             * is the Naomi BIOS (§R5), which
-                                             * does not exist on the target.
-                                             * Flycast's ack echoes the image's
-                                             * first 4 bytes (maple_jvs.cpp:
-                                             * 1899, :1924-1927); mie_sub03+4 is
-                                             * that image. */
-        put1(rcv, 0x01200087u);
-        put(rcv + 4, mie_sub03 + 4, 4);
+    case 0x0b:                              /* EEPROM write. Payload, in
+                                             * descriptor coordinates (Flycast's
+                                             * dma_buffer_in = desc + 0x0c,
+                                             * maple_jvs.cpp:1899-1908):
+                                             * [+0x0d] byte address, [+0x0e]
+                                             * size, [+0x10..] data. Both are
+                                             * clamped exactly as the emitter
+                                             * clamps them (address % 128, size
+                                             * to the end of the image), so a
+                                             * malformed frame cannot walk off
+                                             * the 128-byte copy. The ack echoes
+                                             * the image's first 4 bytes
+                                             * (:1924-1927). */
+        {   u32 a = UB(desc + 0x0d) & 0x7fu, n = UB(desc + 0x0e), k;
+            ee_load();
+            if (n > 128u - a) n = 128u - a;
+            for (k = 0; k < n; k++) ee[4 + a + k] = UB(desc + 0x10 + k);
+            put1(rcv, 0x01200087u);         /* `87 00 20 01`: reply(…, 1 word) */
+            put(rcv + 4, ee + 4, 4);
+            if (SHIM_TRACE) {
+                scif_puts("EE WR a="); scif_puthex(a);
+                scif_puts(" n=");      scif_puthex(n);
+                scif_puts(" cn=");     scif_puthex(ee[4 + 9]);  /* coin setting */
+                scif_puts("\n");
+            }
+        }
         break;
     default:
         put(rcv, mie_86empty, mie_86empty_len);

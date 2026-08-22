@@ -139,7 +139,33 @@ def rebuild_sub33(raw, sub17):
     assert len(raw) == 64 and len(sub17) >= 8, "sub33/sub17 capture too short"
     assert raw[60:64] == sub17[0:4], (
         f"sub33 tail is not an ack header: {raw[60:64].hex()} != {sub17[0:4].hex()}")
-    return raw + sub17[4:8]
+    out = raw + sub17[4:8]
+
+    # IDLE-FRAME EQUIVALENCE (Task 12). The shim does not replay this blob any
+    # more: shims/src/main.c mie_poll() BUILDS every poll from it by
+    # overwriting the two player words at 0x20..0x23 with the live DC pads and
+    # recomputing the JVS checksum at 0x3a (= sum of 0x1b..0x39 & 0xff,
+    # maple_jvs.cpp:2487-2491). With an idle pad both words are 0, so that
+    # transform must be the IDENTITY on this captured all-idle frame. If it is
+    # not, the shim's pinned offsets or its checksum rule are wrong, and the
+    # build fails here rather than in a leg nobody can debug without a pad.
+    built = bytearray(out)
+    built[0x20:0x24] = b"\x00\x00\x00\x00"
+    built[0x3a] = sum(built[0x1b:0x3a]) & 0xFF
+    assert bytes(built) == out, (
+        f"idle-frame equivalence FAILED\n  built  {bytes(built).hex()}\n"
+        f"  capture {out.hex()}")
+    # The identity above cannot by itself pin the checksum's UPPER bound: this
+    # frame's last analog byte (0x39) is 0x00, so summing 0x1b..0x38 gives the
+    # same answer. Pin it against the frame's OWN length field instead: the JVS
+    # sync is at 0x1a, the length byte at 0x1c, and the checksum is the last
+    # byte the length covers (maple_jvs.cpp:2487-2491 writes calc_crc at
+    # buffer_out[length], with buffer_out[0] = the sync).
+    assert 0x1c + out[0x1c] == 0x3A, (
+        f"JVS length {out[0x1c]:#x} puts the checksum at {0x1c + out[0x1c]:#x}, "
+        f"not at the pinned 0x3a")
+    assert out[0x1a] == 0xE0, "JVS sync is not at frame 0x1a"
+    return out
 
 
 def rebuild_jvs10(raw):

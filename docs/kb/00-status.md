@@ -301,7 +301,7 @@ and 6 are `[x]`, unqualified.
 
 **Phase 4 — conversion** (loader + shim + patch table → bootable GDI), in
 progress. Spec + plan exist (`docs/superpowers/specs/` and `plans/`); tasks
-1–11 are done.
+1–12 are done, except Task 12's operator-driven playtest legs (below).
 
 **State as of Task 11 (2026-08-22): the game reaches ATTRACT on the DC
 profile — gate criterion 1.** Every maple register constant in both images is
@@ -320,8 +320,27 @@ real maple DMA from any game PC — and the attract DEMONSTRATION on screen,
 leg). Evidence: `docs/kb/phase4-conversion.md` §Attract, legs
 `captures/phase4/attract*`.
 
-**Next: Task 12 — steady input + free-play** (live pad through `dc_to_jvs`,
-TESTBIT-INJECT offsets, baked EEPROM): criteria 2, 3 and 5.
+**State as of Task 12 (2026-08-22): the DC pads are wired into the game's
+JVS input, and free play is baked.** The steady sub-`0x33` poll no longer
+replays a captured idle frame — the shim runs its own GetCondition on maple
+ports A and B every poll, normalizes the reply (buttons inverted, R trigger
+thresholded at 128, analog stick folded into the D-pad), maps it through
+`dc_to_jvs`, writes the two player words at the pinned frame offsets and
+recomputes the JVS checksum. The EEPROM is served from a RAM copy that accepts
+the game's own sub-`0x0b` writes (session-only). Proven unattended: the built
+idle frame is **byte-identical to the captured idle frame** (asserted at build
+time, and confirmed live — `crc=0x22`), attract cycles unchanged, 13,283
+GetConditions per port with every reply `DATATRF` and zero retries, and still
+**zero** real maple DMA from any game PC. Free play is evidenced by the coin
+byte (image `[9] = 0x1a` = coin assignment #27, two independent layout sources),
+a CRC that validates, and `FREE PLAY` on the target's own screen
+(`docs/kb/img/phase4-dc-steady.png`). Evidence:
+`docs/kb/phase4-conversion.md` §Steady input, legs `captures/phase4/steady*`.
+
+**Pending — needs the operator at the controls (criteria 2, 3, 5):** a 1P
+playtest pressing every control, a 2P leg on port B, and Start-with-no-credit
+at the title screen. Exact commands and the evidence each yields:
+`docs/kb/phase4-conversion.md` §Steady input → Pending operator verifications.
 
 **State as of Task 10 (2026-08-22): senkosp's own code runs on a Dreamcast
 and streams from the disc.** The loader stages everything high and a

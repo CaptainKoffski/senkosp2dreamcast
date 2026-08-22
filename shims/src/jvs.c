@@ -8,10 +8,8 @@
  * dc_to_jvs below takes the already-inverted PRESSED mask (see its comment).
  * CONT_RTRIG has no bit here -- ltrig/rtrig are separate 0-255 analog bytes
  * in cont_state_t, not part of .buttons -- so bit 16 (just past the real
- * 0-15 button field) is a shim-synthesized "digital rtrig" flag the future
- * caller sets from cont_state.rtrig > 128 before calling dc_to_jvs (Tasks
- * 10-12 wire the actual maple_getcond call site; this only needs to compile
- * and be internally consistent for Task 6). */
+ * 0-15 button field) is a shim-synthesized "digital rtrig" flag, set by
+ * dc_cond_to_pressed() below (Task 12 wired the maple_getcond call site). */
 #define CONT_C          (1u << 0)
 #define CONT_B          (1u << 1)
 #define CONT_A          (1u << 2)
@@ -53,15 +51,63 @@ unsigned dc_to_jvs(unsigned dc_buttons) {
     if (dc_buttons & CONT_X)             w |= JVS_S;
     if (dc_buttons & CONT_B)             w |= JVS_A;
     if (dc_buttons & CONT_Y)             w |= JVS_BARRAGE;
-    if (dc_buttons & CONT_RTRIG)         w |= JVS_OD;   /* R as digital: rtrig > 128 mapped by caller */
+    if (dc_buttons & CONT_RTRIG)         w |= JVS_OD;   /* R as digital: see dc_cond_to_pressed */
     return w;
 }
 
+/* Raw DC GetCondition reply words -> the PRESSED mask dc_to_jvs() takes above.
+ * This is the whole hardware-shaped half of the input path; keeping it here
+ * (pure, no MMIO) is what lets test/test_host.c cover it.
+ *
+ * w2/w3 are reply words 2 and 3, i.e. the `cont_cond_t` the DC controller
+ * returns one word past the function code (KOS
+ * ../cleopatra/tools/kos/kernel/arch/dreamcast/hardware/maple/controller.c:
+ * 28-36 raw struct, :171 `raw = respbuf + 1`):
+ *   w2 = u16 buttons | rtrig << 16 | ltrig << 24
+ *   w3 = joyx | joyy << 8 | joy2x << 16 | joy2y << 24
+ * Same order the emulator's own controller emits -- w16(buttons) then axes
+ * R, L, X, Y, -, - (../flycast4naomi2dreamcast/core/hw/maple/maple_devs.cpp:
+ * 185-200, :96-114).
+ *
+ * Three normalizations, each with its source:
+ *  1. Buttons are ACTIVE-LOW on the wire; JVS is active-high. KOS does the
+ *     same inversion (`cooked->buttons = (~raw->buttons) & 0xffff`,
+ *     controller.c:176). Unused bits come back as 1 (released) because the
+ *     device ORs them in (`return kcode | 0xF901`, maple_devs.cpp:93), so the
+ *     inverse has no stray set bits.
+ *  2. R trigger is an analog 0-255 byte, not a button. Threshold 128 (half
+ *     press) -> the synthetic CONT_RTRIG bit -> JVS OverDrive.
+ *  3. The analog stick is OR'd into the D-pad bits: the port's control layout
+ *     binds BOTH to the 8-way stick (docs/kb/input-map.md §DC pad layout).
+ *     Axes are 0-255, 128 centred, low = up/left (KOS controller.c:178-179
+ *     `((int)raw->joyx) - 128`; direction from the emulator's own analog->DPad
+ *     conversion, maple_devs.cpp:1483-1513, which presses UP for joyy below
+ *     centre). The neutral band 0x40..0xc0 is that same conversion's band.
+ * L trigger is deliberately unmapped -- input-map.md §DC pad layout: "L
+ * trigger | unbound (Phase 4 may duplicate Barrage if playtest wants it)". */
+#define DC_TRIG_ON  128     /* R trigger digital threshold, 0-255 */
+#define DC_AXIS_LO  0x40    /* analog neutral band (maple_devs.cpp:1494-1512) */
+#define DC_AXIS_HI  0xc0
+unsigned dc_cond_to_pressed(unsigned w2, unsigned w3) {
+    unsigned p = (~w2) & 0xffffu;                       /* active-low -> pressed */
+    unsigned x = w3 & 0xffu, y = (w3 >> 8) & 0xffu;
+    if (((w2 >> 16) & 0xffu) >= DC_TRIG_ON) p |= CONT_RTRIG;
+    if (y < DC_AXIS_LO) p |= CONT_DPAD_UP;
+    if (y > DC_AXIS_HI) p |= CONT_DPAD_DOWN;
+    if (x < DC_AXIS_LO) p |= CONT_DPAD_LEFT;
+    if (x > DC_AXIS_HI) p |= CONT_DPAD_RIGHT;
+    return p;
+}
+
 /* JVS checksum = (sum of frame bytes [0x1b..0x39]) & 0xff, stored at [0x3a].
- * Mirrors the Flycast emitter's calc_crc (maple_jvs.cpp:2476-2478): the sum runs
- * over everything after the E0 sync. Must be recomputed whenever a button byte
- * changes. Protocol-generic (not Cleopatra-specific); kept live for whichever
- * task captures senkosp's own golden reply frame. */
+ * Mirrors the emitter's calc_crc (maple_jvs.cpp:2487-2491, re-read in Task 12:
+ * `for (i = 1; i < length; i++) calc_crc += buffer_out[i]`, then JVS_OUT writes
+ * it at buffer_out[length]; buffer_out[0] is the 0xE0 sync at frame +0x1a). So
+ * the sum runs over everything after the sync, up to but excluding the checksum
+ * -- for senkosp's own has-data frame, 0x1b..0x39 with the byte at 0x3a, which
+ * the frame's own length field independently confirms (0x1c + frame[0x1c] ==
+ * 0x3a; asserted in scripts/extract_mie_blobs.py). Must be recomputed whenever
+ * a button byte changes; src/main.c mie_poll() does that every poll. */
 unsigned char jvs_checksum(const unsigned char *f) {
     unsigned int s = 0;
     int i;

@@ -3007,3 +3007,491 @@ grep 'MDODMA enter' captures/phase4/attractN.log | sed 's/.*pc=\([0-9a-f]*\).*/\
                      #  the LAST 8c01xxxx one -- its PC moves with the loader
                      #  build, 8c01057c diagnostic / 8c010580 release)
 ```
+
+---
+
+## Steady input — live DC pads + EEPROM (Task 12)
+
+**Question:** with the maple/MIE transport live (§Attract), what does the shim
+put *in* the per-frame reply, and where do the game's settings come from?
+
+Task 11 left the steady sub-`0x33` poll **replaying** the captured idle frame,
+so the game saw a controller that never moved. This section is what replaced
+that replay: a real Dreamcast GetCondition on maple ports A and B, mapped
+through `dc_to_jvs`, built into the JVS has-data frame at the §Input ABI
+offsets with the checksum recomputed; plus an EEPROM served out of a RAM copy
+that accepts the game's own writes.
+
+### The path, end to end
+
+| stage | code | contract |
+| --- | --- | --- |
+| real DC transaction | `shims/src/maple.c` `maple_getcond(port)` | one synchronous GetCondition DMA per port on the **real** maple registers (`0xa05f6c04`…), TX/RX in shim home, one retry, `0` on no reply |
+| normalize | `shims/src/jvs.c` `dc_cond_to_pressed(w2, w3)` | reply words 2–3 = `cont_cond_t` → pressed mask: buttons inverted, R trigger thresholded, analog stick folded into the D-pad bits |
+| map | `shims/src/jvs.c` `dc_to_jvs(mask)` | pressed mask → senkosp's measured JVS digital word (`input-map.md`) |
+| build | `shims/src/main.c` `mie_poll(rcv)` | copy the captured frame, overwrite `+0x20`/`+0x22`, recompute `+0x3a`, write to the block's recv address |
+
+`cont_cond_t` is the wire form of the reply, one word past the function code —
+`u16 buttons; u8 rtrig; u8 ltrig; u8 joyx, joyy, joy2x, joy2y`
+(`../cleopatra/tools/kos/kernel/arch/dreamcast/hardware/maple/controller.c:28-36`,
+and `:171` `raw = respbuf + 1`, i.e. our `rx[2]`/`rx[3]`). The emulator's own
+controller emits exactly that order — `w16(getButtonState(pjs))` then six
+analog axes R, L, X, Y, –, –
+(`../flycast4naomi2dreamcast/core/hw/maple/maple_devs.cpp:185-200`, axis
+assignment `:96-114`).
+
+Three normalizations, each cited in `jvs.c`:
+
+1. **Buttons are active-low** on the wire and active-high in JVS. KOS performs
+   the same inversion (`cooked->buttons = (~raw->buttons) & 0xffff`,
+   `controller.c:176`). Unused bits come back as 1 (released) because the
+   device ORs them in (`return kcode | 0xF901`, `maple_devs.cpp:93`), so the
+   inverse carries no stray set bits.
+2. **R trigger is analog**, 0–255, not a button — thresholded at **128** (half
+   press) into the synthetic `CONT_RTRIG` bit (`1 << 16`, just past the real
+   0–15 button field) that Task 6's `dc_to_jvs` already expected. L trigger is
+   deliberately unmapped (`input-map.md` §DC pad layout: "L trigger | unbound").
+3. **The analog stick is OR'd into the D-pad bits**, because the port's control
+   layout binds *both* to the 8-way stick (`input-map.md` §DC pad layout: "D-pad
+   + analog (both) | Stick (8-way)"). Axes are 0–255, 128-centred, low = up/left
+   (`controller.c:178-179` `((int)raw->joyx) - 128`; direction taken from the
+   emulator's own analog→D-pad conversion, `maple_devs.cpp:1483-1513`, which
+   presses UP for a `joyy` below centre). The neutral band **`0x40`…`0xc0`** is
+   that same conversion's band, not an invented number.
+
+**Deviation from Cleopatra, deliberate.** Cleopatra's `maple_getcond` returned
+the raw active-low word and its `dc_to_jvs` inverted internally. This port's
+`dc_to_jvs` was written in Task 6 to take an already-normalized *pressed* mask,
+and it has a trigger bit Cleopatra's game had no use for — so `maple_getcond`
+returns the normalized mask here, and `dc_cond_to_pressed` (pure, host-tested)
+is the single owner of that contract. Keeping Cleopatra's split verbatim would
+have left `maple.c`'s own comment false: `dc_to_jvs(0xffff)` under this port's
+`dc_to_jvs` is *every button pressed*, not idle.
+
+### What the built frame overwrites — and what it must not
+
+`mie_poll` copies the captured 68-byte reply and touches exactly five bytes:
+
+| off | field | source |
+| --- | --- | --- |
+| `+0x20`/`+0x21` | P1 buttons, hi then lo | `dc_to_jvs(maple_getcond(0))` |
+| `+0x22`/`+0x23` | P2 buttons, hi then lo | `dc_to_jvs(maple_getcond(1))` |
+| `+0x3a` | JVS checksum | `jvs_checksum()` = `Σ frame[0x1b…0x39] & 0xff` |
+
+Big-endian on the wire, per player, is the emitter's own order —
+`JVS_OUT(inputs[player] >> 8)` then `JVS_OUT(inputs[player])`
+(`maple_jvs.cpp:2248`, `:2252`). The checksum rule is
+`for (i = 1; i < length; i++) calc_crc += buffer_out[i]` with `buffer_out[0]` =
+the `0xE0` sync at frame `+0x1a` (`maple_jvs.cpp:2487-2491`).
+
+Everything else is replayed byte-for-byte, including the three fields
+TESTBIT-INJECT names but this port does **not** drive:
+
+- `+0x1f` **Test** (bit 7) — stays `0x00`. Test and Service have no pad binding
+  (`input-map.md` §DC pad layout: "the access mechanism … is a Phase 4 loader
+  decision, not a pad binding"), so the shim never sets them. The wire bits are
+  known and pinned if a later task wants a boot combo: Test = `+0x1f` bit 7,
+  Service = `+0x20` bit 6.
+- `+0x25`/`+0x26`, `+0x27`/`+0x28` **coin counters** — stay `0`. Free play is
+  baked (below), so Coin needs no binding.
+- both maple frame headers, the JVS sync/node/length/status bytes, the eight
+  idle `0x8000` analog channels, and the **trailing ack frame at `+0x3c`**
+  (`87 00 20 01 | 18 00 8e 00` — a sub-`0x33` reply is two maple frames,
+  `maple_jvs.cpp:1888-1893`).
+
+### IDLE-FRAME EQUIVALENCE — the check that makes this provable without a pad
+
+The build transform must be the **identity** on the captured all-idle frame:
+zero player words in, the captured bytes out. That is asserted at blob
+generation time, so a wrong offset or a wrong checksum span fails the *build*
+rather than a leg nobody can debug without a controller
+(`scripts/extract_mie_blobs.py` `rebuild_sub33`):
+
+```python
+built = bytearray(out)
+built[0x20:0x24] = b"\x00\x00\x00\x00"
+built[0x3a] = sum(built[0x1b:0x3a]) & 0xFF
+assert bytes(built) == out
+```
+
+It passes: **built == captured, all 68 bytes, zero differing fields.** There is
+no counter or echo field in this frame to explain away — the reply carries no
+sequence number (the double-buffered *recv address* alternates, but that is the
+game's descriptor, not the frame).
+
+Negative-tested: moving the player words to `+0x21` makes the assert bite. The
+same negative test found a real gap and it is now closed — an all-idle frame
+**cannot** discriminate the checksum's upper bound (`frame[0x39]` is `0x00`, so
+`Σ 0x1b…0x38` gives the same `0x22`). Two extra asserts pin it against the
+frame's *own* self-describing header instead: `frame[0x1a] == 0xE0` (the sync)
+and `0x1c + frame[0x1c] == 0x3a` (the length field puts the checksum exactly
+where the shim writes it).
+
+Live confirmation, leg `steady1`, the one change-gated `IN` line of the run:
+
+```
+IN p1=00000000 p2=00000000 crc=00000022 n=000001bb
+```
+
+`crc=0x22` is the captured idle frame's own checksum byte, recomputed at
+runtime by the shim from a real (idle) pad read — and it never changed for the
+rest of the leg.
+
+### `dc_to_jvs` re-verified against `input-map.md`
+
+Bit for bit, before wiring (`shims/src/jvs.c`, `shims/test/test_host.c`):
+
+| DC pad (`input-map.md` §DC pad layout) | `CONT_*` (KOS `controller.h:102-112`) | JVS word (measured, `input-map.md`) |
+| --- | --- | --- |
+| Start | `BIT(3)` | `0x8000` |
+| D-pad / analog Up, Down, Left, Right | `BIT(4)`…`BIT(7)` | `0x2000`, `0x1000`, `0x0800`, `0x0400` |
+| A | `BIT(2)` | `0x0200` M (Main) |
+| X | `BIT(10)` | `0x0100` S (Sub) |
+| Y | `BIT(9)` | `0x0080` Barrage |
+| B | `BIT(1)` | `0x0040` A (Action) |
+| R trigger ≥ 128 | `BIT(16)` (synthetic) | `0x0020` OverDrive |
+| L trigger | — | unbound |
+| — | — | `0x4000` Service: defined, no binding |
+
+All ten mapped rows are `input-map.md`'s **measured** bits (11 of its 13 rows
+are measured; the two source-derived ones, Test and Coin, are the two this port
+does not drive).
+
+### EEPROM — a RAM copy, session-only
+
+`mie_86` now serves sub `0x03` from a 132-byte RAM copy of the baked reply
+(4-byte maple header + the 128-byte image) and applies sub-`0x0b` writes into
+it, so a write is visible to the next read:
+
+- **sub `0x03` (read).** `address` is a byte offset, `dma_buffer_in[1] % 128`,
+  and only `128 - address` bytes are written while the declared word count
+  stays `0x20` (`maple_jvs.cpp:1931-1940`). The shim reproduces that; every
+  read in the capture asks for `0`.
+- **sub `0x0b` (write).** Payload in descriptor coordinates (Flycast's
+  `dma_buffer_in` = `desc + 0x0c`, `maple_jvs.cpp:1899-1908`): `[+0x0d]` byte
+  address, `[+0x0e]` size, `[+0x10…]` data. **Bounded exactly as the emitter
+  bounds it** — `address % 128`, `size` clamped to the end of the image — so a
+  malformed frame cannot walk off the 128-byte copy. The ack is
+  `87 00 20 01` + the image's first 4 bytes (`:1924-1927`).
+- **sub `0x01`** stays a canned blob: it is a fixed `87 00 20 01 | 02 00 00 00`
+  ready-ACK, image-independent (`maple_jvs.cpp:1972-1978`).
+
+**Session-only, by construction.** There is no backing store on this port — the
+EEPROM lives on the MIE, which does not exist on a Dreamcast, and the shim has
+no VMU/flash writer — so settings changed in the game's own test menu hold
+until power-off and then revert to the baked image. That is acceptable because
+the one setting the port depends on (free play) is baked in.
+
+**The reconstruction caveat still applies.** Bytes 60…127 of the baked image
+are *derived* from the Naomi dual-copy layout, not captured (Task 11,
+`extract_mie_blobs.py` `rebuild_sub03`); they were verified byte-identical
+against the EEPROM Flycast itself saved for this ROM, which is a different code
+path but not a capture. Every claim below about image **bytes 0…59** — which is
+where the whole system section, and free play, live — rests on captured bytes.
+
+### FREE PLAY — the evidence chain
+
+The plan's step 3 (an operator Naomi leg that *sets* Free Play in the test
+menu, then re-bake the post-write image) was **not run, and is not needed**:
+the baked image already carries free play, and the DC build already shows it.
+
+1. **The byte.** Image byte **`9` = `0x1a`** (and its dual-copy twin, byte
+   `27`) — read straight out of the shim's baked image, whose source is the
+   captured sub-`0x03` reply in `captures/phase4/pc2.log` (§EEPROM replies
+   decodes the same frame).
+2. **What that byte is.** The Naomi system section is
+   `[0..1] CRC | [2] attract-sound | [3..6] 4-char game serial | [7..17] 11
+   bytes of settings`, duplicated at `+18`. The **third** of those 11 settings
+   bytes — image byte `9` — is the coin assignment, zero-indexed:
+   > "It is zero-indexed, so coin assignment #1 is mapped to `0x00` and coin
+   > assignment **#27 (free-play) is mapped to `0x1A`**."
+   > — `../cleopatra/tools/netboot/docs/naomi.md:180` (layout verified there
+   > against nulldc/demul/MAME and one de-soldered MIE EEPROM dump)
+   Corroborated independently by the emulator's own layout comment, which lists
+   offset `9` as "coin setting (-1)" — i.e. stored value = setting − 1, so
+   `0x1a` = setting 27 — with 8 = cabinet type, 10 = coin-to-credit, 11/12 =
+   chute multipliers (`../flycast4naomi2dreamcast/core/hw/naomi/
+   naomi_flashrom.cpp:96-114`, and the writer `write_naomi_eeprom` at `:117`
+   which keeps both copies and the CRC in sync).
+   senkosp's image decodes cleanly against that layout: serial `"BMP0"` at
+   `[3..6]`, `0x10` attract-sound-on at `[2]`, `0x10` = 2P cabinet at `[8]`,
+   `0x1a` at `[9]`.
+3. **The game reads it.** The same document names the mechanism: the game
+   parses the EEPROM into a settings struct and "loads this and compares it
+   against `0x1A` at some point to see if the system is in free-play mode"
+   (`naomi.md:202`).
+4. **On the target.** `docs/kb/img/phase4-dc-attract.png` — the Task 11
+   headless framebuffer grab from an unattended DC-profile leg — shows
+   **`FREE PLAY`** on senkosp's attract screen, with the shim serving that
+   image. The chain is closed on the real target, not on paper.
+5. **The image is internally valid, so the game has no reason to reset it.**
+   Both Naomi EEPROM CRCs recompute correctly against the emulator's own
+   `eeprom_crc` (`naomi_flashrom.cpp:26-51`, CRC-16 seeded `0xdebdeb00` with a
+   trailing round):
+
+   ```
+   system section  CRC over image[2..17]  = 0x6e9d ; stored copy1 = 0x6e9d, copy2 = 0x6e9d
+   game section    CRC over image[0x2c..0x3b] (len 16, from the header at 0x24)
+                                          = 0x1e1c ; stored = 0x1e1c
+   ```
+
+   Both match, both copies agree, and the serial at `[3..6]` is `"BMP0"` —
+   which is exactly the state `naomi.md:172` says stops the wipe-and-re-init
+   path (bad CRC on both copies, or a serial that does not match the game).
+   The rest of the section decodes cleanly too: `[2]` `0x10` attract sound on,
+   `[8]` `0x10` = 2P cabinet + common chute, `[10..12]` `01 01 01`, `[13]` `00`,
+   `[14..17]` `11 11 11 11`.
+6. **The game does not overwrite it.** Legs `steady1`/`steady2` record **zero**
+   sub-`0x0b` writes (`EE WR` count 0) — senkosp read the image and accepted
+   it.
+
+**Residual risk, and it is the operator's leg to close.** The *display* and the
+*credit gate* need not be the same flag. Cleopatra's Task 18 found precisely
+that split — the free-play flag its credit display **and** its
+credit-decrement gate read was a settings-struct field at `+0xc`, while the raw
+coin byte landed at `+0x10` (`../cleopatra/docs/kb/phase4-conversion.md`
+§Task 18), matching `naomi.md:202`'s "4 longs into the settings structure".
+senkosp's attract shows the free-play *string*, which is strong evidence the
+parse produced free play, but only pressing Start with no credit proves the
+gate. That is criterion 5 and it needs a controller — see §Pending operator
+verifications.
+
+A control test (flip byte 9 to a coin setting, confirm the attract line
+changes) was considered and **not run**: bytes 2…17 are CRC-protected — the
+recomputation above proves it concretely — so a flip is not a one-byte edit.
+It needs the CRC recomputed in both copies, or the game re-initialises the
+section and the experiment measures the wrong thing. The two independent
+layout sources, the validated CRC, and the on-target screenshot already carry
+the claim; the one thing none of them can carry is the *gate*, which is the
+operator's leg.
+
+### Buses 1 and 2 stay "no device" — decided, with the reason
+
+Task 11's finding 2 asked Task 12 to re-check this once real pads existed.
+**Answer: unchanged, and now positively justified.** The game's steady engine
+polls buses 1 and 2 (`cmd 09`, recipients `0x60`/`0xa0`) about once per frame;
+the shim answers `0xffffffff`, Flycast's own missing-device marker
+(`maple_if.cpp:315-320`).
+
+- **A real Naomi has nothing there.** The emulator attaches
+  `MDT_NaomiJamma` on bus 0 and *then*, for Naomi 1 games only, a
+  `MDT_SegaController` + `MDT_SegaVMU` pair on buses 1 and 2 under the comment
+  "Connect VMU B1 / Connect VMU C1"
+  (`../flycast4naomi2dreamcast/core/hw/maple/maple_cfg.cpp:236`, `:265-272`) —
+  emulator scaffolding so memory-card devices can exist, not Naomi hardware.
+  The game shipped on cabinets where those buses answer nothing, so it cannot
+  depend on them.
+- **The game reads input from JVS, not from those buses.** Every control
+  senkosp uses arrives inside the MIE's JVS frame (§Input ABI, `input-map.md`).
+  The shim's own GetCondition transactions are a *different* conversation on
+  the real DC maple bus, invisible to the game.
+- Attract is unaffected in every leg, with the tripwires silent.
+
+Correcting this would mean *feeding the game DC controller replies it never
+sees on real hardware* — strictly more risk, zero gain. One line
+(`maple_frame`'s `bus != 0 || reci != 0x20` gate) if evidence ever demands it.
+
+### Sub `0x15` keeps its canned reply — measured, not assumed
+
+An unmatched sub-`0x15` receive is a JVS digital read too (`mie_jvsdflt`
+decodes as `E0 00 07 | status 01 | report 01 | test 00 | P1 00 00 | 00 | crc
+09`), and Cleopatra built that one live. senkosp does not need it: in
+`captures/phase4/pc2.log` the **last** sub-`0x15` is at line 14,071 and the
+**first** sub-`0x33` at line 14,104 — the poll switches once, at enumeration's
+end, and sub-`0x33` then runs to the end of the leg (15,800 of them, through
+attract). `input-map.md` §"Why no MIE sub=15 byte.bit" measured the same thing
+from the other side: zero sub-`0x15` across every button hold. The one context
+that revives sub-`0x15` is a **Test-menu** re-handshake, and Test has no
+binding on this port. Upgrade path if that changes: the same `+0x1f`/`+0x20`
+offsets apply, with the checksum at `0x1c + frame[0x1c]` (7 → `+0x23` for that
+frame), not the fixed `+0x3a`.
+
+### Generator entries
+
+**None added.** Task 11 wired the whole maple table — MAPLE-BASE, the 17 pool
+repoints, the five detour hooks and MAPLE-KICK-HOOK's two `ptr()` rows — for
+both images: `120 entries, 60 per image`, unchanged here. There is no
+steady-path word left pending; the steady engine reaches every register
+through `base->[0x10f4] + disp`, so entry 1 alone carries it (§Completeness
+accounting). `make test` still reports `OK (a) old-byte fidelity (120 rows)`.
+
+### Leg chain
+
+Diagnostic legs are Task 8's recipe (`LOADER_SERIAL=1`, shim
+`DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'`), reverted before commit. Both legs
+below are **unattended and input-free** — the operator was away, so no leg here
+presses anything. That is by design: an idle pad is precisely the control that
+proves the real-pad path did not disturb attract.
+
+| leg | build | outcome |
+| --- | --- | --- |
+| `steady1` | diagnostic, real pads live | attract cycles unchanged; the numbers below |
+| `steady2` | + `hdrA`/`hdrB` in the `IN` trace | reproduction; both pad reply headers healthy |
+| `steady3-release` | **release config** + `FLYCAST_SHOT` | 10,169 frames, 0 resets, 0 game-PC maple DMA; the `FREE PLAY` screenshot |
+
+`steady1`, verbatim counters (handoff at cartlog line 14,332, all figures
+post-handoff):
+
+```
+345      MB boot transactions          (the Naomi count, exactly, as Task 11)
+14,336   maple services (MS n=3800)
+15,202   frames rendered
+30,406   C2D list transfers, 8,822 of them > 4 KB   (real geometry)
+89       CART streams                  (attract4/attract7's 89, same sequence)
+ 1       IN line   -> IN p1=00000000 p2=00000000 crc=00000022 n=000001bb
+ 0       EE WR     (the game never wrote the EEPROM)
+ 0       MIE skip / MIE odd / SHIMERR / System reset requested
+```
+
+**The pad transactions, from the emulator's own side of the wire** (the same
+leg's cartlog, post-handoff):
+
+```
+MDODMA enter … pc=8c011274   2       probe_devinfo  (one DEVINFO per port, once)
+MDODMA enter … pc=8c0112ec   25,585  } maple_getcond — two dynarec blocks of
+MDODMA enter … pc=8c01132c      981  }   the same function
+                             ------
+                             26,568  = 2 (DEVINFO) + 26,566 GetConditions
+
+rawdma_call cmd=09 reci=20 bus=0   13,283   port A
+rawdma_call cmd=09 reci=60 bus=1   13,283   port B      <- exactly equal
+rawdma_ret  outlen=10              26,566   ALL of them  <- 16 B = 4 words
+```
+
+Three things that reads off, none of them assumed:
+
+1. **Every GetCondition succeeded.** `maple_getcond` retries once on a
+   non-`DATATRF` reply, so a failure would show as *unequal* per-port counts
+   and a doubled DMA total. The counts are exactly equal and exactly
+   `2 × 13,283`, and every single reply is `outlen=0x10` — 4 words: header,
+   function code, and the two `cont_cond_t` words `dc_cond_to_pressed` reads.
+   **Zero retries in 13,283 polls per port.**
+2. **The two DEVINFO probes both answered** (`outlen=0x74`, a full device
+   status), so Flycast's DC profile has a pad on A *and* B — which is why the
+   P2 slot is exercised in this leg too, not just P1.
+3. **No real maple DMA from any game PC.** Every post-handoff `MDODMA` PC is a
+   shim symbol (`shim.map`: `8c011274 probe_devinfo`, `8c0112ec maple_getcond`);
+   the loader/KOS PCs (`8c0152fc`, `8c015584`, `8c0c10ae`) all stop before the
+   handoff line. Cleopatra's lesson (b) still passes with live pads — the
+   game's maple accesses land in the mirror, and the only traffic on the real
+   bus is the shim's own.
+
+**Task 11's residual risk 1 is closed a second time, for free.** These are real
+maple DMAs on the true registers, so Flycast's `maple_schd()` raises
+`holly_MAPLE_DMA` (`maple_if.cpp:375-401`) 26,568 times in this leg, into a
+game that has the interrupt enabled (`IML4NRM` bit 12). Nothing observable
+changed — same 89 streams, same attract, zero resets. `attract7` predicted this
+with a deliberate experiment; the input path now demonstrates it as a
+by-product.
+
+### `steady3-release` — the release configuration, and the screenshot
+
+Committed defaults (`LOADER_SERIAL 0`, no shim `DEFS`), unattended, no input.
+Its stdout carries **zero** shim serial output, so everything below is from the
+cartlog alone (handoff at line 14,136):
+
+```
+10,169  frames rendered post-handoff
+20,340  C2D list transfers, 5,784 of them > 4 KB
+     0  System reset requested
+post-handoff MDODMA PCs:  8c010fb8 (2)   = probe_devinfo   } shim.map, release
+                          8c011030 (20,076) \ maple_getcond} build addresses
+                          8c011070    (362) /
+pre-handoff  MDODMA PCs:  8c015300, 8c015588 (loader), 8c0c10ae (KOS)
+GetCondition frames: 10,219 port A / 10,219 port B, all 20,438 replies outlen=10
+```
+
+Again: **no game PC ever touches the real maple registers**, in the shipping
+configuration, with live pads.
+
+**`docs/kb/img/phase4-dc-steady.png` (committed)** is a headless framebuffer
+grab from this leg (`FLYCAST_SHOT` + one `kill -USR1`, `gui_dumpFramebuffer`,
+`../flycast4naomi2dreamcast/core/ui/gui.cpp:510-545` — no macOS screen-capture
+permission needed; the Task 8/11 precedent). It shows senkosp's attract
+prologue with **`PRESS 1P OR 2P START BUTTON`** and **`FREE PLAY`** — i.e. the
+EEPROM the game parsed came from the shim's *RAM copy* (this section's rewrite
+of the sub-`0x03` handler), not from Task 11's canned blob, and free play
+survived that rewrite.
+
+### Pending operator verifications
+
+None of the following can run unattended — each needs a human at the controls.
+Commands are exact; run them from the repo root with the diagnostic build
+(`loader/main.c` `LOADER_SERIAL 1`, `make -C shims clean && make -C shims
+DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'`, `make gdi`), and **kill by PID**
+(`kill -9 $(pgrep -f "Flycast.app/Contents/MacOS/Flycast")`), then wait for the
+`.stdout.log` size to settle before reading it — `pkill -f "flycast-src.*Flycast"`
+does not match the process (§Attract, finding 4).
+
+| # | leg | what to do | evidence it yields |
+| --- | --- | --- | --- |
+| 1 | `scripts/capture_dc_leg.sh phase4/play1` | Start, then a full 1P match; press **every** control at least once (D-pad **and** analog stick, A, X, B, Y, R, Start) | criterion 2. Each press must produce an `IN p1=…` line whose `p1` word matches `input-map.md`'s measured bit for that control; `hdrA` must read `…08` on every line |
+| 2 | `scripts/capture_dc_leg.sh phase4/play2p` | second pad in port B: 2P entry + a match | criterion 3. `IN … p2=…` lines with the same bit table; `hdrB` `…08` |
+| 3 | (inside leg 1) | at the title screen press **Start only**, no coin | criterion 5. A game must start. This is the one claim the free-play evidence chain cannot close on its own — see §FREE PLAY residual risk |
+| 4 | (inside leg 1) | after the match, quit and relaunch | confirms the session-only EEPROM is acceptable: settings revert to the baked image, free play still on |
+
+Per-leg greps:
+
+```sh
+tr '\r' '\n' < captures/phase4/play1.stdout.log > /tmp/p.txt
+grep '^IN '  /tmp/p.txt          # one line per input change; p1/p2 = the JVS word
+grep -c 'MIE odd\|MIE skip\|SHIMERR\|System reset requested' /tmp/p.txt   # must be 0
+```
+
+If a control produces no `IN` line at all, `hdrA`/`hdrB` on the surrounding
+lines split the two failure modes: `…08` = the pad was read and the mapping is
+wrong (fix `dc_to_jvs`); `ffffffff` or `00000000` = the transaction failed
+(fix `maple.c`).
+
+**Not run, and deliberately not needed:** the plan's step-3 Naomi leg where the
+operator sets Free Play in the test menu and the post-write image is re-baked.
+The baked image already carries free play (§FREE PLAY) and the game never
+writes the EEPROM (`EE WR` 0 in every leg), so that leg would re-bake bytes
+identical to the ones already shipped.
+
+### Findings worth carrying forward
+
+1. **Both DC maple ports answer in Flycast's DC profile**, so P2 is live in
+   unattended legs whether or not a second human is present — an idle port-B
+   pad reads as `p2=0`, indistinguishable from "no pad", which is why the
+   `hdrB` field exists.
+2. **The EEPROM is session-only** and nothing has asked it not to be. If a
+   later task wants persistence, the write path is already the single choke
+   point (`mie_86` case `0x0b`) and a VMU or flash writer plugs in there.
+3. **An analog stick that reports `0x00` on unused axes would read as a
+   permanent up+left.** Every DC pad reports `0x80`-centred axes and Flycast's
+   own controller does (`maple_devs.cpp:96-114`), so this is a real-hardware
+   (Phase 5) risk with a clone-pad, not an emulator one. Upgrade path if it
+   bites: `probe_devinfo` already fetches the device's capability word — gate
+   the analog fold on the "has analog axes" bit rather than always folding.
+4. **The `IN` trace is change-gated**, so a leg with a stuck button prints once
+   and goes quiet. That is the intended shape (it makes a 4-minute leg readable),
+   but "no `IN` lines" means "nothing changed", not "nothing was pressed".
+
+### Reproduction
+
+```sh
+python3 scripts/extract_mie_blobs.py     # incl. the idle-frame equivalence assert
+make test                                # incl. dc_cond_to_pressed host tests
+
+# diagnostic build + unattended leg (revert LOADER_SERIAL before committing)
+make -C shims clean && make -C shims DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
+make gdi && scripts/capture_dc_leg.sh phase4/steadyN &
+# ... then: kill -9 $(pgrep -f "Flycast.app/Contents/MacOS/Flycast")
+# ... and wait for the .stdout.log size to settle before reading it
+
+tr '\r' '\n' < captures/phase4/steadyN.stdout.log > /tmp/s.txt
+grep    '^IN '      /tmp/s.txt   # idle pad must show crc=00000022, hdrA/hdrB …08
+grep -c '^MB n='    /tmp/s.txt   # 345
+grep -c 'MIE odd\|MIE skip\|SHIMERR\|System reset requested' /tmp/s.txt   # 0
+
+# the pad transactions, from the emulator's side (post-handoff lines only)
+H=$(grep -n MMUCRWR captures/phase4/steadyN.log | grep -o '^[0-9]*:.*pc=8c01[0-9a-f]*' \
+      | tail -1 | cut -d: -f1)
+awk -v h=$H 'NR>h && /MDODMA enter/' captures/phase4/steadyN.log \
+  | sed 's/.*pc=\([0-9a-f]*\).*/\1/' | sort | uniq -c      # shim PCs ONLY
+awk -v h=$H 'NR>h' captures/phase4/steadyN.log \
+  | grep -c 'rawdma_call cmd=09 reci=20 bus=0'             # == the reci=60 count
+awk -v h=$H 'NR>h' captures/phase4/steadyN.log \
+  | grep -A1 'rawdma_call cmd=09' | grep rawdma_ret | sort | uniq -c   # all outlen=10
+```
