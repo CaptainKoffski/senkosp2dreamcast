@@ -253,7 +253,9 @@ the struct field the whole cart path dereferences — verbatim
 8c0278a0  bsr 0x8c02751a           ; r0 = 0xa05f7000
 8c0278a2  _mov.l r13,@(0x14,r14)
 8c0278a4  mov #0x58,r1
+8c0278a6  mov.w 0x8c027972,r3      ; (unrelated: r3/r2 preloaded for 8c0278d6)
 8c0278a8  add r14,r1               ; r1 = obj + 0x58
+8c0278aa  mov.w 0x8c027974,r2      ; (unrelated, same)
 8c0278ac  mov.l r0,@r1             ; obj->[0x58] = 0xa05f7000   <== THE BASE STORE
 ```
 
@@ -286,7 +288,7 @@ of them.
 > displacement word needs patching: they are 16-bit `mov.w` literals and stay
 > correct against any base.
 
-### CART-WAIT — three entry hooks and one invariant
+### CART-WAIT — four entry hooks and one invariant
 
 The steady path never polls `SB_GDST` inline; it delegates to two small
 functions, both base-relative and therefore already inside the mirror after
@@ -334,17 +336,27 @@ source in `NAOMI_DMA_OFFSETH/L` — all written before the kick by
 > (the boot wrappers below, and `FUN_8c027e34`'s inner loop) fall through
 > with no patch of its own.
 
-Three entry hooks, and why each is needed:
+Four entry hooks, and why each is needed:
 
 | Hook | `dat_offset` (main / test) | Function | Contract | Why |
 | --- | --- | --- | --- | --- |
 | **CART-WAIT-A** | `0x007e5e` / `0x179e56` | `FUN_8c027e5e` | wait for DMA completion | the steady-path completion wait; where the service runs |
 | **CART-WAIT-B** | `0x007e34` / `0x179e2c` | `FUN_8c027e34` | settle/abort | `FUN_8c027d7e` kicks and returns without waiting; if this runs first its inner `while (GDST & 1)` spins on RAM forever |
 | **CART-BOOT-DMA** | `0x046440` / `0x1a2c6c` | boot cart DMA (below) | blocking cart read | it sets *and then polls* the mirrored `SB_GDST` itself |
+| **CART-PIO-READ** | `0x0463e6` / `0x1a2c12` | boot PIO reader (see CART-PIO) | half-word cart read loop | it *loads* from `mirror[0x008]` expecting hardware auto-increment; a RAM mirror returns the same word every iteration |
 
-A single shim helper (`shim_cart_service` per the spec) satisfies all three:
-service whatever the mirror describes, then clear `mirror[0x418]`.
+A single shim helper (`shim_cart_service` per the spec) satisfies the first
+three: service whatever the mirror describes, then clear `mirror[0x418]`.
 CART-WAIT-B and CART-BOOT-DMA degenerate to "nothing pending → return".
+CART-PIO-READ needs a second, smaller helper — it is a byte-range copy with
+no DMA state at all (ABI under §CART-PIO).
+
+CART-WAIT-B's premise is hardware behaviour, not inference: clearing `SB_GDEN`
+while a transfer is running clears `SB_GDST` on the real part, which is what
+its `GDEN = 0` then `while (GDST & 1)` sequence is written against
+(`Naomi_DmaEnable`, `../flycast4naomi2dreamcast/core/hw/naomi/naomi.cpp:533-542`
+— `if (SB_GDEN == 0 && SB_GDST == 1) { SB_GDST = 0; … }`; registered at
+`naomi.cpp:588`). In the mirror that write does nothing, hence the hook.
 
 **Boot-path `SB_GDST` spinners — no hook, covered by the invariant.** Five
 recovered functions spin `do { } while (*(u32*)0xa05f7418 != 0)` through an
@@ -364,18 +376,27 @@ second **DMA arm + kick**, reusing the cart-side source pointer the hardware
 auto-advanced, and it drives the same base-relative registers as
 `FUN_8c027a66`:
 
+Abridged — every `base + disp` store is preceded by a `mov #0x58,r0` /
+`mov.l @(r0,r14),rN` reload of the base out of the struct, elided below except
+where it carries an annotation; `…` marks each cut:
+
 ```
 8c027d86  mov #0x74,r0 ; 8c027d8c mov.l @(r0,r14),r2 ; 8c027d8e mov.l @(0x4,r13),r3
 8c027d90  cmp/hs r3,r2 ; bf 8c027d9e                   ; fail if obj->[0x74] < desc[1]
+   …
 8c027da4  mov.w 0x8c027e04,r3   ; +0x4b8  SB_GDAPRO  <- 0x8843407f (pool 0x8c027e30)
 8c027db0  mov.w 0x8c027e06,r2   ; +0x404  SB_GDSTAR  <- desc[0]   (mov.l @r13,r3)
 8c027dba  mov.w 0x8c027e08,r3   ; +0x408  SB_GDLEN   <- desc[1]   (mov.l @(0x4,r13),r2)
 8c027dc8  mov.w 0x8c027e0a,r2   ; r2 = 0x040c
 8c027dcc  mov.l r4,@r1          ; +0x40c  SB_GDDIR   <- 1  (r4 = 1, set at 8c027dc6)
 8c027dd6  mov.w 0x8c027e0c,r3   ; r3 = 0x0414
-8c027dd8  mov.l r1,@(r0,r14)    ;         obj->[0x74] -= desc[1]
+8c027dd8  mov.l r1,@(r0,r14)    ;         obj->[0x74] -= desc[1]   (r0 still 0x74)
+8c027dda  mov #0x58,r0
+8c027ddc  mov.l @(r0,r14),r0    ; r0 = base
 8c027dde  add r3,r0             ; r0 = base + 0x414
 8c027de0  mov.l r4,@r0          ; +0x414  SB_GDEN    <- 1
+8c027de2  mov #0x58,r0
+8c027de4  mov.l @(r0,r14),r1    ; r1 = base
 8c027de6  add #0xc,r2           ; r2 = 0x040c + 0xc = 0x0418
 8c027de8  add r2,r1             ; r1 = base + 0x418
 8c027dea  mov.l r4,@r1          ; +0x418  SB_GDST    <- 1          <== second kick site
@@ -397,24 +418,76 @@ either image that touches `NAOMI_ROM_DATA`. Verbatim `DisasmRange.java
 
 ```
 8c0663e6  mov.l 0x8c066430,r2   ; r2 = 0xa05f7004  NAOMI_ROM_OFFSETL
-8c0663ea  mov.l r3,@r2          ; <- offset & 0xffff        (extu.w r4,r3)
+8c0663e8  extu.w r4,r3
+8c0663ea  mov.l r3,@r2          ; <- offset & 0xffff
+   …      (8c0663ec-8c0663fc: load 0x8c066428/0x8c066434/0x8c066438,
+   …       r0 = *(u32 *)0x8c1bf18c, and/shlr16/or — see the note below)
 8c0663f8  mov.l 0x8c06642c,r3   ; r3 = 0xa05f7000  NAOMI_ROM_OFFSETH
 8c0663fe  mov.l r4,@r3          ; <- ((offset & 0xffff0000) >> 16)
                                 ;    | *(u32 *)0x8c1bf18c | 0x00008000
 8c066400  mov.l 0x8c06643c,r4   ; r4 = 0xa05f7008  NAOMI_ROM_DATA
-8c066406  mov.l @r4,r2          ; <== the PIO read
-8c066408  mov.w r2,@r5          ; store 16 bits, r5 += 2, repeat r6 times
+8c066402  bra 0x8c06640c
+8c066404  _shlr r6              ; r6 = byte count >> 1 = half-word count
+8c066406  mov.l @r4,r2          ; <== the PIO read (auto-increment on hardware)
+8c066408  mov.w r2,@r5          ; store 16 bits
+8c06640a  add #0x2,r5
+8c06640c  tst r6,r6
+8c06640e  bf/s 0x8c066406
+8c066410  _add #-0x1,r6
+8c066412  rts
+8c066414  _nop
 ```
 
 (mask `0xffff0000` = pool `0x8c066434`, mode bit `0x00008000` = pool
 `0x8c066438`, base pointer `0x8c1bf18c` = pool `0x8c066428`; all four
-byte-verified.)
+byte-verified. Bit `0x8000` in `NAOMI_ROM_OFFSETH` is exactly flycast's
+`RomPioAutoIncrement = (data & 0x8000) != 0`,
+`../flycast4naomi2dreamcast/core/hw/naomi/naomi_cart.cpp:1010` — the loop
+depends on the hardware advancing `RomPioOffset` by 2 per read, `:1026`.)
 
-Its three pool words are entries 11/12/13 — repointed like the rest, so a PIO
-read lands in the mirror and the shim serves it from `NAOMI_ROM_OFFSETH/L`.
-This matches the Phase 2 streaming map — *"1,590 unique DMA tuples + 2 PIO
-seeks"* over the whole merged campaign (`docs/kb/cart-streaming-map.md:12`,
-`:78`): PIO is a boot-time path only, and the steady path is pure DMA.
+> **CART-PIO disposition — repoint + a registered hook, because the repoint
+> alone is not a service.** Entries 11/12/13 keep the writes off the real
+> Dreamcast G1 bus, but `8c066406 mov.l @r4,r2` is a plain **load** from
+> `mirror[0x008]`, and nothing traps a load from RAM any more than it traps a
+> store (the same reasoning as the mirror invariant above). With no hook the
+> loop returns the same stale word `r6/2` times. So the entry hook is named
+> here rather than left implicit:
+>
+> | Hook | `dat_offset` (main / test) | entry | ABI |
+> | --- | --- | --- | --- |
+> | **CART-PIO-READ** | `0x0463e6` / `0x1a2c12` | `0x8c0663e6` / `0x8c050c1a` | `void pio_read(u32 rom_off /*r4*/, void *dest /*r5*/, u32 len_bytes /*r6*/)` — leaf, no prologue, no return value |
+>
+> Entry bounds byte-verified: the preceding word pair is `rts`/`nop`
+> (`0x0463e2` = `000b`, `0x0463e4` = `0009`) and the body ends `8c066412 rts`
+> / `8c066414 nop`. The test image's copy is byte-identical over
+> `0x8c050c1a`–`0x8c050c49` and its own entry is likewise preceded by
+> `000b`/`0009` at `0x1a2c0e`/`0x1a2c10`.
+
+**Is this path live?** Static answer: **no caller reaches it.** No `bsr`/`bra`
+anywhere in either image targets `0x8c0663e6` (or the test image's
+`0x8c050c1a`), and no 32-bit word anywhere in either image holds that address,
+so it cannot be entered except through the computed-target hole
+`docs/kb/boot-binary.md` §BIOS-call verdict already discloses. Contrast its
+neighbours in the same block, which do have callers: the boot cart DMA routine
+`0x8c066440` (`bsr` at `0x8c0665b4`, `0x8c0665ca`) and `FUN_8c0664b4`
+(`bsr` at `0x8c06614a`, plus pool words `0x8c071510`, `0x8c07174c`).
+
+**The "2 PIO seeks" do not settle it either way.** The fork emits `CARTPIO` on
+the **`NAOMI_ROM_OFFSETL` write**, not on a `NAOMI_ROM_DATA` read
+(`.../core/hw/naomi/naomi_cart.cpp:1020`), so the count in
+`docs/kb/cart-streaming-map.md:12`, `:78` cannot distinguish this reader
+(`8c0663ea`) from the boot DMA routine's own `NAOMI_ROM_OFFSETL <- 0`
+(`8c066458`) — nor from the **Naomi BIOS**, which PIO-loads the image before
+any game code runs and dominates the byte counter: `CARTPIOCNT` = `0x172538`
+on a typical boot (`docs/kb/phase2-measurements.md:46`) against a main image
+of `0x171ff8`. Given Phase 3 logged **zero** DMA kicks at `0x8c06649e`, the
+whole `0x8c066xxx` boot driver most likely did not run in any captured leg,
+and the two seeks are the BIOS's.
+
+**Net:** treat CART-PIO-READ exactly like CART-BOOT-DMA — a hook that is
+expected never to fire, kept because the failure mode if it does fire is
+silent data corruption (a buffer filled with one repeated half-word) rather
+than a visible hang. Task 10 may implement all four hooks with one helper.
 
 ### CART-BOOT-POOLS — the boot cart driver
 
@@ -457,7 +530,11 @@ body ends `8c0664b0 rts` / `8c0664b2 mov.l @r15+,r14`). Verbatim
 > asynchronous call leaves `mirror[0x418]` stuck at 1, breaking the invariant
 > for everyone else. It was **not observed executing** in any Phase 3 capture
 > leg (all 672 logged kicks are `0x8c027f72` — `docs/kb/boot-binary.md`
-> §Target: cart-read function), so the hook is insurance, not a hot path.
+> §Target: cart-read function; zero at `0x8c06649e`), so the hook is insurance,
+> not a hot path. Unlike the PIO reader it is genuinely reachable — two `bsr`
+> callers, `0x8c0665b4` and `0x8c0665ca` — so "not observed" is a statement
+> about the captured regimes (unattended attract, played match, test menu),
+> not about the code being dead.
 
 **`FUN_8c0664b4`** (`Decomp.java`) — `if (*SB_GDST != 0) return 0;
 *NAOMI_DMA_OFFSETH = 0x0000c000; return 1;` (`DAT_8c066560` byte-verified =
@@ -534,6 +611,7 @@ Anchor column: `CART-BASE`, `CART-PIO`, `G1-TIMING`, `BOOT-POOLS`,
 | 29 | `0x13c650` | `8c15c650` | `0xa05f7418` | `SB_GDST` | BOOT-POOLS | — (data-table entry, no pc-relative loader) |
 | 30 | `0x13c718` | `8c15c718` | `0xa05f7404` | `SB_GDSTAR` | *exempt* | — (data-table entry, no pc-relative loader) |
 | 31 | `0x13c71c` | `8c15c71c` | `0xa05f7408` | `SB_GDLEN` | *exempt* | — (data-table entry, no pc-relative loader) |
+| 32 | `0x13c720` | `8c15c720` | `0xa05f740c` | `SB_GDDIR` | *exempt* | — (data-table entry, no pc-relative loader) |
 
 **The four data-table words (29–32).** They have no pc-relative loader
 because they are table entries, not code pools — the two tables of
@@ -559,8 +637,10 @@ because they are table entries, not code pools — the two tables of
 > **reading** the real Dreamcast `SB_GDSTAR`/`GDLEN`/`GDDIR` is side-effect
 > free (`../flycast4naomi2dreamcast/core/hw/holly/sb.h:149-155` — plain RW
 > registers, no read-side action; contrast `SB_GDST`, whose *write* triggers
-> the transfer, `.../core/hw/naomi/naomi.cpp:452-470`). Patching them would
-> only change which zeros a crash dump prints. Left alone.
+> the transfer — `Naomi_DmaStart`, `.../core/hw/naomi/naomi.cpp:482`, wired to
+> that address by
+> `hollyRegs.setWriteHandler<SB_GDST_addr>(Naomi_DmaStart)`, `naomi.cpp:587`).
+> Patching them would only change which zeros a crash dump prints. Left alone.
 
 ### Test image — the same 32 words, the same shape
 
@@ -621,13 +701,14 @@ displacement pools (`0x0418`/`0x0414`/`0x04f8`/`0x04b8`/`0x0404`/`0x0408`/
 | 31 | `0x1b2548` | `8c060550` | `0xa05f7408` | `SB_GDLEN` | *exempt* | — (data-table entry, no pc-relative loader) |
 | 32 | `0x1b254c` | `8c060554` | `0xa05f740c` | `SB_GDDIR` | *exempt* | — (data-table entry, no pc-relative loader) |
 
-Test-image hook sites, same three functions:
+Test-image hook sites, same four functions:
 
 | Hook | test `dat_offset` | test RAM | evidence |
 | --- | --- | --- | --- |
 | CART-WAIT-A | `0x179e56` | `8c027e5e` | body bytes identical to main `0x007e5e` |
 | CART-WAIT-B | `0x179e2c` | `8c027e34` | body bytes identical to main `0x007e34` |
 | CART-BOOT-DMA | `0x1a2c6c` | `8c050c74` | prologue `2fe6 7ffc`; body `0x1a2c6c`–`0x1a2ce0` byte-identical to main `0x046440`–`0x0464b4` |
+| CART-PIO-READ | `0x1a2c12` | `8c050c1a` | preceded by `rts`/`nop` (`000b`/`0009` at `0x1a2c0e`/`0x1a2c10`); body `0x1a2c12`–`0x1a2c41` byte-identical to main `0x0463e6`–`0x046415`; no caller, same as main |
 
 Test entries 29–32 sit in the same two tables (`0x8c060488` = `0` is entry
 29's paired value; `0x8c06054c`–`0x8c060554` are consecutive entries of the
@@ -664,7 +745,7 @@ Reproduce with `--words a05f6c00-a05f6cff`.
 | … covered by the CART-BASE repoint (entry 1) | 1 | 1 |
 | … own `pool()` patch entries (2–29) | 28 | 28 |
 | … written exemptions (30–32) | 3 | 3 |
-| Entry hooks | 3 | 3 |
+| Entry hooks | 4 | 4 |
 | `tools/mmio-xrefs.txt` hits in this range | 13 | n/a |
 | … of those, unaccounted for | **0** | — |
 

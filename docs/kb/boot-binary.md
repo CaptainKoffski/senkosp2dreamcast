@@ -961,8 +961,14 @@ The two `mov.w` pool words were read byte-for-byte out of `tools/boot.bin`:
 those are `SB_GDEN` (`0x005F7414`, `.../core/hw/holly/sb.h:157`) and `SB_GDST`
 (`0x005F7418`, `sb.h:159`) — and `SB_GDEN != 0` plus `data & 1` is exactly what
 `Naomi_DmaStart` requires before it raises `CARTDMA`
-(`.../core/hw/naomi/naomi.cpp:452-470`). Static and dynamic agree instruction
-for instruction.
+(`.../core/hw/naomi/naomi.cpp:482-505`; registered on `SB_GDST` by
+`hollyRegs.setWriteHandler<SB_GDST_addr>(Naomi_DmaStart)`, `naomi.cpp:587`).
+Static and dynamic agree instruction for instruction.
+
+> Citation corrected 2026-08-22 (Phase 4 Task 3 review): the earlier pointer
+> `naomi.cpp:452-470` names `cartlog_aram_rebaseline()`, unrelated AICA
+> instrumentation. The claim itself is unchanged and verified at the lines
+> above.
 
 **Confirmed range: `0x8c027f54`–`0x8c027f99`** (`WhichFunc.java`, body bounds).
 Contains the kick *and* the logged PC.
