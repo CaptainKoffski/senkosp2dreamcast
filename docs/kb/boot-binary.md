@@ -1102,7 +1102,8 @@ under the trig-tagged fork) and static identification of the
 
 `MAPLEPC` fires only inside `MIEImpl::handle_86_subcommand()`, i.e. only for
 MIE command `0x86`. **`MDODMA enter` fires once per `maple_DoDma()` call**
-(`.../core/hw/maple/maple_if.cpp:179`), whatever the command list contains, and
+(`.../core/hw/maple/maple_if.cpp:195` — citation corrected 2026-08-22, Phase 4
+Task 4; `:179` is a comment line), whatever the command list contains, and
 carries the same `pc=`. 89 578 `enter` lines, **12 distinct PCs** where
 `MAPLEPC` showed 2 — and the `+2` store test separates them just as cleanly:
 
@@ -1267,6 +1268,15 @@ leg is likely to reproduce "write happens, call site still unidentified"
 rather than newly confirm `FUN_8c02532a`. The operator leg
 (`phase4/pc2-testmenu`) is still the documented next step, but expectations
 are revised accordingly.
+
+> **Corrected 2026-08-22 (Phase 4 Task 4).** "The uncharacterized second
+> function" is the **Naomi BIOS** (§Addendum below). So the prediction above
+> is right but for a sharper reason: a repeat operator leg will reproduce
+> "write happens" and can never name a *game* call site, because there is
+> none — senkosp has never been observed writing the EEPROM. `0c03161e` is
+> not an "artifact PC" either; it is a real BIOS store PC. The leg is still
+> worth running (it exercises the game's test menu, a different `.dat`
+> entry), but it is no longer this item's blocker.
 
 ### Addendum 2026-08-22 — Phase 4 Task 4: the second call site is the
 ### **Naomi BIOS**, and every P0-form PC in this doc is BIOS-era

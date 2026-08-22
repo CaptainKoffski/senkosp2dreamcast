@@ -880,12 +880,17 @@ Four independent lines of evidence, all from `captures/phase4/pc2.log`:
    bulk cart→RAM transfer, i.e. when the BIOS starts loading the game image
    (`cartlog_handoff()`,
    `../flycast4naomi2dreamcast/core/hw/naomi/naomi.cpp:334-352`; PIO trigger
-   `:354-360`). Its ARAM/VRAM/MAIN triple lands at log lines 11150–11152.
-   Every one of the six `0c03…`
-   `MDODMA` PCs occurs **before** it (first 174, last 11102); every one of the
-   six `8c0…` PCs occurs **after** it (`8c066a60` first at 11200, `8c025448`
-   first at 12599, last 340955). The two families do not overlap by a single
-   event.
+   `:354-360`) — specifically once cumulative PIO `ROM_DATA` reads cross
+   **32 KB** (`if (cartlog_pio_bytes >= (32 << 10)) cartlog_handoff("pio")`,
+   `naomi.cpp:363-365`). Its ARAM/VRAM/MAIN triple lands at log lines
+   11150–11152 (1-based, as `grep -n` counts). Every one of the six `0c03…`
+   `MDODMA` PCs occurs **before** it (first 175, last 11103); every one of the
+   six `8c0…` PCs occurs **after** it (11201 … 340956). The two families do
+   not overlap by a single event. The 32 KB threshold makes the inference
+   *stronger*, not weaker: at the marker the BIOS had loaded only ~32 KB of
+   the image, i.e. up to ≈`0x0c028000`, whereas `0x0c03161e` is `0x1161e`
+   ≈ 71 KB in — so the game bytes at that address had not even been written
+   yet when the marker fired, let alone when those PCs executed earlier.
 2. **The whole P0/P1 split is the BIOS/game split.** Pre-handoff, all 26
    `PCSAMPLE` lines are P0-form (`0c03`×19, `0c04`×5, `0c05`×1, `0c02`×1) plus
    one `a000` ROM sample; post-handoff, all 271 are P1-form
@@ -912,6 +917,27 @@ Four independent lines of evidence, all from `captures/phase4/pc2.log`:
    the game's `0x0dfe7f40`/`0x0dfeaf40` (steady, double-buffered) and
    `0x0c1bfa80` (the game's boot driver). Their `sp=0x0cbffdc4`-`0x0cbfff9c` is
    the BIOS's stack, not a third game task stack.
+5. **The same PC, the same counts and the same buffer appear in a
+   *different game*.** `../cleopatra/docs/kb/phase4-conversion.md:847-849`
+   records, for Cleopatra Fortune Plus, interpreter-exact PCs from its own
+   Phase 3 capture: sub `0x15` **369× `pc=0c03161e`**, sub `0x27` **360×
+   `pc=0c03161e`**, sub `0x01` and `0x03` **1× `0c03161e`** each. senkosp's
+   `pc2.log` measures **369 / 360 / 1 / 1 at the identical PC**. And
+   `:906` records that game's MIE reply address as **`0x0c296220`** — the
+   identical buffer. Two unrelated 2006-era Naomi titles cannot produce the
+   same program counter, the same per-subcommand counts *and* the same RAM
+   buffer from their own code; the only thing they share is the machine's
+   BIOS. Shared middleware cannot explain it either: middleware links to
+   different addresses in the two images (senkosp's steady engine is
+   `FUN_8c02532a`, Cleopatra's is `FUN_8c03c2c6`), and senkosp's bytes at
+   `0x8c03161c` are `4b08`, unrelated code.
+
+   > **Corollary, recorded here and not acted on there.** Cleopatra's KB
+   > attributes those same events to a routine of *its* game image,
+   > `0x8c0315ce` (`:847-848`, `:900-906`) — the same misattribution
+   > senkosp's Phase 3/Task 1 made from the same PC-only evidence, and now
+   > explained. The sibling repo is not edited from here; flagged for the
+   > human.
 
 > **R5 verdict — no patch entry, and one open item closes.** The site is BIOS
 > code that the Dreamcast port replaces wholesale (there is no Naomi BIOS on
@@ -1028,8 +1054,9 @@ byte-verified halfwords:
 Cleopatra's `FUN_8c030fba`. `FUN_8c02a17e` (`8c02a17e`–`8c02a187`) is
 `d244 e0ff 6322 000b 3038` = `return -1 - *(u32 *)0xffd8000c` — a read of SH-4
 **TMU `TCNT0`** (`[0x8c02a290]` = `0xffd8000c`;
-`../flycast4naomi2dreamcast/core/hw/sh4/sh4_mmr.h:324-325`), i.e. a timestamp; it is called
-from 51 sites across the image and exists identically on Dreamcast.
+`../flycast4naomi2dreamcast/core/hw/sh4/sh4_mmr.h:324-325`), i.e. a
+timestamp; **17 pool words across the image hold its address** (byte-verified
+scan), and it exists identically on Dreamcast.
 
 **What a 6-byte thunk at `0x8c025446` would cost.** The kick is *in the delay
 slot of the `jsr` at `0x8c025444`*, so the only contiguous 6-byte window
@@ -1117,7 +1144,7 @@ Three details the shim must not get wrong:
   `trig=vbl`) and of `maple_vblank()`'s `SB_MDTSEL == 1` branch never being
   taken (`maple_if.cpp:59-90`).
 
-### MAPLE-BOOT-STRATEGY — five kicks, five 6-byte detours
+### MAPLE-BOOT-STRATEGY — five kicks, five self-contained detours
 
 The `0x8c066xxx` boot driver reaches its registers by absolute pool, so every
 word is its own patch entry (entries 2–11). It has **five** `SB_MDST` kick
@@ -1133,9 +1160,11 @@ events in `pc2.log`, 1023 in the Phase 3 leg), `0x8c066810`, `0x8c0668a2`,
 8c0669d2  mov.l 0x8c066ac0,r12     ; r12 = 0xa05f6c14  SB_MDEN
 8c0669d4  mov.l r7,@r12            ;   <- 0            (r7 = 0)
 8c0669d6  mov.l 0x8c066ac8,r0      ; r0  = 0xa05f6c8c  SB_MDAPRO
-8c0669da  mov.l r3,@r0             ;   <- [0x8c066ac4] = 0x6155407f
+8c0669d8  mov.l 0x8c066ac4,r3      ; d33a  r3 = 0x6155407f
+8c0669da  mov.l r3,@r0             ;   -> SB_MDAPRO
 8c0669dc  mov.l 0x8c066ad0,r3      ; r3  = 0xa05f6c80  SB_MSYS
-8c0669e0  mov.l r2,@r3             ;   <- [0x8c066acc] = 0x3a980000
+8c0669de  mov.l 0x8c066acc,r2      ; d23b  r2 = 0x3a980000
+8c0669e0  mov.l r2,@r3             ;   -> SB_MSYS
 8c0669e2  mov.l 0x8c066ad4,r1      ; r1  = 0xa05f6c10  SB_MDTSEL
 8c0669e4  mov.l r7,@r1             ;   <- 0            (no vblank trigger)
 8c0669e6  mov.l 0x8c066ad8,r0      ; r0  = 0xa05f6c04  SB_MDSTAR
@@ -1178,31 +1207,73 @@ it — the mirror invariant again. Two ways out were considered:
   everything `FUN_8c0665fe` writes back into game RAM through `[0x8c1bfe6c]`
   and friends — an unbounded reverse-engineering job, and exactly the kind of
   reimplementation §CART-WAIT avoided.
-- **(b) Hook each kick's poll.** There is no innermost kick+poll helper — the
-  sequence is inlined at all five sites — but the poll *is* the window: 6 bytes,
-  contiguous, immediately after the kick, and provably dead work once the shim
-  has serviced the transaction (the loop's exit condition is already true). The
-  driver's own code then parses the replies, so **nothing is reimplemented**.
+- **(b) Detour each kick.** There is no innermost kick+poll helper — the
+  sequence is inlined at all five sites — but the **`SB_MDEN=1` / kick / poll**
+  run is the window: contiguous, and every byte of it is dead work once the
+  shim has serviced the transaction (its stores go to RAM; the loop's exit
+  condition is already true). The driver's own code then parses the replies, so
+  **nothing is reimplemented** beyond two mirror stores.
 
 > **MAPLE-BOOT-STRATEGY verdict — option (b): 5 detour hooks, plus the pool
 > repoints (entries 2–11) and the init-table repoints (entries 12–18).**
 >
-> | Hook | main `dat_offset` (window) | test `dat_offset` | replaced bytes | resume |
-> | --- | --- | --- | --- | --- |
-> | **MAPLE-BOOT-A** | `0x046728`–`0x04672d` | `0x1a2f54` | `6252 2228 8bfc` | `0x8c06672e` |
-> | **MAPLE-BOOT-B** | `0x046812`–`0x046817` | `0x1a303e` | `6252 2228 8bfc` | `0x8c066818` |
-> | **MAPLE-BOOT-C** | `0x0468a4`–`0x0468a9` | `0x1a30d0` | `6252 2228 8bfc` | `0x8c0668aa` |
-> | **MAPLE-BOOT-D** | `0x046928`–`0x04692d` | `0x1a3154` | `6252 2228 8bfc` | `0x8c06692e` |
-> | **MAPLE-BOOT-E** | `0x046a60`–`0x046a65` | `0x1a328c` | `6242 2228 8bfc` | `0x8c066a66` |
+> Every window starts **two bytes before the kick**, at the `SB_MDEN = 1` store
+> that precedes all five (`2e72 mov.l r7,@r14` at A–D, `2c52 mov.l r5,@r12` at
+> E), so the literal the detour needs fits **inside the window itself** at
+> `d = 0x01` — no external pool slot, no reachability question, no
+> dead-word argument. Every byte below was read out of `tools/boot.bin`
+> (main) and `senkosp.dat` (test); the two images are byte-identical over all
+> five windows.
+>
+> | Hook | main window (RAM) | main `dat_offset` | test `dat_offset` | replaced halfwords | literal slot | resume |
+> | --- | --- | --- | --- | --- | --- | --- |
+> | **MAPLE-BOOT-A** | `8c066724`–`8c06672f` | `0x046724`–`0x04672f` | `0x1a2f50`–`0x1a2f5b` | `2e72 2572 6252 2228 8bfc 2ec2` | `8c06672c` / `0x04672c` / `0x1a2f58` | `8c066730` (`e318`) |
+> | **MAPLE-BOOT-B** | `8c06680e`–`8c066817` | `0x04680e`–`0x046817` | `0x1a303a`–`0x1a3043` | `2e72 2572 6252 2228 8bfc` | `8c066814` / `0x046814` / `0x1a3040` | `8c066818` (`2ec2`) |
+> | **MAPLE-BOOT-C** | `8c0668a0`–`8c0668ab` | `0x0468a0`–`0x0468ab` | `0x1a30cc`–`0x1a30d7` | `2e72 2572 6252 2228 8bfc 2ec2` | `8c0668a8` / `0x0468a8` / `0x1a30d4` | `8c0668ac` (`60d2`) |
+> | **MAPLE-BOOT-D** | `8c066924`–`8c06692f` | `0x046924`–`0x04692f` | `0x1a3150`–`0x1a315b` | `2e72 2572 6252 2228 8bfc 2ec2` | `8c06692c` / `0x04692c` / `0x1a3158` | `8c066930` (`62d2`) |
+> | **MAPLE-BOOT-E** | `8c066a5c`–`8c066a67` | `0x046a5c`–`0x046a67` | `0x1a3288`–`0x1a3293` | `2c52 2452 6242 2228 8bfc 2c72` | `8c066a64` / `0x046a64` / `0x1a3290` | `8c066a68` (`d31e`) |
+>
+> Emitted content, identical at all five (only the literal differs):
+>
+> ```
+> +0x00  d201   mov.l @(0x01,PC),r2   ; r2 = the site's trampoline address
+> +0x02  422b   jmp @r2
+> +0x04  0009   _nop                  ; delay slot
+> +0x06  0009   (pad; unreachable — B has no pad, its literal starts here)
+> +0x08  <32-bit trampoline address>  ; 4-aligned by construction
+> ```
+>
+> `((window_start + 4) & ~3) + 0x01 * 4` lands exactly on the literal slot at
+> every site — verified per row above. B is 10 bytes with no pad because its
+> window starts 2-mod-4; the other four are 12.
 >
 > **Hook kind: `jmp` detour, not `jsr`.** `FUN_8c0665fe`'s prologue
 > (`0x8c0665fe`–`0x8c06660c`, byte-verified) saves r8–r14 but **not PR**, so a
-> `jsr` in its body would destroy the return address to `0x8c066aea`. A
-> `mov.l @(d,PC),r2 / jmp @r2 / nop` detour fits the 6-byte window exactly,
-> touches PR not at all, and clobbers only **r2** — which is the poll's own
-> scratch register and therefore already dead. The shim trampoline saves PR in
-> its own prologue and `jmp`s back to the resume address. Same body as
-> `shim_maple_service`; the only per-site difference is the return address.
+> `jsr` in its body would destroy the return address to `0x8c066aea`.
+>
+> > **Register contract — a mid-body detour is NOT a call, and the C ABI does
+> > NOT apply to it.** The driver does not know the detour happened, so **every
+> > register must come back unchanged** except the ones the replaced
+> > instructions themselves clobbered. Reading the five windows above, the
+> > original code clobbers exactly **`r2`** (the poll temp, `mov.l @r5,r2` /
+> > `mov.l @r4,r2`) and **`T`** (from `tst r2,r2`) — nothing else; the other
+> > four instructions are stores. Therefore the trampoline **must save and
+> > restore `r0`, `r1`, `r3`–`r7`, `PR`, and `MACL`/`MACH`** around its call
+> > into C (`r8`–`r15` the C ABI preserves for us; `r2` and `T` are free).
+> > This is not academic: detour E's resume instruction is
+> > `8c066a66 2c72 mov.l r7,@r12` — it **reads r7**, and r7 is caller-saved, so
+> > a trampoline that let C clobber it would corrupt the very first instruction
+> > the driver executes on return. A–D are the same shape: `r5` is set once
+> > (`add #0x4,r5` at `0x8c066632`) and reused by all four kicks, and `r7` = 1
+> > throughout, so both are live across A, B and C. Contrast MAPLE-KICK-HOOK
+> > above, where the ABI genuinely does apply because that site is a real
+> > `jsr` and the game consumes the return value.
+>
+> **What the shim replays.** The window swallows `SB_MDEN = 1`, the kick, and
+> (at A/C/D/E) `SB_MDEN = 0` — all mirror stores. The uniform contract is:
+> on return **`mirror[0x14] = 0` and `mirror[0x18] = 0`**. Site B's window ends
+> before its `SB_MDEN = 0`, so B's resume instruction writes the same 0 again;
+> harmless.
 >
 > **What the shim owes the boot path beyond these five sites (the R5 fold-in).**
 > The Naomi BIOS's own JVS negotiation — everything the `0c03161e` family did
@@ -1420,6 +1491,27 @@ for i, l in enumerate(open("captures/phase4/pc2.log", errors="ignore"), 1):
 print("MAINHANDOFF at line", H)
 for k in sorted(fam):
     print(k, "pre=%d post=%d" % tuple(fam[k]))       # every 0c.. is pre, every 8c.. is post
+EOF
+
+# 5. R5 evidence 3 -- no page mapping puts those PCs after a store in this image
+python3 - <<'EOF'
+import struct
+img = open("tools/boot.bin", "rb").read()
+B = 0x0c020000                      # physical base of the loaded main image
+stores = [0x0c03161c, 0x0c03179c, 0x0c03185a, 0x0c031c7e, 0x0c031f34, 0x0c03204a]
+def is_store(h):                    # SH-4 store forms that can write SB_MDST
+    t = h >> 12
+    return ((t == 2 and (h & 0xf) in (0, 1, 2, 4, 5, 6)) or t == 1
+            or (t == 0 and (h & 0xf) in (4, 5, 6))
+            or (t == 8 and ((h >> 8) & 0xf) in (0, 1))
+            or (t == 0xc and ((h >> 8) & 0xf) in (0, 1, 2)))
+def hw(a):
+    o = a - B
+    return None if o < 0 or o + 1 >= len(img) else struct.unpack_from("<H", img, o)[0]
+for shift, name in ((10, "1K"), (12, "4K"), (16, "64K"), (20, "1M")):
+    hits = [D for D in range(-0x2000000, 0x2000000, 1 << shift)
+            if all((h := hw(s - D)) is not None and is_store(h) for s in stores)]
+    print(name, "page: candidate deltas:", [hex(d) for d in hits])   # all empty
 EOF
 ```
 

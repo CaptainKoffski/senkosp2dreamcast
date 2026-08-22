@@ -34,8 +34,13 @@ referenced, not duplicated — that file is part of this project's method.
   (`cartlog.cpp`, `SPWATER` emitted at the existing ~10s `cartlog_sample()`
   tick). `0d55a1812` — follow-up: per-event `sp=` on `MDODMA`/`MAPLEPC`
   lines, added after the whole-run `SPWATER` aggregate proved unable to
-  separate the task-cluster floor from an unidentified third low-SP region
-  (`docs/kb/boot-binary.md` §SP — two stacks, addendum 2026-08-22).
+  separate the task-cluster floor from a third low-SP region — **identified
+  2026-08-22 (Phase 4 Task 4) as the Naomi BIOS's own stack**, sampled before
+  the BIOS hands the machine to the game, not a game stack at all
+  (`docs/kb/boot-binary.md` §SP — two stacks, addenda 2026-08-22).
+  The per-event `sp=` field remains the right construction regardless: it is
+  what let `sp_consistent` be scoped to fn-confirmed PCs and so exclude the
+  BIOS.
   **Phase 4 Task 2 fork commit:** `6e3522822` — `cartlog_shimwatch2()`
   (`naomi.cpp`), a baseline-and-compare write-watch over senkosp's own
   shim-home window (`mem_b` `0x00010000`–`0x00017fff`, P1
