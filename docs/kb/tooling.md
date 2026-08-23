@@ -801,6 +801,14 @@ from the Cleopatra port, same pattern as the Ghidra/Flycast entries above.
   gotchas as §"Instrumented Flycast" above (`ApplePersistenceIgnoreState`,
   `vsync=no`, pre-launch `pkill`) plus: the DC profile takes the `.gdi` path
   itself as the CLI argument (no ROM/BIOS args — DC HLE boot needs neither).
+  **One-call foreground pattern, 600 s hard cap (Task 6):** the agent
+  Bash tool clamps a leg's execution to 600000 ms regardless of a larger
+  requested `timeout`, so a `sleep 600` leg's own kill tail
+  (`kill -USR1`/`sleep 5`/`kill -9`/`wait`) can get cut by the tool's own
+  SIGTERM (exit 143) — captures completed fine when this happened, but keep
+  unattended-leg `sleep` ≤ ~550 s under this pattern, or split launch/kill
+  across two tool calls for longer legs (full account:
+  `docs/kb/phase5-hardware.md` §Repro campaign (Task 6)).
 - **Screenshot in this session — two working mechanisms, two caveats found
   (Task 8):**
   - `screencapture -x` (macOS): failed every attempt —

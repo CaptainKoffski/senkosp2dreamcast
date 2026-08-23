@@ -754,6 +754,43 @@ One 600 s unattended leg (`phase5/soak-1`, one-call foreground pattern,
 `-config Debug:SerialConsoleEnabled=yes`, killed by PID) — the campaign
 stopped after leg 1 under the SUCCESS condition:
 
+**Anomaly, recorded not rationalized — Bash-tool timeout hard cap cut the
+kill sequence.** The one-call foreground pattern's `timeout` parameter was
+set to 700000 ms (leg length + 100 s margin, per the ≥leg-length+60s rule),
+but the tool clamped actual execution to a **600000 ms (10 min) hard cap**
+and returned exit 143 ("Command timed out after 10m 0s") — cutting the
+`sleep 5; kill -9 $FPID; wait` tail of the compound command before it could
+report a clean exit, even though the leg itself (launch → 600 s sleep →
+`kill -USR1`) had already run to completion inside that window. Not a
+corruption: `captures/phase5/soak-1.log`/`.stdout.log` are complete (both
+end past the marker, no truncation), and `pgrep -fl Flycast` found no
+orphaned process afterward, so the SIGTERM the tool sends on timeout
+evidently reached the backgrounded Flycast child too. **Standing rule for
+future soak legs:** the one-call foreground pattern cannot safely fit a leg
+whose `sleep` alone is ≥ 600 s, because the pattern's own kill tail
+(`kill -USR1`, `sleep 5`, `kill -9`, `wait`) needs headroom inside the same
+600000 ms ceiling the tool enforces regardless of a larger requested
+`timeout` value. **Keep unattended-leg `sleep` ≤ ~550 s under this
+pattern, or split the launch and the kill sequence across two separate
+tool calls (PID captured from the first, passed to the second) for a leg
+that genuinely needs to run longer.**
+
+Two smaller caveats, noted while in this section:
+
+- The `TEXERRSAVE` path contains a space (`.../Application Support/...`) —
+  fine for a human reading the log line, but unparsed today: any future
+  tooling that whitespace-splits a `TEXERRSAVE` line to extract the path
+  will break on it. Read the remainder of the line after `slot=0 ` verbatim
+  instead.
+- The savestate is one-shot by design (`armed_once` latch,
+  `core/hw/naomi/naomi.cpp`): if `emu.stop()`/`dc_savestate()`/`emu.start()`
+  ever throws inside `cartlog_texerr_save_poll()`, the pending flag was
+  already consumed before the `try` block ran, so that occurrence is burned
+  — no retry, no second savestate later in the same process. Accepted
+  tradeoff for this task (it matches "one-shot per process" from the
+  dispatch), not a bug; a future task wanting retry-on-failure would need
+  to re-arm the latch from the `catch` block instead.
+
 | Leg | Duration | TEXERR lines | Transition? | TEXERRSAVE? | Checker | Notes |
 |---|---|---|---|---|---|---|
 | `phase5/soak-1` | 600 s (log spans to line 636,994) | 8 (`captures/phase5/soak-1.log` lines 128, 15368, 31800, 43654, 90872, 148429, 160387, 319549) | **YES** — line 319549, `code=00000006` (was `00000000` at line 160387, the immediately preceding sample) | **YES** — line 319564, `code=00000006 slot=0 .../data/disc.state` | `shimcrc_match` PASS (89/0), `gdread_match` PASS (420 verified, 4 lowfad, 0 mismatch), `coverage_nonzero` PASS (shim=89, drive=424) | Hang signature confirmed mechanically (below); savestate preserved |
