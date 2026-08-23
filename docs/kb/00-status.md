@@ -381,13 +381,48 @@ for Phase 5.
 **Phase 5 — real-hardware testing & fit.** Phase 4 (loader + shim + patch
 table → bootable GDI) is **DONE 2026-08-23** — gate green, all eight exit
 criteria evidenced (§Phase 4 checklist above). Everything below this line is
-the Phase 4 build narrative, kept for its citations; Phase 5 has no spec/plan
-yet. Starting inputs for Phase 5: the shipped disc (`build/disc.gdi`,
+the Phase 4 build narrative, kept for its citations. Phase 5's spec and plan
+landed 2026-08-23 (`docs/superpowers/specs/2026-08-23-phase5-hardware-design.md`,
+`docs/superpowers/plans/2026-08-23-phase5-hardware.md`); results go in
+`docs/kb/phase5-hardware.md`. Starting inputs for Phase 5: the shipped disc (`build/disc.gdi`,
 reproducible from a clean checkout — criterion 7), the Phase 4 findings list
 carried forward (`docs/kb/phase4-conversion.md` §Findings for Phase 5 — pad-
 poll latency, the texture-load-error hang, the cyan splash, the VMU-settings
 feature request), and the honest limit above: none of Phase 4's evidence has
 touched real silicon.
+
+**Phase 5 progress — the texture-error hang gate (Work item 1).** Wave A is
+done: the delivered/drive CRC instrument verifies clean on every DC-profile
+leg run so far, the hang was reproduced **unattended and deterministically**
+(two independent legs are byte-identical for 319,549 cartlog lines up to the
+marker), and a savestate was captured at the hang.
+
+**Gate status: verdict named, gate NOT closed — a fix is required.**
+Task 7's savestate forensics classify the captured occurrence as **T1 — VRAM
+texture-arena exhaustion** (`docs/kb/phase5-hardware.md` §Texture-error hang
+verdict). That is the brief's **verdict 2: our fit bug**, not exoneration.
+Headline numbers, all read out of the RAM image at the hang: the KAMUI2
+bank-0 arena is exactly 8,388,608 B (the patched 8 MB seed, confirmed live at
+`0x8c19ecb4`), 8,244,256 B allocated across 87 blocks with **zero gaps**, one
+free block of **144,352 B** — against a **264,192 B** request for a 1024×1024
+VQ texture. **Short by 119,840 B (117 KB)**; short by 384,032 B to place the
+whole 4-texture chunk. Not fragmentation (no gaps), not a leak (the previous
+scene's surfaces were released — live count fell 102 → 84), not the bytes
+(both CRC streams PASS *and* the failing asset is byte-identical to
+`senkosp.dat` over its full `0x40820` B), not a bad header (all three of
+`FUN_8c03ea1c`'s error branches individually excluded by observed cells).
+
+This also revises the §Dry-run headline above: the arena high-water at the
+hang (`0x7dcc20`) is **551,680 B above** the Phase 3 campaign's measured peak
+`content_high 0x756120`, so the "~680 KB VRAM headroom" figure did not bound
+the game's true peak demand. `dryrun_vram_below_8m` stays green as a record of
+what those 14 legs measured; it is no longer evidence that the 8 MB budget
+fits.
+
+**Next action: fix scope is a user decision** — Task 7 stops at the verdict by
+its own hard boundary and designs nothing. Hardware rounds stay blocked until
+the fix lands and the spec's re-verification bar is met. Phase is **not**
+advanced.
 
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.

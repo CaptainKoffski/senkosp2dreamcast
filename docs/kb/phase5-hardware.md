@@ -864,3 +864,492 @@ capture; no checker mismatches; the save/stop/start sequence did not crash
 or hang the emulator — the process continued logging `SHIMCRC`/`GDPIO`
 records and the render loop stayed alive per the C2D evidence above). The
 soak campaign's BUDGET ceiling (8 legs) was never approached.
+
+## Texture-error hang verdict (Task 7)
+
+**Question (spec §Work item 1, task brief
+`.superpowers/sdd/2026-08-23-phase5-hardware/task-7-brief.md`, refined by the
+controller's re-scope):** the Task 6 soak leg captured a savestate at the
+hang. Which of T1–T6 fired, and therefore which of the brief's four verdicts
+applies? The two Task 4 collisions matter here: `code == 6` is **T1** (VRAM
+texture-arena exhaustion, category (b), our fit bug) **or T4** (illegal
+texture header, category (a)) — see §Trigger taxonomy and §Limits above.
+
+**Verdict, up front: T1 — VRAM texture-arena exhaustion. Brief verdict 2:
+our fit bug. NOT exoneration; the hard gate is not satisfied and a fix is
+required.** T4 is excluded by six independent cell reads, T2/T3/T5/T6 by the
+error code and the table occupancies. Delivered and drive CRCs are clean on
+this leg and the failing asset's bytes in RAM are byte-identical to the
+ground-truth cart image — the bytes were never the problem. The evidence
+follows.
+
+### The evidence set
+
+- `captures/phase5/soak-1.log` — 636,994 lines. `TEXERR idx=00000002
+  code=00000006 d98=00000054` at line 319,549; `TEXERRSAVE code=00000006
+  slot=0 …/disc.state` at line 319,564.
+- `captures/phase5/soak-1-texerr.state` — 8,554,748 B, md5
+  `1d3a3c6d943ec93292732f17dd7704d4` (§The capture above). **Never
+  committed** (ROM-derived); the carve recipe is in `docs/kb/tooling.md`
+  §Phase 5: DC-profile RAM snapshot from a TEXERR savestate.
+- Checker on the same leg, re-run first-hand for this verdict:
+
+```
+$ python3 scripts/check_stream_crc.py --stdout captures/phase5/soak-1.stdout.log \
+    --cartlog captures/phase5/soak-1.log --dat senkosp.dat --track04 build/track04.iso
+CHECK shimcrc_match: PASS — 89 SHIMCRC record(s), 0 mismatch(es)
+CHECK gdread_match: PASS — 420 verified (fad>=base,type=0x800), 4 lowfad, 0 typeskip, 0 mismatch(es)
+CHECK coverage_nonzero: PASS — shim=89 record(s), drive=424 record(s)
+```
+
+**New finding — the hang is deterministic, not a 1-in-6 race.** The Task 5
+control leg (`instrument-ctl`) and the Task 6 soak leg (`soak-1`) are two
+independently launched processes, and their cartlogs are **byte-identical for
+all 319,549 lines up to and including the marker**:
+
+```
+$ head -319549 captures/phase5/instrument-ctl.log | md5   # 19cf13c13575cb7908b398fde0ddb833
+$ head -319549 captures/phase5/soak-1.log          | md5   # 19cf13c13575cb7908b398fde0ddb833
+```
+
+Same eight `TEXERR` lines at the same line numbers, same `idx=2 code=6
+d98=0x54`. Phase 4's "once in ~6 sessions" (`docs/kb/phase4-conversion.md`
+§Texture-error hang) described *operator-played* sessions; on the input-free
+attract path this failure is reproducible to the log line. That makes the
+forensics below a reading of a repeatable state, not of a one-off accident.
+
+### Step 1 — carving main RAM (recipe: `docs/kb/tooling.md`)
+
+The savestate is **RZip**, not zstd: `FLYSAVE1` header, then the magic
+`#RZIPv\x01#` at file offset `0x18`, `maxChunkSize = 0x00100000`,
+`totalSize = 28,106,129` — which equals the `size 28106129` the fork logged
+in `captures/phase5/soak-1.stdout.log`. 27 zlib chunks inflate to exactly
+28,106,129 B, consuming the file to its last byte.
+
+Main RAM located by the **marker scan** Phase 3 established
+(`docs/kb/tooling.md` §Phase 3: RAM snapshot) — layout-independent, no
+serializer parsing — using two markers that must agree:
+
+| Marker | Stream offset | Implied RAM base |
+|---|---|---|
+| `"\nsyMalloc Ver 2.01"` (RAM `0x8c15c980`) | `0xc28d94` | `0xacc414` |
+| boot-image head, `senkosp.dat[0:0x1000]` (RAM `0x8c020000`) | `0xaec414` | `0xacc414` |
+
+Both give `0xacc414`, and `0xacc414 + 16 MB = 0x1acc414` lands 6,525 B short
+of the stream end — i.e. the DC profile's 16 MB main RAM is the last large
+block in the stream, an independent corroboration of the base. (A second
+`syMalloc` banner copy at stream `0x1908d94` is *inside* the same 16 MB
+window, at RAM offset `0xce0000`; it is a data copy, not a second RAM
+region — the boot-image head does not match there.)
+
+**Carve control tests** (Phase 3's list, run against the extracted 16 MB):
+
+| Test | Result |
+|---|---|
+| `ram[0x15c980..]` = syMalloc banner | ✓ |
+| `ram[0x15b2c4..]` = GDFS error strings (`E00000009:`, `Illegal File Name`) | ✓ |
+| `ram[0x20000:0x21000] == senkosp.dat[0:0x1000]` | ✓ |
+| `ram[0x85b00:0x85bb4] == senkosp.dat[0x65b00:0x65bb4]` (heap-create code) | **1 word differs — expected** |
+| loaded-image span diff (`0x171ff8` B) | 1,350 B (Phase 3 Naomi snapshot: 907 B) |
+
+The single word that breaks the fourth test is `0x8c085b50`: RAM
+`0x4028cb8d` vs `.dat` `0x4028cb8e` — **exactly** this port's heap-top
+relocation patch (`scripts/reloc_patchset.json`, `dat_offset 0x65b50`,
+`0x4028cb8e → 0x4028cb8d`). The control test therefore passes in its
+corrected DC form: the only divergence is a patch we authored. All addresses
+below are P1 (`0x8c…`); RAM offset = `(addr & 0x1fffffff) − 0x0c000000`.
+
+### Step 2 — the relocation seeds are live in this image
+
+| Cell | Value at the hang | Meaning |
+|---|---|---|
+| `0x8c19e4bc` | `0x00010000` | `kmInitDevice` device word — still the Naomi device id the game passes |
+| `0x8c19e4bc + 0x7f8` = `0x8c19ecb4` | `0x00800000` | KAMUI2 total-VRAM-size state — **8 MB**, i.e. our patch took |
+| `0x8c170ebc` (config block + 4) | `0x00800000` | same value in the KAMUI2 config block |
+
+For contrast, Phase 3's *Naomi* RAM snapshot recorded `state+0x7f8 =
+0x01000000` and the config block runtime-overwritten to `0x01000000`
+(`scripts/reloc_patchset.json`, `dat_offset 0x1203c` rationale). The 16 MB →
+8 MB VRAM-size patch is confirmed **live at the moment of the hang** — this
+is the DC-shaped arena, not the Naomi one.
+
+### Step 3 — the classifier cells
+
+Read straight out of the RAM image; they reproduce the log line exactly.
+
+```
+8c1a2080: 00000000 37800080 8ce95d20 00000100
+8c1a2090: 8ce93500 00000100 00000054 00000000
+8c1a20a0: 00000002 ffffffff 00000006 00000000
+```
+
+| Cell | Value | Meaning (pool word verified in this image) |
+|---|---|---|
+| `0x8c1a20a0` | `0x00000002` | failing texture-list index = 2 (`DAT_8c070de0` = `0x8c1a20a0` ✓) |
+| `0x8c1a20a8` | `0x00000006` | KAMUI2 error code (`DAT_8c03ffe4` = `DAT_8c03fc74` = `DAT_8c040844` = `0x8c1a20a8` ✓) |
+| `0x8c1a2098` | `0x00000054` = 84 | live-surface counter (`DAT_8c040838` = `DAT_8c03fc78` = `0x8c1a2098` ✓) |
+| `0x8c1a2088` / `0x8c1a208c` | `0x8ce95d20` / `256` | surface array base / capacity |
+| `0x8c1a2090` / `0x8c1a2094` | `0x8ce93500` / `256` | texture-object array base / capacity |
+
+**Correction to §Texture-error handler's structure names.** That section
+called `*0x8c1a2090` the "VRAM-block descriptor array (stride `0x28`)". The
+decompilation of `FUN_8c03fb58` (`Decomp.java 0x8c03fb58`) shows it is the
+**texture-object** array — `FUN_8c03fb58` scans it at `piVar2 + 10`
+(int-stride 10 = `0x28` bytes) for `*entry == -1` (free) — and the real
+**VRAM-block descriptor** pool is a *third* table, rooted in the KAMUI2
+config block at `[PTR_DAT_8c03c7c0 + 0x20]`, stride `0x18`, capacity
+`[+8]`. Both `PTR_DAT_8c03c7c0` and `PTR_DAT_8c03c4c0` resolve to the same
+config block `0x8c170eb8` in this image. The stride-`0x18`/`0x28`
+attribution in the earlier section was therefore swapped; every other claim
+in it (cell addresses, error codes, call chain) verified unchanged.
+
+### Step 4 — structure layouts, derived from decompilation
+
+All layouts below come from `scripts/ghidra/run.sh script Decomp.java <fn>`
+against the committed harness, not from guesswork; the RAM image then
+confirms each one.
+
+**VRAM-block descriptor** (`FUN_8c03c46e`, `0x8c03c46e`; pointer arithmetic
+in the decompilation is `ushort*`, so `+n` = byte `+2n`):
+
+| Byte offset | Field | Decompiler expression |
+|---|---|---|
+| `+0x00` (u16) | flags: `1` = allocated, `\|0x10` bank 0, `\|0x20` bank 1, `\|param_1` type | `*puVar2 = 1; … \| 0x10 … \| param_1` |
+| `+0x04` | prev link | — |
+| `+0x08` | next link | `puVar4 = *(ushort **)(puVar1 + 4)` |
+| `+0x0c` | VRAM byte address | `*param_3 = *(undefined4 *)(puVar2 + 6)` |
+| `+0x10` | block size | `*(uint *)(puVar1 + 8) < param_2` |
+| `+0x14` | owner (back-pointer to the requester's address slot) | `*(undefined4 **)(puVar2 + 10) = param_3` |
+
+Node stride `0x18` (confirmed: consecutive live nodes are `0x18` apart).
+
+**Config block `0x8c170eb8`** (from `FUN_8c03c46e` / `FUN_8c03c764`, values
+read at the hang):
+
+| Offset | Value | Meaning |
+|---|---|---|
+| `+0x04` | `0x00800000` | total VRAM size (the patched seed) |
+| `+0x08` | `0x105` = 261 | block-descriptor pool capacity (`FUN_8c03c764`'s loop bound) |
+| `+0x20` | `0x8ced7d80` | block-descriptor pool base, stride `0x18` |
+| `+0x24` / `+0x28` | `0x8ced85a8` / `0x8ced7d98` | bank-0 **allocated** list head / tail |
+| `+0x2c` / `+0x30` | `0x8ced7d80` / `0x8ced7d80` | bank-0 **free** list head / tail |
+| `+0x34…+0x40` | all `0` | bank 1 — unused |
+
+**Texture object** (stride `0x28`; `FUN_8c03ff38` passes `texobj + 4` as
+`FUN_8c03ea1c`'s `param_1`, so `param_1[k]` = byte `texobj + 4 + 4k`):
+
+| Byte offset | Field | Written by |
+|---|---|---|
+| `+0x00` | name / global index; `-1` = slot free | `FUN_8c040648`, `**(int **)(local_1c+0xc) = local_14` |
+| `+0x04` | `format << 16 \| 2` (or `\|3`) | `FUN_8c03ea1c` `*param_1` |
+| `+0x08` | `1` | `param_1[1] = 1` |
+| `+0x0c` | format-class value | `param_1[2]` |
+| `+0x10` | declared width | `param_1[3] = param_2` |
+| `+0x14` | declared height | `param_1[4] = param_3` |
+| `+0x18` | computed VRAM byte size | `param_1[5] = FUN_8c03ed78(param_1)` |
+| `+0x1c` | derived flag word (low 6 bits = the w/h codes) | `param_1[6]` |
+| `+0x20` | **VRAM address slot** — the allocator's `param_3` | `param_1 + 7` in `FUN_8c03f38c` |
+| `+0x24` | `1` once the surface is complete | `FUN_8c040648` |
+
+Confirmed against the arena: every allocated block's `owner` field is
+`0x8ce93500 + 0x20 + n*0x28` for `n = 0…83` — exactly `&texobj[n].vram_addr`.
+
+**Surface** (stride `0x18`): `+0x0c` = texture-object pointer, `0` = slot
+free (`FUN_8c03fb58` scans for `*(int *)(iVar4 + 0xc) == 0`); `+0x10` = 1 on
+success.
+
+### Step 5 — the VRAM arena at the hang
+
+Walking both bank-0 lists from the config block:
+
+```
+BANK 0: alloc_head=8ced85a8 alloc_tail=8ced7d98 free_head=8ced7d80 free_tail=8ced7d80
+BANK 1: alloc_head=00000000 alloc_tail=00000000 free_head=00000000 free_tail=00000000
+
+FREE list (1 node):
+  @8ced7d80 flags=0001 prev=00000000 next=00000000 vaddr=007dcc20 size=144352 (0x233e0)
+
+ALLOC list: 87 nodes, total 8,244,256 B
+```
+
+| Quantity | Value |
+|---|---|
+| Free, bank 0 | **144,352 B (0x233E0)** — one node, `next = NULL` |
+| Allocated, bank 0 | 8,244,256 B across 87 nodes |
+| **Total** | **8,388,608 B = 0x800000 = exactly 8 MB** |
+| Blocks sorted by `vaddr`, gap check | 88 blocks, span `0x000000…0x800000`, **0 bytes of gap** |
+
+The arithmetic closes on the nose: the arena *is* the whole 8 MB the patched
+seed configured, and it is **98.28 % full**. The single free node sits at the
+very top (`0x7dcc20 + 0x233e0 = 0x800000`), so there is **no fragmentation
+loss whatsoever** — a coalescing or defrag fix would recover exactly zero
+bytes. Breakdown of the allocated side by flag word:
+
+| Flags | Count | Bytes | What |
+|---|---|---|---|
+| `0x0011` | 84 | 6,749,216 | textures (matches `*0x8c1a2098` = 84 and the 84 in-use texture objects) |
+| `0x0013` | 1 | 1,228,800 | scan-out framebuffer pair at `vaddr 0x40000` (= 2 × 640×480×2) |
+| `0x0043` | 1 | 262,144 | region/TA block at `vaddr 0x00000000` |
+| `0x0015` | 1 | 4,096 | one `0x1000` block at `vaddr 0x53bc20` |
+
+**T2 excluded numerically here:** 84 of 256 surfaces and 84 of 256 texture
+objects are in use — neither table is close to full, and a full table would
+have written `7`, not `6`, to `0x8c1a20a8` (`FUN_8c03fb58` `0x8c03fbae`).
+
+### Step 6 — the failing request
+
+`FUN_8c03fb58` claims a surface slot and a texture object *before*
+`FUN_8c03ff38` runs, and `FUN_8c040648`'s failure path only clears the
+**surface** (`*(local_1c + 0xc) = 0`) — it does not scrub the texture
+object. So the in-flight descriptor survives the failure. It is the one slot
+in the whole table that is marked free yet fully populated:
+
+```
+texobj[84] @8ce94220:
+  +00 name  = ffffffff   (never claimed - the allocation failed)
+  +04 fmt   = 03010002   (= 0x0301 << 16 | 2)
+  +08       = 00000001
+  +0c       = 08000000
+  +10 width = 1024
+  +14 heigh = 1024
+  +18 size  = 264192  (0x40800)   <-- the request
+  +1c flags = 4000003f
+  +20 vaddr = 00000000   (never allocated)
+  +24       = 00000000   (never completed)
+
+texobj[82] @8ce941d0: name=00000286 fmt=03010002 1024x1024 size=264192 vaddr=0075bc20  (succeeded)
+texobj[83] @8ce941f8: name=00000287 fmt=03010002 1024x1024 size=264192 vaddr=0079c420  (succeeded)
+surf[84]   @8ce96500: all zero  (cleared by FUN_8c040648's failure path)
+```
+
+**The request was 264,192 B. The arena's largest — and only — free block was
+144,352 B. Shortfall: 119,840 B (117.0 KB).**
+
+`FUN_8c03c46e`'s free-list walk (`while (puVar1 != 0) { if (size < param_2)
+next; else { candidate; break; } }`) therefore never found a candidate,
+fell to `LAB_8c03c542` and returned **3** → `FUN_8c03f38c` returned 3 →
+`FUN_8c03ff38` set `*0x8c1a20a8 = 6` and returned `-1`. That is **T1**,
+exactly as §Trigger taxonomy predicted it would look.
+
+### Step 7 — the whole call chain, recovered from the live stack
+
+The boot stack (`0x8c000000`–`0x8c00f000`, `docs/kb/00-status.md`) still
+holds the failing frame at the hang, because the error loop `FUN_8c0ad720`
+runs *deeper* and never overwrote it:
+
+```
+8c00e940: 8ce94220 00000288 8c00e980 00000000
+8c00e950: 8c0407f0 8c00e978 8ce92c6c 00000002
+8c00e960: 00000288 00000000 8c070b78 8ce92a38
+8c00e970: 8c00e980 8c00e978 ffffffff 00000288
+8c00e980: 00000301 04000400 00000000 ffffffff
+8c00e990: 8c070dbc 40000000 00000000 000000ff
+8c00e9a0: 8c0b6370 00000000 000000ff 8c1d9d5c
+8c00e9b0: 8c188b33 8c188b8a 8c00ea80 000000ff
+```
+
+Every word of the statically-derived chain is present, as return addresses
+(each = `jsr` address + 4) and arguments:
+
+| Stack word | Value | What it is |
+|---|---|---|
+| `8c00e940` | `8ce94220` | **texobj[84]** — the abandoned descriptor above |
+| `8c00e944`, `8c00e960`, `8c00e97c` | `00000288` | the texture's name/global index (siblings were `0x286`, `0x287`) |
+| `8c00e948`, `8c00e970` | `8c00e980` | pointer to the header struct below |
+| `8c00e950` | `8c0407f0` | PR from `FUN_8c0407ba`'s `jsr` to `FUN_8c040648` at `0x8c0407ec` |
+| `8c00e958` | `8ce92c6c` | the texture-list struct |
+| `8c00e95c` | `00000002` | **the list index — matches `*0x8c1a20a0`** |
+| `8c00e968` | `8c070b78` | PR from the slot-1 loader's `jsr` to `FUN_8c0407ba` at `0x8c070b74` — §Texture-error handler's return-false site #2 (that section quoted the range `0x8c070b7a`–`0x8c070b82`, i.e. the store/return tail; the `jsr` itself is at `0x8c070b74` per Ghidra's caller list for `FUN_8c0407ba`, and `PR = jsr + 4`) |
+| `8c00e96c` | `8ce92a38` | `&entries[2]` (see below) |
+| `8c00e980` | `00000301 04000400` | the header: format `0x0301`, w `0x0400`, h `0x0400` |
+| `8c00e990` | `8c070dbc` | PR from `FUN_8c070da8`'s `jsr` to `FUN_8c070d4c` at `0x8c070db8` |
+| `8c00e994` | `40000000` | the list entry's flag word — the constant the `TXTR` branch writes |
+| `8c00e9a0` | `8c0b6370` | PR from the **print site `jsr` at `0x8c0b636c`** |
+| `8c00e9b4` | `8c188b8a` | the address of `"TEXTURE LOAD ERROR !\n"` |
+
+The chain the Task 4 static analysis derived is confirmed end to end by
+runtime state, not merely by decompiler inference.
+
+**The texture list.** `*0x8ce92c6c = 0x8ce92a20` (entry array), `[+4] = 4`
+(count = 4). Entries are the documented 12 bytes `{data ptr, 0x40000000, 0}`:
+
+| # | data ptr | flags | outcome |
+|---|---|---|---|
+| 0 | `8c9d84e0` | `40200000` | loaded → texobj[82] (`name 0x286`, VRAM `0x75bc20`) |
+| 1 | `8ca18d00` | `40200000` | loaded → texobj[83] (`name 0x287`, VRAM `0x79c420`) |
+| 2 | `8ca59520` | `40000000` | **FAILED** — `*0x8c1a20a0 = 2` |
+| 3 | `8ca99d40` | `40000000` | never attempted (`FUN_8c070da8` breaks on the first failure) |
+
+(The `0x00200000` bit distinguishes the two that completed from the two that
+did not — an incidental corroboration, not a cited primitive.)
+
+### Step 8 — the failing asset, and its bytes
+
+The entry-2 pointer resolves to a standard GBIX+PVRT texture (bytes shown in
+file order, grouped by four — not word values):
+
+```
+8ca59520: 47424958 08000000 88020000 00000000   "GBIX" len=8 index=0x00000288
+8ca59530: 50565254 08080400 01030000 00040004   "PVRT" datalen=264200 pixfmt=01 datatype=03 1024x1024
+```
+
+The GBIX global index `0x288` is the same `0x288` on the stack and the next
+value in the `0x286`/`0x287` naming sequence. The header word
+`FUN_8c03ff38` reads (`*param_2`, at `0x8ca59538`) is `0x00000301` with
+`w = h = 1024` at `+4`/`+6` — matching the stack copy at `0x8c00e980`.
+
+**The size the game computed is arithmetically correct**: a 1024×1024 VQ
+texture is a 2,048-byte codebook plus one index byte per 2×2 texel =
+`2048 + 1024*1024/4` = **264,192 B**, exactly `texobj[84]+0x18`. The
+library's own size computation (`FUN_8c03ed78`) is not at fault either.
+
+**Delivered bytes are provably correct — a direct byte comparison, not a
+CRC sample.** The complete in-RAM body of the failing texture (header +
+264,192 B payload = `0x40820` B) is **byte-identical** to
+`senkosp.dat` at file offset `0xb736fe0`, and its 256-byte head occurs
+exactly once in the 251 MB image. The three sibling entries likewise:
+
+| entry | RAM | found in `senkosp.dat` at | occurrences |
+|---|---|---|---|
+| 0 | `8c9d84e0` | `0xb6b5fa0` | 1 |
+| 1 | `8ca18d00` | `0xb6f67c0` | 1 |
+| 2 (failing) | `8ca59520` | `0xb736fe0` | 1 — full `0x40820` B **IDENTICAL** |
+| 3 | `8ca99d40` | `0xb777800` | 1 |
+
+Consecutive, `0x40820` apart: this PAK chunk is four back-to-back 1024×1024
+VQ textures, 1,056,768 B of VRAM for the set. This is the strongest form of
+the Task 5/6 CRC result — for *this specific asset* the delivered bytes are
+not merely CRC-equal at sampled points, they are equal everywhere.
+
+### Step 9 — T4 excluded, branch by branch
+
+`FUN_8c03ea1c` (`0x8c03ea1c`) has exactly three sites that set its return to
+`4`. Each writes a distinguishable trace into `texobj+4…+0x1c`, and all
+three are excluded by the observed values (`param_4 = 0x00000301`, so
+`uVar4 = param_4 & DAT_8c03eae0(0xff00) = 0x0300`):
+
+| `uVar5 = 4` site | Condition | Observed | Excluded because |
+|---|---|---|---|
+| format switch (joins at `0x8c03eafe`) | `param_4 & 0xff` not in `{0,1,2,3,4}` after the `uVar4` table misses | `texobj+0x0c = 0x08000000` | `0x0300` misses the `DAT_8c03ead0…eade` set (`0500 0600 1300 1400 0700 0800 1500 1600`) → falls to the `param_4 & 0xff` switch; `0x01` takes the `uVar1 == 1` arm, writing `DAT_8c03eaec = 0x08000000`. Observed exactly. The error arm writes nothing here. |
+| width / height table | `param_2` or `param_3` not in `{8,16,32,64,128,256,512,1024}` | `texobj+0x1c = 0x4000003f` | width `1024` → `uVar6 = 0x38`; height `1024` → `uVar6 \|= 7` → `0x3f`. A width miss leaves `0x07`, a height miss leaves `0x38` (it `goto`s past the OR). Only both-legal produces `0x3f`. |
+| `0x8c03eba8` (square) | `uVar4` outside `{0900,0b00,0d00,0500,0700}` **and** `param_2 != param_3` | `1024 == 1024` | the second conjunct is false regardless of `uVar4`. |
+
+Also consistent: `texobj+0x04 = 0x03010002` is the `else` arm (`| 2`), and
+`texobj+0x08 = 1` is `param_1[1] = 1` — both on the normal path.
+`FUN_8c03ea1c` returned **0**. **T4 did not fire.**
+
+For completeness against the rest of the taxonomy: T3 and T6 write `1` to
+`0x8c1a20a8` (observed `6`); T5 writes `8`; T2 writes `7` and would need one
+of the two 256-entry tables full (both at 84). **T1 is the only surviving
+trigger**, and the free-list state independently confirms it rather than
+merely permitting it.
+
+### Step 10 — the relocation math, cross-checked
+
+The verdict has to be numerically coherent with the port's own VRAM budget,
+not just cell-consistent.
+
+| Quantity | Bytes | Source |
+|---|---|---|
+| DC VRAM arena (patched seed) | 8,388,608 | `0x8c19ecb4` = `0x00800000`; arena walk sums to `0x800000` |
+| Naomi arena (unpatched seed) | 16,777,216 | `scripts/reloc_patchset.json` `dat_offset 0x1203c`, `0x01000000` |
+| Non-texture reservations at the hang | 1,495,040 | FB pair 1,228,800 + region 262,144 + 4,096 |
+| Textures resident at the hang | 6,749,216 | 84 blocks, flags `0x0011` |
+| Arena high-water at the hang | 8,244,256 (`0x7dcc20`) | free block base |
+| Free | 144,352 | free-list walk |
+| **Failing request** | **264,192** | `texobj[84]+0x18`; VQ 1024×1024 |
+| **Shortfall (this texture)** | **119,840** | 264,192 − 144,352 |
+| Shortfall to place the whole 4-texture chunk | 384,032 | 1,056,768 − (144,352 + 2×264,192) |
+| Demand implied at this instant | 8,508,448 (`0x81d420`) | high-water + request = **1.43 % over the 8 MB cap** |
+
+On the unpatched Naomi seed the same scene has `16,777,216 − 8,244,256` =
+8,532,960 B free — **32× the failing request**, so this failure cannot occur
+on the original hardware configuration. The deficit is created by the port's
+own 16 MB → 8 MB VRAM-size patch: **category (b), our fit bug**, per
+§What this means for the Task 7 verdict.
+
+**Against the Phase 3 dry-run margin.** `docs/kb/00-status.md` records
+`dryrun_vram_below_8m` green with "**~680 KB VRAM headroom** at the match
+peak (`content_high 0x756120` vs the 8 MB cap = 696,032 B free)". The arena
+high-water measured here is `0x7dcc20` — **551,680 B above** the dry run's
+peak. The 14-leg Phase 3 campaign therefore never reached this scene's VRAM
+demand, and its "680 KB headroom" was not the game's true peak; the real
+peak (this instant) *exceeds* the cap by 119,840 B. Two honest notes on that
+comparison: the dry run's `content_high` is a **write** high-water (a
+texture that fails to allocate is never written, so a failing run would read
+*lower*, not higher), and it was taken on the Naomi profile — whether the
+dry-run legs ever entered this particular attract segment is **not**
+established by anything in this task. What *is* established is that the
+gate's margin figure did not bound the peak.
+
+(Suggestive but not cited as evidence: `0x756120` sits 23,296 B below
+`0x75bc20`, where this scene's first 1024×1024 texture landed.)
+
+### Verdict
+
+**T1 — VRAM texture-arena exhaustion. Brief verdict 2: OUR fit bug. The
+hard gate is NOT satisfied by exoneration; a fix is required before hardware
+rounds.**
+
+Applying the brief's decision table with the KB taxonomy:
+
+- delivered == GDI: **yes** (`shimcrc_match` PASS, 89/0, plus a full-body
+  byte-identity check on the exact failing asset).
+- drive == GDI: **yes** (`gdread_match` PASS, 420 verified / 0 mismatch).
+- trigger path: **allocation failure**, category (b) — `FUN_8c03c46e`
+  returned 3 with a 144,352-byte largest free block against a 264,192-byte
+  request.
+
+That is verdict 2 verbatim: *"delivered == GDI ∧ trigger path is allocation
+failure → our fit bug (VRAM arena / heap pressure at the transition). NOT
+exoneration. Fix required."* Verdicts 1, 3 and 4 are all excluded: the bytes
+are clean on both streams (rules out 3 and 4) and the trigger is category
+(b), not (a)/(c)-with-good-bytes (rules out 1).
+
+**Per the Task 7 hard boundary, no fix is designed or implemented here.** The
+fix scope goes to the user with this evidence. For whoever authors it, the
+forensics constrain it sharply:
+
+- **Not fragmentation.** Zero gaps across the whole `0x800000`; the free
+  space is one contiguous tail block. Compaction recovers nothing.
+- **Not a leak.** The live counter fell `0x66 → 0x54` (102 → 84) across the
+  preceding scene transition, so the previous scene's surfaces *were*
+  released and coalesced.
+- **Not the loader or the bytes.** Both CRC streams clean, and the failing
+  asset is byte-identical to the cart image over its full `0x40820` B.
+- **Not the size computation.** 264,192 B is arithmetically exact for a
+  1024×1024 VQ texture.
+- It is a **budget deficit of 119,840 B (117 KB) at this instant**, 384,032 B
+  if the whole 4-texture chunk must fit — against a hard 8 MB cap that the
+  DC cannot raise.
+
+### Limits of this verdict
+
+- **One savestate.** Three occurrences are on record (Phase 4 `play1` with a
+  screenshot, Task 5 `instrument-ctl`, Task 6 `soak-1`); only `soak-1`
+  carries RAM state. The `instrument-ctl` leg is byte-identical to `soak-1`
+  up to the marker, so those two are the same event; `play1` was an
+  operator-played match and is matched only by log signature
+  (`MDODMA` dead, the same frozen `C2D src=` pair) — **not** proven to be the
+  same trigger. A played match could still hit T4 or another trigger.
+- **Unattended, no screenshot.** This leg set no `FLYCAST_SHOT`; the on-screen
+  text is inferred from `0x8c188b8a` on the stack and from `play1`'s
+  screenshot, not photographed here.
+- **Sampling latency.** `cartlog_texerr_tick()` samples every 64th
+  `STARTRENDER` write, so the marker's *log position* can trail the actual
+  failure by up to ~64 render submissions (~1.1 s at this leg's 57 Hz). The
+  savestate's *content* is unaffected by that: the abandoned `texobj[84]`,
+  the cleared `surf[84]` and the intact stack frame all show the failing call
+  and nothing after it.
+- **The error loop ran before the save.** `FUN_8c0ad720` re-presents every
+  frame between the failure and `TEXERRSAVE` (15 cartlog lines later). It
+  prints with already-resident font surfaces and the arena state is
+  self-consistent with the in-flight descriptor, but a strict reading is
+  "the arena as it stood a frame or two after the failure", not "at the
+  instruction".
+- **Not re-derived here:** whether the KAMUI2 arena would be laid out
+  differently by a different bank/placement strategy, and whether the Phase 3
+  dry-run legs ever entered this attract segment (§Step 10).
+- **No fix, no hardware claim.** Nothing in this task ran on real silicon;
+  the verdict is about the port's VRAM budget, which is profile-independent
+  (the arena is the game's own bookkeeping, not the emulator's).

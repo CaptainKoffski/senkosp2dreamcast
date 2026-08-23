@@ -726,6 +726,69 @@ fully recorded in that table) and is not part of this inventory.
 |---|---|---|---|
 | `phase5/probe-smoke.log`(`+.engine.bin`, `+.stdout.log`) | — | — | **Task 2 smoke leg** — 60 s unattended attract against the `GDPIO`/`GDDMA`-emitting fork. `docs/kb/tooling.md` §Instrumented Flycast has the full account. |
 | `phase5/instrument-ctl.log`(`+.engine.bin`, `+.stdout.log`) | 367,518 | 12 MB | **Task 5 control leg** — diagnostic disc (`SHIM_SERIAL=1 SHIM_CRC=1`), unattended, ~296 s. All three `check_stream_crc.py` CHECKs PASS; 8 `TEXERR` lines including one `code=6` line that is a second, independently-captured occurrence of the texture-error hang (§Texture-error handler / §Instrument control test, `docs/kb/phase5-hardware.md`). Kept as primary data despite the mid-leg hang — same never-delete rule as every other capture. |
+| `phase5/task6-sanity.log`(`+.engine.bin`, `+.stdout.log`) | 108,988 | 3.7 MB | **Task 6 sanity leg** — 90 s unattended attract against the auto-savestate fork. 5 `TEXERR` lines, all `code=00000000`; 0 `TEXERRSAVE`; all three CHECKs PASS. |
+| `phase5/soak-1.log`(`+.engine.bin`, `+.stdout.log`) | 636,994 | 19 MB | **Task 6 soak leg — the hang capture.** 600 s unattended. `TEXERR idx=2 code=6 d98=0x54` at line 319,549, `TEXERRSAVE` at line 319,564; all three CHECKs PASS. Byte-identical to `instrument-ctl.log` for all 319,549 lines up to the marker (`head -319549 | md5` = `19cf13c13575cb7908b398fde0ddb833` for both) — the hang is deterministic on the attract path. |
+| `phase5/soak-1-texerr.state` | — | 8,554,748 B | **The savestate at the hang** (md5 `1d3a3c6d943ec93292732f17dd7704d4`), preserved out of Flycast's overwrite-prone slot dir. RZip; carve recipe in §Phase 5: DC-profile RAM snapshot from a TEXERR savestate. ROM-derived — gitignored, never committed. |
+
+### Phase 5: DC-profile RAM snapshot from a TEXERR savestate (Task 7, 2026-08-23)
+
+Carving `captures/phase5/soak-1-texerr.state` (the one-shot auto-savestate
+from `docs/kb/phase5-hardware.md` §Auto-savestate capture) into a 16 MB main-RAM
+image. **No new script** — this is a one-off adaptation of the Phase 3 recipe
+above (§Phase 3: RAM snapshot), recorded verbatim instead of committed, per
+Task 7's "lazier sufficient option" ruling. Nothing new was installed; python3
+stdlib (`struct`, `zlib`) only. Outputs go to a session scratchpad — the
+inflated stream and the RAM image are ROM-derived and are **never** committed.
+
+Three deltas from the Phase 3 recipe, all load-bearing:
+
+1. **Format is RZip, not zstd.** `xxd -l 64` shows `FLYSAVE1`, then the magic
+   `#RZIPv\x01#` at file offset `0x18`. Same `magic + u32 maxChunkSize +
+   u64 totalSize + u32-length-prefixed zlib chunks` layout as Phase 3
+   (`.../core/archive/rzip.cpp`), so `find(b"#RZIPv\x01#")` still works and no
+   `zstd` tool is needed. Sanity: `totalSize` must equal the
+   `N[SAVESTATE]: Saved state to ... size <N>` value in the leg's `.stdout.log`
+   (here 28,106,129), and the chunk loop must consume the file to its last byte.
+2. **DC profile = 16 MB at phys `0x0c000000`**, not Naomi's 32 MB. Address →
+   image offset is `(addr & 0x1fffffff) - 0x0c000000`.
+3. **Two markers must agree** before trusting the base — one alone is not
+   enough here, because the `syMalloc` banner appears **twice** in the stream
+   (the second is a data copy at RAM offset `0xce0000`). Use the banner *and*
+   the boot-image head:
+
+```python
+import struct, zlib
+b   = open("captures/phase5/soak-1-texerr.state","rb").read()
+o   = b.find(b"#RZIPv\x01#") + 8
+mx, total = struct.unpack_from("<IQ", b, o); o += 12
+out = bytearray()
+while len(out) < total:                       # 27 chunks -> 28,106,129 B
+    (n,) = struct.unpack_from("<I", b, o); o += 4
+    out += zlib.decompress(b[o:o+n]);        o += n
+
+dat  = open("senkosp.dat","rb").read(0x200000)
+base = out.find(b"\nsyMalloc Ver 2.01") - 0x15c980      # 0xacc414
+assert base == out.find(dat[0:0x1000]) - 0x20000        # same base from the boot-image head
+ram  = out[base:base+16*1024*1024]                      # base+16M lands 6,525 B short of EOF
+```
+
+**Carve control tests** (run all four before analysing; Phase 3's list with one
+DC-specific correction):
+
+| Test | DC expectation |
+|---|---|
+| `ram[0x15c980:0x15c992]` == `b"\nsyMalloc Ver 2.01"` | pass |
+| `ram[0x15b2c4:...]` == GDFS error strings (`E00000009:`, `Illegal File Name`) | pass |
+| `ram[0x20000:0x21000] == senkosp.dat[0:0x1000]` | pass |
+| `ram[0x85b00:0x85bb4] == senkosp.dat[0x65b00:0x65bb4]` | **fails on exactly one word** — `0x8c085b50` reads `0x4028cb8d` vs the `.dat`'s `0x4028cb8e`. That *is* the heap-top relocation patch (`scripts/reloc_patchset.json`, `dat_offset 0x65b50`). On a DC-profile image this test passes only in that corrected form; a byte-identical result would mean the patch did **not** take. |
+
+Whole-image sanity for this capture: 1,350 of 1,515,512 bytes of the loaded
+image span differ from the `.dat` (Phase 3's Naomi snapshot: 907) — the extra
+diffs are this port's patched cells plus initialized-data writes.
+
+Reading cells afterwards is plain `struct.unpack_from("<I", ram, off(addr))`;
+the decompiler side used the already-committed harness unchanged
+(`scripts/ghidra/run.sh script Decomp.java 0x8c03c46e` etc.).
 
 ### Dynarec toggle — restore after an interpreter-only leg
 
