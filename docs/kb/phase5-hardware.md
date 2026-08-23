@@ -203,6 +203,8 @@ of 12-byte entries and then calls the loader:
 ```
 if (list->count == 0) { *(0x8c1a20a0 + 8) = 1; return -1; }     // empty TXTR chunk
 else                    return FUN_8c070da8(list);               // arg2 = 1 -> pool 0x8c070ef0
+//                        ^ pool DAT_8c070eec = 0x8c1a20a0, so "+ 8" is 0x8c1a20a8 --
+//                          the SAME cell the KAMUI2 leaves use for their error code.
 ```
 
 `FUN_8c070da8` (`0x8c070da8`–`0x8c070ddb`) loops the list; the first entry
@@ -269,10 +271,10 @@ Descending each branch:
 |---|---|---|---|
 | T1 | VRAM texture-arena has no free block ≥ the requested size (or the block-descriptor pool is empty) | **(b) allocation / arena-space** | `FUN_8c03c46e` returns 3 at `0x8c03c542` → `FUN_8c03f38c` `0x8c03f400` → `FUN_8c03ff38` sets `*0x8c1a20a8 = 6`, returns −1 → `FUN_8c040648` → `FUN_8c0407ba` → false at `0x8c070b7a` → `FUN_8c070da8` −1 → print `0x8c0b636c` |
 | T2 | KAMUI2 surface-slot table or VRAM-block-descriptor table full | **(b) allocation / arena-space** | `FUN_8c03fb58` sets `*0x8c1a20a8 = 7`, returns −1 at `0x8c03fbae`; reached from `0x8c04065a` (`FUN_8c040648`), `0x8c04057a` (`FUN_8c04052a`), `0x8c03e94e` (`FUN_8c03e8ec`) — all on the slot-1 path |
-| T3 | Surface exists but carries no texture buffer | **(b) allocation / arena-space** | `FUN_8c04074a` `*0x8c1a20a8 = 1`, `return -1`; checked at `0x8c070b8c` |
+| T3 | Surface exists but carries no texture buffer | **(b) allocation / arena-space** | `FUN_8c04074a` `*0x8c1a20a8 = 1`, `return -1`; checked at `0x8c070b8c`. **Writes the same cell and the same value as T6** — see the classifier caveat |
 | T4 | Texture header declares an illegal width, height, or format code | **(a) data integrity** | `FUN_8c03ea1c` returns 4 (`0x8c03eafe`, `0x8c03eba8`) → `FUN_8c03f38c` nonzero → `*0x8c1a20a8 = 6` → same chain as T1 |
 | T5 | Texture's declared data extent does not fit the surface its header asked for | **(a) data integrity** | `FUN_8c03fdc6` returns 7 (`param_1[5] <= uVar4`) → `FUN_8c04074a` `*0x8c1a20a8 = 8`, −1; checked at `0x8c070b8c` |
-| T6 | `TXTR` chunk declares zero entries | **(a) data integrity** (structural) | `FUN_8c070ebc` `*(0x8c1a20a0 + 8) = 1; return -1` — the `-1` is produced without ever calling the loader |
+| T6 | `TXTR` chunk declares zero entries | **(a) data integrity** (structural) | `FUN_8c070ebc` `*(DAT_8c070eec + 8) = 1; return -1`, and `DAT_8c070eec` = `0x8c1a20a0`, so this writes **`0x8c1a20a8` = 1 — the same cell and value as T3**. The `-1` is produced without ever calling the loader |
 | — | lookup / filename failure | **(c) — NOT reachable** | see below |
 
 **Category (c) is excluded, with evidence.** The texture path never sees a
@@ -316,17 +318,45 @@ classify an occurrence. The classifier must read the KAMUI2 state:
 | `*0x8c1a20a8 == 6` and the VRAM free list has no block ≥ the request | out of VRAM arena | (b) — T1 |
 | `*0x8c1a20a8 == 6` with free VRAM available | illegal header w/h/format | (a) — T4 |
 | `*0x8c1a20a8 == 7` | surface/block table full | (b) — T2 |
-| `*0x8c1a20a8 == 1` | surface without buffer | (b) — T3 |
+| `*0x8c1a20a8 == 1` **and** `0x8c1a20a0` was written this occurrence | surface without buffer | (b) — T3 |
+| `*0x8c1a20a8 == 1` **and** `0x8c1a20a0` was *not* written | empty `TXTR` chunk | (a) — T6 |
 | `*0x8c1a20a8 == 8` | data extent overruns the surface | (a) — T5 |
-| `*(0x8c1a20a0 + 8) == 1` | empty `TXTR` chunk | (a) — T6 |
+
+**Two rows of this table are not separable by the error code alone**, and
+both collisions cross the (a)/(b) line that decides the gate:
+
+- **`6` is T1 or T4** — hence the free-list condition in the first two rows.
+- **`1` is T3 or T6, at the same address with the same value.**
+  `FUN_8c070ebc`'s empty-chunk write is `*(DAT_8c070eec + 8) = 1` with
+  `DAT_8c070eec` = `0x8c1a20a0`, i.e. `0x8c1a20a8`; `FUN_8c04074a`'s
+  no-buffer write is `*DAT_8c040844 = 1` with `DAT_8c040844` = `0x8c1a20a8`.
+  One cell, one value, opposite verdicts.
+
+**Auxiliary discriminator for the `1` collision — verified against the
+decompilation.** `FUN_8c070da8` writes the failing list index to
+`*DAT_8c070de0` = **`0x8c1a20a0`** (offset 0, a *different* cell from the
+error code at +8), and it does so only on the loop-break path — i.e. only
+when a per-texture load actually returned false. T6 short-circuits inside
+`FUN_8c070ebc` at the `list->count == 0` test and returns `-1` **without
+ever calling `FUN_8c070da8`** (the only call is at `0x8c070ed6`), so it
+cannot reach that store. Therefore:
+
+> a write to `0x8c1a20a0` between the texture-list submission and the
+> marker ⇒ **not T6**; its absence ⇒ **T6**.
+
+This must be instrumented as a **write-watch, not a value read**: the index
+is legitimately `0` when the first entry fails, which is indistinguishable
+by value from a stale or zeroed cell. Both cells are shared by every
+texture-list load in the game (`FUN_8c070ebc` has 15 call sites, including
+the `PKTX` and `LOADPACKSTEX` paths at `0x8c0b647e`, `0x8c0b64b4`,
+`0x8c0b6908`), so the watch must be scoped to the marked occurrence.
 
 `*0x8c1a20a0` additionally holds the **index within the texture list** of
-the entry that failed (written at `FUN_8c070da8`), and
-`*0x8c1a2098` the live-surface count — both worth sampling at the marker.
-Note `*0x8c1a20a8` is a shared KAMUI2 global with no clear-on-read
-semantics observed here, so a value present at the hang may be stale from an
-earlier benign call; treat it as corroborating evidence alongside the CRC
-streams, not as a sole verdict.
+the entry that failed, and `*0x8c1a2098` the live-surface count — both worth
+sampling at the marker. Note `*0x8c1a20a8` is a shared KAMUI2 global with no
+clear-on-read semantics observed here, so a value present at the hang may be
+stale from an earlier benign call; treat it as corroborating evidence
+alongside the CRC streams, not as a sole verdict.
 
 ### Hang marker — the PC to watch (spec §Instrumentation)
 
@@ -372,9 +402,17 @@ by the operator is expected, not a second symptom.
 
 - Static only. Which of T1–T6 fired in the `play1` occurrence is **not**
   decidable from the image; it needs the runtime reads listed above plus
-  the Task 5/6 CRC streams. An honest "the static evidence cannot separate
-  T1 from T4 without the error code" is the finding, and the error-code
-  table is the instrument that separates them.
+  the Task 5/6 CRC streams.
+- **The error code alone does not separate T1 from T4, nor T3 from T6** —
+  and each of those pairs straddles the (a)/(b) line. T1/T4 collide on the
+  *value* `6`; T3/T6 collide on the same *address* `0x8c1a20a8` **and** the
+  same value `1`. Neither pair can be classified by sampling
+  `*0x8c1a20a8` on its own. Each needs its own auxiliary signal: the VRAM
+  free-list state for T1/T4, and a write-watch on `0x8c1a20a0` for T3/T6
+  (both specified above). If Tasks 5/6 ship neither, the honest Task 7
+  finding is "the captured evidence cannot separate T1 from T4" and/or
+  "…T3 from T6" — which, since each pair contains one (b), means the gate
+  cannot be closed by exoneration on that evidence.
 - `FUN_8c03c46e`'s free-list root (`PTR_DAT_8c03c4c0`) and the bank
   selection in `FUN_8c034e60` were read but not traced to the patched VRAM
   seed; that link (arena size ← 8 MB seed) is asserted in
