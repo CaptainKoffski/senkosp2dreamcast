@@ -131,9 +131,33 @@ static void gd_settle(void) {
     (void)GD_ALTSTAT; (void)GD_ALTSTAT; (void)GD_ALTSTAT; (void)GD_ALTSTAT;
 }
 
+/* HUD poll heartbeat: same idea as Cleopatra's gd.c row-134 climbing mark
+ * (../cleopatra/shims/src/gd.c:47 -- "climbing = polling, frozen = wedged
+ * inside a syscall") but through this port's shim_mark slot HUD instead of a
+ * raw hex row, since gd.c here has no SHIM_GD_DIAG of its own. A live drive
+ * blinks the slot every 64K polls; a wedge freezes it on whichever color it
+ * last painted -- exactly the real-HW failure mode flycast can't reproduce
+ * (it answers in one poll, so this code path never spins there). Slot 24:
+ * every slot 0-23 is already claimed by another HUD user (cart.c, main.c --
+ * see docs/kb/phase5-hardware.md §HUD kit for the full map), so this is the
+ * first free one, row 2 (util.c shim_mark: slot>=16 = second row).
+ * #if !GD_LOADER_BUILD: shim_mark lives in util.c, which the loader's gd.o
+ * link does NOT include (loader/Makefile OBJS has no util.o) -- same reason
+ * gd_fail's SHIM_ERR store below is loader-gated. */
+#if !GD_LOADER_BUILD
+void shim_mark(unsigned int slot, unsigned short color);   /* util.c: breadcrumb HUD */
+#define GD_HEARTBEAT(i) \
+    do { if (!((i) & 0xffffu))                   /* every 64K polls: cheap, visible */ \
+             shim_mark(24, ((i) & 0x10000u) ? 0x07e0 : 0x001f); } while (0)  /* green<->blue */
+#else
+#define GD_HEARTBEAT(i) ((void)0)
+#endif
+
 static int gd_wait_clear(unsigned char mask) {
-    for (unsigned i = 0; i < GD_SPIN; i++)
+    for (unsigned i = 0; i < GD_SPIN; i++) {
+        GD_HEARTBEAT(i);
         if (!(GD_ALTSTAT & mask)) return 0;
+    }
     return -1;
 }
 
@@ -152,6 +176,7 @@ static int gd_wait_clear(unsigned char mask) {
 static int gd_wait_drq(void) {
     gd_settle();
     for (unsigned i = 0; i < GD_SPIN; i++) {
+        GD_HEARTBEAT(i);
         unsigned char st = GD_ALTSTAT;
         if (st & ST_BSY) continue;
         return (st & ST_DRQ) ? 0 : 1;

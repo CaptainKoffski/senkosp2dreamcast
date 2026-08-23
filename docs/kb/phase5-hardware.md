@@ -1434,3 +1434,209 @@ forensics constrain it sharply:
 - **No fix, no hardware claim.** Nothing in this task ran on real silicon;
   the verdict is about the port's VRAM budget, which is profile-independent
   (the arena is the game's own bookkeeping, not the emulator's).
+
+## HUD kit — operator field guide (Task 8)
+
+**For:** the operator at the TV during Task 10 hardware rounds. No source
+access needed to use this table — just eyes on the screen (or a photo of
+it). "HUD" below always means the shim's on-screen breadcrumb system
+(`shim_mark`/`shim_hex`/`hex_paint`, `shims/src/util.c`), shipped **ON by
+default** (`SHIM_HUD 1`, `shims/include/shim_iface.h:81`).
+
+### How the HUD shows up
+
+The shim paints small 16×8 px colored blocks ("marks") into the *live*
+scanout framebuffer and force-unblanks the display (clears the DC's
+VO_CONTROL blank bit) whenever it paints one — so even a screen the game
+itself never turns on will show something (`shims/src/util.c:20-33`
+comment block). Two kinds of marks appear on a healthy run:
+
+- **One-shot milestones** — paint once, the first time some boot step is
+  reached (`HUD_ONCE` macro, `shims/src/main.c:507-508`), then never
+  again. These are only visible in the brief window **before** the game
+  starts drawing its own full-screen graphics every frame — once real
+  rendering starts, the GPU's own frame overwrites that memory and the
+  marks vanish for good. Confirmed by direct capture: `docs/kb/img/phase5-hud-heartbeat.png`
+  shows several boot-time marks (including this task's new slot 24) still
+  visible over the mid-boot NAOMI splash; by the attract/title screen a few
+  seconds later (`docs/kb/img/phase5-hud-smoke-attract.png`) every mark is
+  gone, painted over by the game's own credits screen — **this is normal**,
+  not a fault.
+- **Repeating/blinking marks** — repainted continuously (every N events),
+  so they keep winning the redraw race against the game as long as the
+  activity they track keeps happening. These are the ones worth watching
+  *during play*, not just at boot.
+
+### Slot map
+
+Row 1 is slots 0-15 at the very top of the screen (y=0-7, x = slot×24 px).
+Row 2 is slots 16+, 4 px below row 1 (y=12-19, x = (slot−16)×24 px) —
+`shims/src/util.c:42-45`. Every slot below is cited to its paint site.
+
+| Slot | Row | Color(s) | Meaning | Kind |
+|---|---|---|---|---|
+| 0 | 1 | white | First EEPROM/config contact (`shim_ee_read`) | one-shot |
+| 1 | 1 | green | First MIE (maple) service reached | one-shot |
+| 2 | 1 | cyan | JVS config-enum reached | one-shot |
+| 3 | 1 | yellow | Input poll live (first `jvs_digital` call) | one-shot |
+| 4 | 1 | magenta | First cart/disc stream serviced | one-shot |
+| 5 | 1 | green↔blue blink | Cart streaming activity (toggles every 32 streams) | repeating |
+| 6 | 1 | green (boot) **or** blue→yellow→white (steady) | Boot: cart boot-DMA path fired, once. Steady: EEPROM-write byte count reached 1/8/16 words. Same slot, two different call sites (`cart.c:208`, `main.c:761-764`) — context (boot vs. in-game) tells you which. | mixed |
+| 7 | 1 | cyan (boot) **or** orange (steady) | Boot: cart PIO-read path fired, once. Steady: JVS config-enum transmit reached, once. Same slot, two call sites (`cart.c:227`, `main.c:1330`). | one-shot (either) |
+| 8 | 1 | green/red/blue/yellow, repainted ~1×/s | Maple/DMA engine health this window: red/green = alive, no DMA triggered; blue/yellow = alive AND triggering | repeating |
+| 9 | 1 | white↔grey-green blink | MIE replies still flowing (toggles every 16 replies) | repeating |
+| 10 | 1 | white/grey ↔ solid red, ~1×/s | Engine verdict: toggling white/grey = returned OK at least once this window; **solid red = every call this window came back "busy"** | repeating |
+| 11 | 1 | white | EEPROM-write-skip kicker reached | one-shot |
+| 12 | 1 | green | EEPROM-lib decode-commit reached (former real-HW blocker) | one-shot |
+| 13 | 1 | yellow | Post-kicker EEPROM trio reached | one-shot |
+| 14 | 1 | cyan | EEPROM index-read thunk **or** settings-skip hook reached | one-shot |
+| 15 | 1 | white | Restart path taken — visible only 1-2 frames before the BIOS blanks the screen for reboot | one-shot, transient |
+| 16 | 2 | red/green/yellow, per DMA trigger | Triggered maple list base sanity: red = null pointer, green = in RAM, yellow = elsewhere | repeating |
+| 17 | 2 | red/green, per trigger | First descriptor word null? | repeating |
+| 18 | 2 | red/green, per trigger | Any MP_Start frames in the walked list? | repeating |
+| 19 | 2 | red/green, per trigger | Any MIE (`0x86`) commands in the list? | repeating |
+| 20 | 2 | red/yellow/green, per trigger | List entries walked: 0 / 1-3 / 4+ | repeating |
+| 21 | 2 | yellow | **Fault flag:** an unmodelled MIE sub-command was seen | one-shot |
+| 22 | 2 | yellow | **Fault flag:** an unmodelled MIE top-level command was seen | one-shot |
+| 23 | 2 | red | **Fault flag:** a maple list pointer or reply address landed outside RAM (undeliverable reply) | one-shot |
+| 24 | 2 | green↔blue blink | **New, Task 8:** GD-ROM drive poll heartbeat (`gd_wait_drq`/`gd_wait_clear`, `shims/src/gd.c`) — see below | repeating |
+
+Full per-slot source citations: `shims/src/cart.c`, `shims/src/main.c`,
+`shims/src/gd.c` (grep `shim_mark(` in `shims/src/`).
+
+### The new heartbeat (slot 24)
+
+`gd_wait_drq` and `gd_wait_clear` (`shims/src/gd.c`) are the shim's raw-ATA
+polling loops — every disc access spins in one of these until the drive
+answers or ~50M polls time out (`GD_SPIN`, `gd.c:114`). Task 8 adds one
+`GD_HEARTBEAT(i)` call at the top of each loop body — a macro
+(`shims/src/gd.c`, right before `gd_wait_clear`) so both loops share one
+definition; its core logic, stride-gated so it costs nothing on the fast
+path:
+
+```c
+if (!(i & 0xffffu))                                  /* every 64K polls */
+    shim_mark(24, (i & 0x10000u) ? 0x07e0 : 0x001f);  /* green<->blue blink */
+```
+
+**Slot 24, not the brief's sketched slot 6**: every slot 0-23 was already
+claimed by another HUD user before this task (cart.c, main.c — full map
+above), so 24 is the first free slot, row 2. Gated `#if !GD_LOADER_BUILD`
+(`shim_mark` lives in `util.c`, which the loader's `gd.o` build does not
+link — same reason `gd_fail`'s `SHIM_ERR` store is loader-gated,
+`gd.c:202-212`).
+
+**How to read it on a TV:**
+- **Blinking green↔blue** = the drive is being polled and answering —
+  healthy, including during a long real seek (climbs through many polls
+  before the color flips).
+- **Frozen on one color** while you know a disc access should be
+  happening (e.g. mid-load, or during a level/character-select transition)
+  = the shim is stuck inside `gd_wait_drq` or `gd_wait_clear`, spinning on
+  the drive with no answer — **this is the exact real-hardware GD-wedge
+  failure mode the emulator cannot show** (Flycast answers in one poll, so
+  under emulation this mark is normally a single-color flash per disc
+  access, never a sustained climb — Cleopatra's equivalent diagnostic,
+  `../cleopatra/shims/src/gd.c:47`, documents the same asymmetry).
+- If the wait then times out (~10 s), the shim does not hang forever — it
+  reports the failure and the screen goes to the red death screen (below).
+
+**Evidence this paints correctly:** `docs/kb/img/phase5-hud-heartbeat.png`,
+a mid-boot capture (leg `phase5/hud-smoke-scan`, ~19 s post-launch, during
+the loader's NAOMI-splash-overlay window before the game's own rendering
+starts) shows a clean 16×8 solid-blue block at the calculated slot-24
+position; pixel-sampled at (192,15) = `srgb(0,0,248)`, matching
+`shim_mark`'s 0x001f (RGB565 blue) exactly.
+
+### Healthy boot vs. wedged — what the operator actually sees
+
+- **Healthy:** screen may show a brief full-black flash with a
+  handful of colored 16×8 blocks in the top-left corner for well under a
+  second right at handoff — that's the one-shot milestones (slots 0-15)
+  painting before the game's real graphics start. Then the screen fills
+  with the game's own NAOMI/SEGA/ADX splash chain and normal boot proceeds
+  — this is expected and is **not** something to photograph or report; the
+  marks did their job already. Once the game is running, the only marks
+  that can still be seen are the repeating ones (5, 6/steady, 8, 9, 10,
+  16-20, 24) and only for the instant before the next game-rendered frame
+  covers them again — do not expect to *see* them steadily during normal
+  play; their absence is not itself a bad sign.
+- **Wedged (hang):** the picture simply **stops changing** — whatever was
+  on screen (game frame, splash, or a HUD mark) stays frozen indefinitely.
+  If you can still make out a HUD mark in the freeze, that slot's last
+  color is diagnostic: e.g. slot 24 frozen mid-blink pins the hang inside
+  the GD poll loops; slots 8/10 frozen solid red mean the maple/DMA engine
+  stopped returning "OK"; slot 15 that then goes dark with the whole
+  screen fading to the BIOS gray/black means a reboot loop, not a wedge.
+- **Fatal (death screen):** the screen goes to a **solid color fill**
+  with three rows of white-on-fill hex digits burned in around
+  screen-center (`shim_die`, `shims/src/util.c:180-204`, unconditional —
+  paints even in a `SHIM_HUD 0` release build). This is not a hang; the
+  shim detected a specific bad condition and stopped on purpose. Decode
+  it below.
+
+### Death-screen decode
+
+`shim_die(code, a, b)` fills the whole visible framebuffer with a
+code-selected color, then burns in three hex numbers top-to-bottom at
+screen coordinates (20,100)/(20,114)/(20,128): **code**, **a**, **b**, in
+that order (`util.c:180-202`). The record is also written to `SHIM_ERR`
+(`shim_iface.h:12`, four words: `code, a, b, 0xdeadcafe` — the last word
+is a magic sentinel confirming the record is a live write, not stale
+memory).
+
+| Fill color | `code` | Meaning | `a` | `b` |
+|---|---|---|---|---|
+| cyan (default) | anything not listed below | Unmatched/unused code | — | — |
+| yellow | `2` | Cart-service handed a bad destination address | cart byte offset | destination that failed the fence |
+| magenta | `3` | Unmodelled maple frame (unknown MIE sub-command reached `shim_die`, not just the yellow HUD flag) | sub-command | recv address |
+| **red** | **`4`** | **GD-ROM read error** — every `gd_read_cart` failure surfaces here, from every one of gd.c's 8 failure sites (below) | cart byte offset being read (same value across cart.c's three read paths — steady, boot-DMA, boot-PIO) | `gd_last_err` — decode this field for the site (below) |
+| blue | `5` | Reserved for "GD poll hang" in `shim_die`'s own color comment (`util.c:189`) — **defined but not currently wired to any call site**; a GD poll timeout today still reaches the screen as code `4` (red), not `5` | — | — |
+
+**On a red (`code=4`) screen, decode field `b`.** It is `gd_last_err`
+(`gd.c:119,201`), formatted `0xda SS TT EE`:
+
+- `0xda` — fixed marker byte (always present, confirms this is a gd.c
+  record).
+- `SS` — the **failure site**, 1-8, table below. This is where "which
+  step of the disc read failed" actually lives — not in the top-level
+  `code` (which is always `4`).
+- `TT` — the ATA Alternate Status register at the moment of failure
+  (`GD_ALTSTAT`, `gd.c:89`). Bit `0x80` = BSY (drive busy), `0x08` = DRQ
+  (data request), `0x01` = CHECK (drive raised an error).
+- `EE` — the ATA Error register (`GD_ERRREG`, `gd.c:91`) — the drive's own
+  sense/error code, only meaningful when `TT` has `CHECK` (`0x01`) set.
+
+| Site `SS` | Name | Meaning |
+|---|---|---|
+| `01` | `GD_E_IDLE` | Drive never went idle before the command was issued |
+| `02` | `GD_E_PACKET` | PACKET command accepted, but DRQ for the 12-byte SPI packet never came |
+| `03` | `GD_E_DATA` | DRQ for a data block never came (seek/read failed, or bad media) |
+| `04` | `GD_E_COUNT` | Drive offered an impossible byte count for a data block |
+| `05` | `GD_E_END` | Transfer completed but the drive never returned to idle |
+| `06` | `GD_E_CHECK` | Drive raised CHECK — `EE` (Error register) holds the sense key |
+| `07` | `GD_E_ARG` | Caller bug: null or oversized request (shim-internal, not a drive fault) |
+| `08` | `GD_E_RANGE` | Requested read runs past the end of the cart image (shim-internal) |
+
+(`GD_E_*` definitions: `shims/src/gd.c:190-197`; site is written into
+`gd_last_err`'s bits 23:16 by `gd_fail`, `gd.c:199-217`.)
+
+**Loader-boot variant (before the game ever starts):** if the *loader's*
+own one-time disc rehearsal read fails (`loader/main.c:221-226`), the
+runtime shim isn't installed yet, so this isn't a `shim_die` screen — it's
+KOS's own `halt()` (`loader/main.c:84-89`): also a solid-red full-screen
+fill, but with the message drawn as **literal readable text**, no hex
+decode needed: `RAW-ATA READ FAIL r=<site, negative> err=<gd_last_err,
+same 0xda-encoding>`. Same site table and same `gd_last_err` format apply
+to the `err=` field; only the presentation is friendlier (plain ASCII, not
+burned-in hex digits) because KOS's font routine is still available at
+this boot stage.
+
+**A transient, not-on-screen detail:** `gd_fail` also writes an
+intermediate code `0x60 | site` (`0x61`-`0x68`) to `SHIM_ERR` the instant
+it detects the failure (`gd.c:212`) — this is what the brief's "`0x6<site>`"
+convention refers to. In the runtime shim path, cart.c's `shim_die(4, ...)`
+call immediately overwrites that same record with the red-screen version
+above, so an operator watching the TV only ever sees `code=4`; the `0x6x`
+value is reachable only via a live RAM watch faster than the overwrite, not
+via the death screen itself.
