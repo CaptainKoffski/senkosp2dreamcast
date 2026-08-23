@@ -88,6 +88,42 @@ referenced, not duplicated — that file is part of this project's method.
   112 `GDDMA`), all 241 correctly newline-terminated one-record-per-line
   (verified: 0 lines match two tags concatenated, 0 lines contain a tag
   without starting with it).
+  **Phase 5 Task 5 fork commits:** `8b1d45f2e` (sampler) + `a13662ff1`
+  (`INSTRUMENTATION.md` row) in `flycast4naomi2dreamcast` (canonical) —
+  `cartlog_texerr_tick()` (`core/hw/naomi/naomi.cpp`), a baseline-and-compare
+  sampler of senkosp's texture-error classifier cells (`docs/kb/
+  phase5-hardware.md` §Texture-error handler: `0x8c1a20a0`/`0x8c1a20a8`/
+  `0x8c1a2098`), called from `core/hw/pvr/pvr_regs.cpp`'s existing
+  `STARTRENDER`-write `cartlog()` site and throttled to every 64th call.
+  Emits `TEXERR idx= code= d98=` once at first sample, then only on change —
+  same discipline as `cartlog_shimwatch2`. No checkout drift (`git fetch &&
+  git log --oneline HEAD..origin/master` clean in both checkouts before this
+  edit). Cherry-picked into `flycast-src` the same way as Task 2 (scratch
+  local remote `phase5canon`, `git cherry-pick`, remote removed after): both
+  commits landed clean as `875aea8ff` + `b4763c1e8`. **Rebuild (2026-08-23,
+  same session):** `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/
+  Developer` then `cmake --build build -j"$(sysctl -n hw.ncpu)"` — exit 0,
+  same pre-existing linker warnings as the Task 2 rebuild above, nothing new.
+  **Instrument control leg** (`phase5/instrument-ctl`, `docs/kb/
+  phase5-hardware.md` §Instrument control test has the full account): all
+  three `check_stream_crc.py` CHECKs PASS, 8 `TEXERR` lines (baseline +
+  legitimate live-surface-count churn + one `code=6` line that turned out to
+  be a second, independently-captured occurrence of the texture-error hang,
+  fully unattended — see that section), 16,958 `PVRW STARTRENDER` over
+  ~296 s (57.3/s, above both cited Phase 4 reference rates — no perf
+  collapse).
+  **`make`/`DEFS` gotcha found this task, recorded for every future
+  diagnostic or release rebuild in this repo:** `shims/Makefile`'s `CFLAGS +=
+  $(DEFS)` is not a tracked prerequisite of `$(B)/shim.bin` — `make`'s
+  mtime-based check cannot see that command-line flags changed between
+  invocations, only that the sources didn't, so a `shim.bin` built with
+  different (or no) `DEFS` earlier in a session can be silently reused by a
+  later `make gdi DEFS=...`, exit 0, "Nothing to be done", and ship a build
+  that does **not** actually have the requested flags compiled in. Caught by
+  `strings shims/build/shim.bin | grep SHIMCRC` coming back empty right
+  after a "successful" diagnostic build. **Always `make clean` before a
+  flag-sensitive build, or verify with `strings`/`nm` that the requested
+  macro actually compiled in** — the make exit code proves nothing here.
 - **BIOS:** `~/Library/Application Support/Flycast/data/naomi.zip` already
   installed (verified 2026-08-13); source copy in this repo: `bios/naomi.zip`.
 - **Launch gotchas (macOS, every unattended run):**
@@ -636,6 +672,13 @@ A 45s scratchpad diagnostic capture (per-PC `MDODMA` `sp=` correlation,
 outside `captures/` (session scratchpad, not primary data — its result is
 fully recorded in that table) and is not part of this inventory.
 
+### Phase 5 leg inventory
+
+| Leg | Lines | Size | What it is |
+|---|---|---|---|
+| `phase5/probe-smoke.log`(`+.engine.bin`, `+.stdout.log`) | — | — | **Task 2 smoke leg** — 60 s unattended attract against the `GDPIO`/`GDDMA`-emitting fork. `docs/kb/tooling.md` §Instrumented Flycast has the full account. |
+| `phase5/instrument-ctl.log`(`+.engine.bin`, `+.stdout.log`) | 367,518 | 12 MB | **Task 5 control leg** — diagnostic disc (`SHIM_SERIAL=1 SHIM_CRC=1`), unattended, ~296 s. All three `check_stream_crc.py` CHECKs PASS; 8 `TEXERR` lines including one `code=6` line that is a second, independently-captured occurrence of the texture-error hang (§Texture-error handler / §Instrument control test, `docs/kb/phase5-hardware.md`). Kept as primary data despite the mid-leg hang — same never-delete rule as every other capture. |
+
 ### Dynarec toggle — restore after an interpreter-only leg
 
 `~/Library/Application Support/Flycast/emu.cfg` line ~39,
@@ -779,3 +822,19 @@ produced disc file (`build/track01.iso`, `track02.raw`, `track03.iso`,
 Criterion 7. Symlinks (not copies) are deliberate: `senkosp.dat` alone is
 251 MB, and nothing in the build reads these paths in a way that requires a
 real copy (all are read-only inputs).
+
+**`track04.iso`'s criterion-7 md5 is now stale (found Task 5, 2026-08-23).**
+A plain `make clean && make gdi` release rebuild that same day reproduced
+`track01.iso`/`track02.raw`/`track03.iso`/`disc.gdi` byte-identically to the
+table above, but `track04.iso` came back `126e587e977315febaac0c833ed86777`,
+not `89ccb3e02522a8bd802f762ee1f74a2f` — deterministic (two consecutive
+clean rebuilds matched each other), not a flake. Root cause: Phase 5 Task 1's
+`dc64fbb` (`shims/src/gd.c`, landed **after** this criterion-7 capture) adds
+`shim_crc32()` **unconditionally** — only its call site is `#if SHIM_CRC`-
+gated, the function definition is not — so every release build from
+`dc64fbb` onward carries a few dozen extra bytes of dead code this baseline
+never saw. `docs/kb/phase5-hardware.md` §Instrument control test → Step 5
+has the full account. The table above is left as originally recorded (it is
+Phase 4's own gate-closure evidence); treat only the four unaffected files
+as still-valid reproducibility checks, and recapture `track04.iso`'s
+baseline before relying on it again.

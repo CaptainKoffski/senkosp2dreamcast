@@ -10,5 +10,5 @@ mkdir -p "$(dirname "$log")"
 defaults write com.flyinghead.Flycast ApplePersistenceIgnoreState -bool YES
 pkill -9 -f "flycast-src.*Flycast" 2>/dev/null || true
 sleep 1
-FLYCAST_CARTLOG="$log" exec "$bin" -config config:rend.vsync=no "$gdi" \
+FLYCAST_CARTLOG="$log" exec "$bin" -config config:rend.vsync=no "${@:3}" "$gdi" \
     > "${log%.log}.stdout.log" 2>&1

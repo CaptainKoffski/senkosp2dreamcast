@@ -420,3 +420,238 @@ by the operator is expected, not a second symptom.
 - Two print sites for non-texture messages (`0x8c087366`/`0x8c08736a` and
   `0x8c0ad686`/`0x8c0ad688`) sit in code Ghidra's auto-analysis left without
   a containing function; they are recorded, not characterized.
+
+## Instrument control test (Task 5)
+
+**Question:** does the Wave A instrument pipeline — shim `SHIMCRC` (Task 1),
+fork `GDPIO`/`GDDMA` (Task 2), `scripts/check_stream_crc.py` (Task 3) —
+verify clean on a real DC-profile leg before any operator time is spent on
+the texture-error hang? Extension (controller ruling,
+`.superpowers/sdd/2026-08-23-phase5-hardware/task-5-brief.md`): can a
+periodic sampler of the three classifier cells named above
+(`0x8c1a20a0`/`0x8c1a20a8`/`0x8c1a2098`) run continuously on the DC profile
+without flooding the log?
+
+### Step 1 — `capture_dc_leg.sh` pass-through
+
+Exec line changed exactly per the brief, so later tasks can pass
+`-config Debug:SerialConsoleEnabled=yes` and similar flags through to
+Flycast:
+
+```
+FLYCAST_CARTLOG="$log" exec "$bin" -config config:rend.vsync=no "${@:3}" "$gdi" \
+    > "${log%.log}.stdout.log" 2>&1
+```
+
+`bash -n scripts/capture_dc_leg.sh` → syntax OK. The refuse-to-overwrite
+check and the pre-launch `pkill` are unchanged.
+
+### Step 2 — diagnostic disc, and a `make`/`DEFS` hazard found along the way
+
+First attempt: `make gdi DEFS='-DSHIM_SERIAL=1 -DSHIM_CRC=1'` from a
+not-freshly-cleaned tree printed `make[1]: Nothing to be done for 'all'.`
+for `shims/` and exited 0 — looked like success. `strings
+shims/build/shim.bin | grep SHIMCRC` came back **empty**: the disc was
+silently non-diagnostic. Root cause: `shims/Makefile`'s `CFLAGS +=
+$(DEFS)` is not a tracked prerequisite of `$(B)/shim.bin` — `make`'s
+mtime-based check only sees that the sources didn't change, not that the
+*flags* did, so a `shim.bin` left over from an earlier, differently-flagged
+build (12:12 that session) satisfied the rule and was reused unmodified.
+Fix: `make clean && make gdi DEFS='-DSHIM_SERIAL=1 -DSHIM_CRC=1'` — `strings`
+afterward found `SHIMCRC o=` in both `shims/build/shim.bin` and
+`build/1ST_READ.BIN`, confirming the flags actually compiled in this time.
+**Any future diagnostic (or release) rebuild in this repo must `make clean`
+first, or verify the requested flags landed with `strings`/`nm`** — `make`'s
+exit code and "up to date" message do not prove it (`docs/kb/tooling.md`
+carries this as a standing gotcha for later tasks).
+
+### Fork change — TEXERR classifier-cell sampler (extension)
+
+`../flycast4naomi2dreamcast` (canonical) commits `8b1d45f2e` (sampler) +
+`a13662ff1` (`INSTRUMENTATION.md` row), cherry-picked clean into the
+launched tree `../cleopatra/tools/flycast-src` as `875aea8ff` + `b4763c1e8`,
+rebuilt (`docs/kb/tooling.md` has the full recipe/output). `cartlog_texerr_tick()`
+(`core/hw/naomi/naomi.cpp`) reads three `mem_b`-offset words — the same
+direct-array-read idiom `cartlog_shimwatch2`/`WATERMARK` already use in this
+file, not a new mechanism — at P1 `0x8c1a20a0` (failing index), `0x8c1a20a8`
+(KAMUI2 error code), `0x8c1a2098` (live-surface count), and is called from
+`core/hw/pvr/pvr_regs.cpp`'s existing `STARTRENDER`-write `cartlog()` site
+(the one that already emits `PVRW STARTRENDER=...` every vblank on the DC
+profile — device/MMIO write dispatch, fires regardless of
+interpreter/dynarec). The call throttles itself to every 64th invocation and
+only prints on the first sample or a value change:
+
+```c
+cartlog("TEXERR idx=%08x code=%08x d98=%08x\n", idx, code, cnt);
+```
+
+### Step 3 — unattended control leg
+
+```
+scripts/capture_dc_leg.sh phase5/instrument-ctl build/disc.gdi \
+    -config Debug:SerialConsoleEnabled=yes & sleep 300; \
+FPID=$(pgrep -f "Flycast.app/Contents/MacOS/Flycast" | head -1); \
+kill -USR1 $FPID; sleep 5; kill -9 $FPID; wait
+```
+
+`captures/phase5/instrument-ctl.log` — 367,518 lines, 12 MB.
+`captures/phase5/instrument-ctl.stdout.log` — 186 lines (89 `SHIMCRC`
+lines). Duration bounded by file mtimes (the one-shot PVR-engine dump this
+build also emits, `pvr_regs.cpp:200-214`, to `13:33:23`; the cartlog's own
+last write to `13:38:19`) at **~296 s** — inside the brief's "~5 min" ask.
+**Anomaly, recorded not rationalized:** the final `kill -9 $FPID` reported
+"no such process" — the emulator had already exited (cleanly: the log's last
+line is a complete, non-truncated `TAEND`, and `grep -i
+"abort|crash|signal|disconnected"` on the `.stdout.log` finds nothing) a few
+seconds before the scripted kill sequence should have reached it. Neither
+this leg's data (checked below) nor the checker's verdict depend on the
+exact kill timing, so this did not block the task, but it is flagged for
+whoever runs the next unattended DC leg — the `kill -USR1`/`kill -9` pattern
+may not always need its second step.
+
+### Step 4 — checker + TEXERR baseline + perf sanity
+
+```
+$ python3 scripts/check_stream_crc.py --stdout captures/phase5/instrument-ctl.stdout.log \
+    --cartlog captures/phase5/instrument-ctl.log --dat senkosp.dat --track04 build/track04.iso
+== lowfad (4 record(s), fad < 450150) ==
+  GDDMA fad=0000b05e secs=7 type=800 crc=cef5f730 -> lowfad
+  GDDMA fad=0000b065 secs=9 type=800 crc=15af9f55 -> lowfad
+  GDDMA fad=0000b06e secs=1 type=800 crc=b5b9fe9f -> lowfad
+  GDDMA fad=0000b072 secs=1 type=800 crc=0a2960f6 -> lowfad
+CHECK shimcrc_match: PASS — 89 SHIMCRC record(s), 0 mismatch(es)
+CHECK gdread_match: PASS — 420 verified (fad>=base,type=0x800), 4 lowfad, 0 typeskip, 0 mismatch(es)
+CHECK coverage_nonzero: PASS — shim=89 record(s), drive=424 record(s)
+```
+
+**All three CHECKs PASS.** Every delivered (`SHIMCRC`) and drive
+(`GDPIO`/`GDDMA`) record verified against ground truth (`senkosp.dat` /
+`build/track04.iso`); both streams non-empty; the 4 `lowfad` records are the
+expected sub-`base_fad` TOC/low-track reads, never a fail condition (same
+ruling as every prior leg using this checker's drive-side logic).
+
+`grep -c 'PVRW STARTRENDER' captures/phase5/instrument-ctl.log` → **16,958**
+over ~296 s ≈ **57.3/s**. Phase 4 references, same order of magnitude (tens
+of Hz, not a collapse to single digits nor an explosion to thousands):
+`attract8` (Naomi profile, unattended, ~360 s) — 5,537 STARTRENDER ≈ 15.4/s
+(`docs/kb/phase4-conversion.md` §Attract — maple/MIE service live); `play1`
+post-freeze error loop (DC profile, operator leg) — 24,771 STARTRENDER over
+the documented 719.3 s stdout gap ≈ 34.4/s (`docs/kb/phase4-conversion.md`
+§Texture-error hang (play1)). This leg's 57.3/s is *higher* than both
+references — no stutter class, no perf collapse.
+
+`grep -c TEXERR captures/phase5/instrument-ctl.log` → **8** lines over 265
+throttled samples (16,958 STARTRENDER ÷ 64) — not runaway repetition, and
+one of the 8 is the intended cold-start baseline:
+
+```
+128:   TEXERR idx=e1800401 code=e5830000 d98=e20220ff   (pre-boot mem_b garbage — the first
+                                                          sample, before the game's own image
+                                                          has initialized this RAM region)
+15368: TEXERR idx=ffffffff code=00000000 d98=00000015   (post-init baseline: code=0, healthy)
+31800: TEXERR idx=ffffffff code=00000000 d98=00000017
+43654: TEXERR idx=ffffffff code=00000000 d98=00000019
+90872: TEXERR idx=ffffffff code=00000000 d98=00000022
+148429:TEXERR idx=ffffffff code=00000000 d98=00000035
+160387:TEXERR idx=ffffffff code=00000000 d98=00000066
+319549:TEXERR idx=00000002 code=00000006 d98=00000054    <-- see finding below
+```
+
+**Refinement to the extension's own prediction.** The brief expected "on a
+healthy attract leg... exactly one baseline line (all cells expected
+stable)". That assumption does not hold: `0x8c1a2098` (the live-surface
+counter) legitimately climbs during attract (`0x15→0x17→0x19→0x22→0x35→0x66`,
+21→23→25→34→53→102 decimal) as the demo loop streams in new textures — real
+signal, not noise, and not the flood the "cap or reconsider" acceptance
+clause was guarding against (8 lines across a 367K-line/296 s capture).
+
+### Finding — this control leg independently reproduced the texture-error hang
+
+The last `TEXERR` line, at cartlog line 319,549, is `code=00000006` — a
+live, in-the-wild occurrence of the T1/T4 class (§Texture-error handler
+above: `*0x8c1a20a8 == 6` is either "out of VRAM arena" (T1, category (b),
+our bug) or "illegal texture header" (T4, category (a))), with `idx=2` (the
+3rd texture-list entry). This happened during a **fully unattended,
+input-free attract-mode leg** — not an operator-played match, the only
+context Phase 4's `play1` observed it in (`docs/kb/phase4-conversion.md`
+§Texture-error hang: "once in ~6 sessions"). This is the **second recorded
+occurrence overall, and the first with any classifier-cell evidence
+attached**.
+
+The log signature matches `play1`'s confirmed (screenshot-verified) hang
+exactly, checked mechanically, not eyeballed:
+
+```
+awk 'NR<=319549 && /MDODMA/{a++} NR>319549 && /MDODMA/{b++} END{print a, b}' \
+    captures/phase5/instrument-ctl.log
+# -> 110334 0   -- MDODMA (maple/JVS activity) never appears again after the TEXERR line
+
+awk 'NR>319549 && /^C2D/{t++} NR>319549 && /C2D src=0c17e360/{a++} \
+     NR>319549 && /C2D src=0cedbc00/{b++} END{print t, a, b}' \
+    captures/phase5/instrument-ctl.log
+# -> 6396 3198 3198  -- every single post-TEXERR C2D submission, to EOF, is the
+#                       SAME two src addresses play1 documented as its frozen-frame pair
+```
+
+`0c17e360`/`0cedbc00` are the identical `C2D src=` values
+`docs/kb/phase4-conversion.md` §Texture-error hang (play1) names as the
+constant per-frame background/overlay pair the game keeps re-submitting once
+its own fatal-error display loop (`FUN_8c0ad720`, never returns) takes over
+— render loop alive, maple/input dead, exactly reproduced here. STARTRENDER
+itself does not stall either: 13,761 before the marker vs. 3,197 after,
+both healthy nonzero rates, matching `play1`'s "the render loop does not
+stop" finding.
+
+**What this does and does not establish.** It does **not** by itself decide
+T1 vs. T4 — that requires the VRAM free-list read the extension scoped out
+("savestate forensics covers those"), a Task 6/7 item. It does **not** carry
+a screenshot (no `FLYCAST_SHOT` was set for this leg) — the log-signature
+match to `play1` is strong but indirect corroboration, not a visual
+confirmation. What it *does* establish: the hang Task 4 characterized as
+rare and operator-triggered can fire with **zero player input**, inside a
+~5-minute attract-mode window, which is a materially different rarity/
+reproducibility picture than "once in ~6 played sessions" — worth carrying
+into Task 6/7's evidence base as a second, differently-obtained data point,
+not a replacement for `play1`'s.
+
+### Step 5 — release rebuild + md5 check against criterion 7
+
+`make clean && make gdi` (no `DEFS`, release defaults) — exit 0. `strings
+build/1ST_READ.BIN | grep SHIMCRC` → no match, confirming the diagnostic
+flags do not linger in the shipping build.
+
+```
+MD5 (build/track01.iso) = 681fa4c8daa058ce2df8ea1b604d6e91   == criterion 7
+MD5 (build/track02.raw) = 03c796f60db2e9ef0b65a42a47a9d321   == criterion 7
+MD5 (build/track03.iso) = b05c578ec5bbe6e39731848b99df73e8   == criterion 7
+MD5 (build/track04.iso) = 126e587e977315febaac0c833ed86777   != criterion 7 (89ccb3e02522a8bd802f762ee1f74a2f)
+MD5 (build/disc.gdi)    = c527f1ec937b56caa65084d436f8c0a0   == criterion 7
+```
+
+Four of five match byte-identically. `track04.iso` (the loader+cart track)
+legitimately differs, root-caused rather than waved off: `git log --oneline
+-- shims/src/gd.c` shows Phase 5 Task 1's `dc64fbb` ("SHIM_CRC delivered-
+bytes probe in gd_read_cart") landed **after** Phase 4 Task 14 captured the
+criterion-7 baseline, and its diff adds `shim_crc32()` **unconditionally**
+(only the call site inside `gd_read_cart` is `#if SHIM_CRC`-gated, the
+function definition is not) — so every release build from `dc64fbb` onward
+carries a few dozen extra bytes of dead code that Task 14's baseline never
+saw, regardless of `SHIM_CRC`'s value. Confirmed deterministic, not a build
+flake: two consecutive `make clean && make gdi` runs in this session
+produced the identical `126e587e977315febaac0c833ed86777` both times. The
+disc mastered by this task is the correct, current release output; criterion
+7's `track04.iso` entry in `docs/kb/phase4-conversion.md` is now stale as a
+byte-reproducibility check (superseded by Task 1's landed code, not by
+anything in this task) and would need a fresh baseline capture to be useful
+again — not done here, out of this task's scope.
+
+### Verdict
+
+**Instrument control test: PASS.** All three `check_stream_crc.py` CHECKs
+pass on a live DC-profile leg; both delivered and drive-truth streams verify
+against ground truth; no perf collapse (57.3 STARTRENDER/s, above both Phase
+4 reference rates). The TEXERR extension performed exactly as designed —
+one baseline line, a few legitimate content-driven lines, no flood — and,
+unplanned, caught a second live occurrence of the texture-error hang with
+its first classifier-cell evidence (`code=6`, `idx=2`), which is now part of
+the evidence base for Task 6/7 rather than a control-leg defect.
