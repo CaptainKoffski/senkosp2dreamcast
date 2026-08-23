@@ -234,6 +234,13 @@ block as `kmInitDevice` at `0x8c031fee` (`scripts/ghidra/WhichFunc.java`,
 capacity, `*0x8c1a2090` = VRAM-block descriptor array (stride `0x28`),
 `*0x8c1a2094` = its capacity, `*0x8c1a2098` = live-surface counter.
 
+> **Correction 2026-08-23 (Task 7).** `*0x8c1a2090` is the **texture-object**
+> array, not the VRAM-block descriptor array. The real block descriptors are a
+> third pool at `[0x8c170eb8 + 0x20]`, stride `0x18`. Evidence and the
+> decompilation that shows it: §Texture-error hang verdict, Step 3. Every
+> other address in this paragraph verified correct against the Task 6 RAM
+> image.
+
 Descending each branch:
 
 - **`FUN_8c0407ba`** (`0x8c0407ba`) → `FUN_8c040648` (`0x8c040648`) →
@@ -255,6 +262,13 @@ Descending each branch:
       free block is large enough (`0x8c03c542`, reached from the
       `puVar2 == 0` test) or when the block-descriptor pool
       (`FUN_8c03c764`) is empty.
+      > **Correction 2026-08-23 (Task 7).** It is **first-fit**, not
+      > best-fit. The walk breaks on the *first* node with
+      > `size >= request` (`FUN_8c03c46e`, `Decomp.java`), and the free list
+      > is not size-ordered: its insert helper `FUN_8c03c830`
+      > (`0x8c03c830`) is an unconditional **head-insert** with no size
+      > comparison. Immaterial to the Task 7 verdict (one free node), but
+      > material to any fix that reasons about placement or fragmentation.
 - **`FUN_8c03e8ec`** (`0x8c03e8ec`) returns `-1` only when its own
   `FUN_8c03fb58` call (`0x8c03e94e`) fails — the same table-exhaustion
   condition (`*0x8c1a20a8 = 7`).
@@ -939,7 +953,7 @@ Both give `0xacc414`, and `0xacc414 + 16 MB = 0x1acc414` lands 6,525 B short
 of the stream end — i.e. the DC profile's 16 MB main RAM is the last large
 block in the stream, an independent corroboration of the base. (A second
 `syMalloc` banner copy at stream `0x1908d94` is *inside* the same 16 MB
-window, at RAM offset `0xce0000`; it is a data copy, not a second RAM
+window, at RAM offset `0xe3c980` (= `0x1908d94 - 0xacc414`); it is a data copy, not a second RAM
 region — the boot-image head does not match there.)
 
 **Carve control tests** (Phase 3's list, run against the extracted 16 MB):
@@ -991,7 +1005,8 @@ Read straight out of the RAM image; they reproduce the log line exactly.
 | `0x8c1a2088` / `0x8c1a208c` | `0x8ce95d20` / `256` | surface array base / capacity |
 | `0x8c1a2090` / `0x8c1a2094` | `0x8ce93500` / `256` | texture-object array base / capacity |
 
-**Correction to §Texture-error handler's structure names.** That section
+**Correction to §Texture-error handler's structure names (2026-08-23; a
+dated pointer to this correction is filed in place at that section).** That section
 called `*0x8c1a2090` the "VRAM-block descriptor array (stride `0x28`)". The
 decompilation of `FUN_8c03fb58` (`Decomp.java 0x8c03fb58`) shows it is the
 **texture-object** array — `FUN_8c03fb58` scans it at `piVar2 + 10`
@@ -1051,8 +1066,33 @@ read at the hang):
 | `+0x20` | **VRAM address slot** — the allocator's `param_3` | `param_1 + 7` in `FUN_8c03f38c` |
 | `+0x24` | `1` once the surface is complete | `FUN_8c040648` |
 
-Confirmed against the arena: every allocated block's `owner` field is
-`0x8ce93500 + 0x20 + n*0x28` for `n = 0…83` — exactly `&texobj[n].vram_addr`.
+Confirmed against the arena, with the exceptions stated: **83 of the 87**
+allocated blocks have `owner` = `0x8ce93500 + 0x20 + n*0x28` — exactly
+`&texobj[n].vram_addr`. The four that do not are:
+
+| vaddr | size | flags | owner | reading |
+|---|---|---|---|---|
+| `0x00000000` | 262,144 | `0x0043` | `0x8c00ee4c` | region/TA block, owned by a non-texture caller |
+| `0x00040000` | 1,228,800 | `0x0013` | `0x8c00ee3c` | scan-out framebuffer pair, same |
+| `0x00179000` | 6,144 | `0x0011` | `0x8c1a219c` | **KAMUI2-internal**, not a game texture — `0x8c1a219c` is the `vaddr` slot of a 4-word global struct at `0x8c1a2190` = `{0x80, 0x1800, 0x40000024, 0x179000}` (count `0x80`, size `0x1800` = the block's own size, flags, vaddr). Carries the texture type nibble (`0x0011`) but no texobj owns it. |
+| `0x0053bc20` | 4,096 | `0x0015` | `0x8ced9600` | owner outside the texobj array; this is the block §Step 5 lists as the unattributed `0x1000` allocation — see below |
+
+**The missing index is 45, and it explains the `0x1000` block.** The set of
+referenced texobj indices is `{0…83} \ {45}`. `texobj[45]` (`0x8ce93c08`) is
+`name 0xbd`, **32×32**, computed size **512 B**, `vaddr = 0x0053bc20` — the
+*same* VRAM address as the 4,096 B `flags=0x0015` block, which is owned by
+something else. So that block is best read as a **sub-allocated page that
+small textures are carved out of**, with `texobj[45]` a tenant rather than
+the owner. Stated as evidence, not mechanism: the sub-allocator itself
+(`0x8ced9600`'s struct) was **not** traced, so "page for small textures" is
+the reading, not a derived fact.
+
+**Do not read the four 84s as one four-way confirmation.** `*0x8c1a2098` =
+84, texobj slots in use = 84 and surfaces in use = 84 *are* a genuine
+three-way agreement — all three count live surfaces. The count of
+`flags=0x0011` VRAM blocks is also 84, but that is a **coincidence**: only
+83 of them belong to texture objects, the 84th is the KAMUI2-internal
+6,144 B block above, and `texobj[45]` holds no block of its own at all.
 
 **Surface** (stride `0x18`): `+0x0c` = texture-object pointer, `0` = slot
 free (`FUN_8c03fb58` scans for `*(int *)(iVar4 + 0xc) == 0`); `+0x10` = 1 on
@@ -1087,14 +1127,21 @@ bytes. Breakdown of the allocated side by flag word:
 
 | Flags | Count | Bytes | What |
 |---|---|---|---|
-| `0x0011` | 84 | 6,749,216 | textures (matches `*0x8c1a2098` = 84 and the 84 in-use texture objects) |
+| `0x0011` | 83 | 6,743,072 | **game textures** — the blocks owned by texobj slots |
+| `0x0011` | 1 | 6,144 | **KAMUI2-internal**, `vaddr 0x179000`, owned by the global struct at `0x8c1a2190`, not by any texture object (§Step 4) |
 | `0x0013` | 1 | 1,228,800 | scan-out framebuffer pair at `vaddr 0x40000` (= 2 × 640×480×2) |
 | `0x0043` | 1 | 262,144 | region/TA block at `vaddr 0x00000000` |
-| `0x0015` | 1 | 4,096 | one `0x1000` block at `vaddr 0x53bc20` |
+| `0x0015` | 1 | 4,096 | sub-allocated page at `vaddr 0x53bc20`; `texobj[45]` (32×32, 512 B) lives inside it (§Step 4) |
 
 **T2 excluded numerically here:** 84 of 256 surfaces and 84 of 256 texture
 objects are in use — neither table is close to full, and a full table would
 have written `7`, not `6`, to `0x8c1a20a8` (`FUN_8c03fb58` `0x8c03fbae`).
+
+**`FUN_8c03c46e`'s *other* return-3 cause is also excluded.** It returns 3
+either when no free block is large enough **or** when `FUN_8c03c764` finds no
+free block descriptor. The descriptor pool is `0x105` = 261 entries
+(`0x8c170eb8 + 8`) with **88 in use** (= the 87 allocated + 1 free block),
+leaving 173 spare. The pool was not the constraint; the free *space* was.
 
 ### Step 6 — the failing request
 
@@ -1119,8 +1166,16 @@ texobj[84] @8ce94220:
 
 texobj[82] @8ce941d0: name=00000286 fmt=03010002 1024x1024 size=264192 vaddr=0075bc20  (succeeded)
 texobj[83] @8ce941f8: name=00000287 fmt=03010002 1024x1024 size=264192 vaddr=0079c420  (succeeded)
-surf[84]   @8ce96500: all zero  (cleared by FUN_8c040648's failure path)
+surf[84]   @8ce96500: 00000000 00000000 ffffffff 00000000 00000000 00000000   (free)
 ```
+
+**`surf[84]` proves nothing — recorded, not relied on.** It is
+byte-identical to the never-touched `surf[85]` and `surf[86]`, so "cleared by
+`FUN_8c040648`'s failure path" and "never used" are indistinguishable here.
+It is consistent with the failure path, not evidence of it. The load-bearing
+observation is `texobj[84]`: the **only** slot in 256 that is marked free
+(`name = -1`) yet carries a fully-populated descriptor, which no other path
+produces.
 
 **The request was 264,192 B. The arena's largest — and only — free block was
 144,352 B. Shortfall: 119,840 B (117.0 KB).**
@@ -1201,7 +1256,12 @@ value in the `0x286`/`0x287` naming sequence. The header word
 **The size the game computed is arithmetically correct**: a 1024×1024 VQ
 texture is a 2,048-byte codebook plus one index byte per 2×2 texel =
 `2048 + 1024*1024/4` = **264,192 B**, exactly `texobj[84]+0x18`. The
-library's own size computation (`FUN_8c03ed78`) is not at fault either.
+library's own size computation (`FUN_8c03ed78`) is not at fault either. The
+`PVRT` `datalen` field reads 264,200, eight more: that field counts the eight
+bytes of header info that follow it (`pixfmt`, `datatype`, pad, `w`, `h`)
+plus the payload, so `264,200 − 8 = 264,192` — the same number, no
+discrepancy. Whole-record size `0x40820` = GBIX `0x10` + `PVRT` tag/len `8` +
+264,200.
 
 **Delivered bytes are provably correct — a direct byte comparison, not a
 CRC sample.** The complete in-RAM body of the failing texture (header +
@@ -1253,14 +1313,26 @@ not just cell-consistent.
 |---|---|---|
 | DC VRAM arena (patched seed) | 8,388,608 | `0x8c19ecb4` = `0x00800000`; arena walk sums to `0x800000` |
 | Naomi arena (unpatched seed) | 16,777,216 | `scripts/reloc_patchset.json` `dat_offset 0x1203c`, `0x01000000` |
-| Non-texture reservations at the hang | 1,495,040 | FB pair 1,228,800 + region 262,144 + 4,096 |
-| Textures resident at the hang | 6,749,216 | 84 blocks, flags `0x0011` |
+| Non-texture reservations at the hang | 1,501,184 | FB pair 1,228,800 + region 262,144 + sub-page 4,096 + KAMUI2-internal 6,144 |
+| Game textures resident at the hang | 6,743,072 | 83 texobj-owned blocks (§Step 5) |
 | Arena high-water at the hang | 8,244,256 (`0x7dcc20`) | free block base |
 | Free | 144,352 | free-list walk |
 | **Failing request** | **264,192** | `texobj[84]+0x18`; VQ 1024×1024 |
 | **Shortfall (this texture)** | **119,840** | 264,192 − 144,352 |
 | Shortfall to place the whole 4-texture chunk | 384,032 | 1,056,768 − (144,352 + 2×264,192) |
 | Demand implied at this instant | 8,508,448 (`0x81d420`) | high-water + request = **1.43 % over the 8 MB cap** |
+
+> **Both shortfall figures are FLOORS, not the scene's peak demand.** 119,840 B
+> is what the *next instruction* needed. 384,032 B is what the rest of *this
+> `TXTR` chunk* needs — and even that is a floor: entry 3 was never attempted
+> (`FUN_8c070da8` breaks on the first failure), and **nothing that would have
+> run after this chunk ran at all**, because the game parked in
+> `FUN_8c0ad720` forever. The true peak VRAM demand of this scene — let alone
+> of a played match, which Phase 3 measured as a *higher*-demand context than
+> attract — is **unbounded by this evidence**. A fix sized to 384 KB is not
+> shown to be sufficient; it is only shown to be necessary. Sizing a fix
+> needs a separate measurement (e.g. an instrumented run with a deliberately
+> over-large arena, recording the true high-water) — not done here.
 
 On the unpatched Naomi seed the same scene has `16,777,216 − 8,244,256` =
 8,532,960 B free — **32× the failing request**, so this failure cannot occur
@@ -1319,12 +1391,21 @@ forensics constrain it sharply:
   asset is byte-identical to the cart image over its full `0x40820` B.
 - **Not the size computation.** 264,192 B is arithmetically exact for a
   1024×1024 VQ texture.
-- It is a **budget deficit of 119,840 B (117 KB) at this instant**, 384,032 B
-  if the whole 4-texture chunk must fit — against a hard 8 MB cap that the
-  DC cannot raise.
+- It is a **budget deficit of at least 119,840 B (117 KB) at this instant**,
+  at least 384,032 B if the whole 4-texture chunk must fit — against a hard
+  8 MB cap that the DC cannot raise. **Both numbers are floors** (§Step 10):
+  neither bounds the scene's peak demand, so neither is a fix-sizing target.
 
 ### Limits of this verdict
 
+- **The deficit figures are floors, not the peak.** Everything downstream of
+  the failure is invisible to this evidence: list entry 3 was never
+  attempted, and the game parked in its error loop instead of continuing the
+  scene. 119,840 B is what the next instruction needed; 384,032 B is what
+  this one chunk needs. A fix sized at 384 KB could still fail later in the
+  same scene, and a played match is a higher-demand context than the attract
+  path this was captured on. Sizing any fix requires a fresh measurement of
+  the true high-water, which this task did not take.
 - **One savestate.** Three occurrences are on record (Phase 4 `play1` with a
   screenshot, Task 5 `instrument-ctl`, Task 6 `soak-1`); only `soak-1`
   carries RAM state. The `instrument-ctl` leg is byte-identical to `soak-1`

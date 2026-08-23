@@ -405,8 +405,12 @@ Headline numbers, all read out of the RAM image at the hang: the KAMUI2
 bank-0 arena is exactly 8,388,608 B (the patched 8 MB seed, confirmed live at
 `0x8c19ecb4`), 8,244,256 B allocated across 87 blocks with **zero gaps**, one
 free block of **144,352 B** — against a **264,192 B** request for a 1024×1024
-VQ texture. **Short by 119,840 B (117 KB)**; short by 384,032 B to place the
-whole 4-texture chunk. Not fragmentation (no gaps), not a leak (the previous
+VQ texture. **Short by at least 119,840 B (117 KB)**; short by at least
+384,032 B to place the rest of that one `TXTR` chunk. **Both figures are
+floors, not the scene's peak demand** — nothing downstream of the failure
+ran (the game parked in its error loop), so a fix sized at 384 KB is shown to
+be *necessary*, not sufficient; sizing one needs a fresh high-water
+measurement. Not fragmentation (no gaps), not a leak (the previous
 scene's surfaces were released — live count fell 102 → 84), not the bytes
 (both CRC streams PASS *and* the failing asset is byte-identical to
 `senkosp.dat` over its full `0x40820` B), not a bad header (all three of

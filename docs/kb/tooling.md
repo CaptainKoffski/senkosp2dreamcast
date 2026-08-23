@@ -753,7 +753,7 @@ Three deltas from the Phase 3 recipe, all load-bearing:
    image offset is `(addr & 0x1fffffff) - 0x0c000000`.
 3. **Two markers must agree** before trusting the base — one alone is not
    enough here, because the `syMalloc` banner appears **twice** in the stream
-   (the second is a data copy at RAM offset `0xce0000`). Use the banner *and*
+   (the second is a data copy at RAM offset `0xe3c980`). Use the banner *and*
    the boot-image head:
 
 ```python
