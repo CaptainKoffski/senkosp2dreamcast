@@ -172,6 +172,19 @@ referenced, not duplicated — that file is part of this project's method.
   No `abort|crash|signal|disconnected|fatal` in the `.stdout.log`. Build
   confirmed healthy before the soak campaign (docs/kb/phase5-hardware.md
   §Repro campaign has the per-leg soak table).
+  **Phase 5 fix-scoping fork commit:** `10de83124` (ARENAHW texture-arena
+  high-water walker: `cartlog_arena_tick()` in `core/hw/naomi/naomi.cpp`,
+  called from the `STARTRENDER` write path in `core/hw/pvr/pvr_regs.cpp`
+  next to `cartlog_texerr_tick()`; `INSTRUMENTATION.md` row in the same
+  commit) in `flycast4naomi2dreamcast` (canonical). Cherry-picked into
+  `flycast-src` the same way as Tasks 2/5/6 (scratch local remote
+  `phase5canon`, removed after) as `b5a275a11`; rebuilt with the same
+  `cmake --build build -j"$(sysctl -n hw.ncpu)"` recipe — exit 0, same
+  pre-existing linker warnings only. Validated on the Naomi-profile smoke
+  leg `phase5/arenahw-smoke` (docs/kb/phase5-hardware.md §High-water
+  measurement). The walker is passive and always-on-when-cartlog: any
+  future instrumented leg (either profile) keeps emitting `ARENAHW`
+  running-max lines for free.
 - **BIOS:** `~/Library/Application Support/Flycast/data/naomi.zip` already
   installed (verified 2026-08-13); source copy in this repo: `bios/naomi.zip`.
 - **Launch gotchas (macOS, every unattended run):**

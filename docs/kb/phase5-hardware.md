@@ -1435,6 +1435,125 @@ forensics constrain it sharply:
   the verdict is about the port's VRAM budget, which is profile-independent
   (the arena is the game's own bookkeeping, not the emulator's).
 
+## High-water measurement (fix-scoping, user-approved 2026-08-23)
+
+**Question:** the Task 7 verdict left fix sizing open — both deficit figures
+(119,840 B / 384,032 B) are floors, and "the true peak VRAM demand … is
+unbounded by this evidence" (§Step 10). What is the game's actual peak
+texture-arena demand across attract *and* played matches, and therefore how
+big is the deficit a fix must close?
+
+### Method — measure on the Naomi profile, translate to the DC budget
+
+Demand was measured on the **Naomi profile with the original ROM** (the
+unpatched 16 MB seed), not on a big-arena DC disc variant, for two reasons:
+
+- **Fidelity:** texture demand is a property of the game content and code,
+  which the port shares byte-for-byte outside the patched seeds; the 16 MB
+  arena gives the allocator 32× the failing request (§Step 10), so no load
+  ever fails and the walk sees the true demand, not a truncated one.
+- **Playability:** Flycast's DC profile maps 8 MB of VRAM
+  (`core/hw/mem/addrspace.cpp:626`, both lines captured in this leg's own
+  stdout: `VRAM64(8 MB)` on DC init, `VRAM64(16 MB)` after the Naomi
+  platform switch — `captures/phase5/arenahw-op1.stdout.log`). A DC-profile
+  arena seeded past 8 MB would wrap every above-8M texture write at the
+  8 MB mask onto low VRAM — stomping the region array, framebuffer and
+  resident textures — so the screen degrades exactly when the measurement
+  gets interesting, and the operator's match leg becomes unplayable. The
+  Naomi profile renders everything correctly.
+
+**Instrument — `ARENAHW` walker** (fork canonical `10de83124`, cherry-pick
+`b5a275a11` into the launched tree, rebuilt; `INSTRUMENTATION.md` row
+added). `cartlog_arena_tick()` (`core/hw/naomi/naomi.cpp`) walks the KAMUI2
+arena block lists — config block P1 `0x8c170eb8`, both banks' alloc + free
+lists, node stride `0x18`, the exact layout the Task 7 savestate verified
+(§Steps 4–5) — on every `STARTRENDER` write (same site and dynarec-safety
+argument as `cartlog_texerr_tick`), and prints only when a running max
+(total allocated bytes, or texture-class bytes) increases. Texture-class =
+blocks with flag bit `0x02` clear: at the hang, every non-texture
+reservation carried `0x02` (FB pair `0x0013`, region/TA `0x0043`) and every
+texture-class block did not (`0x0011` game textures, `0x0015` sub-page,
+KAMUI2-internal `0x0011`) — §Step 5's flag table. That split is what makes
+the number transfer across profiles: **required DC arena = peak tex +
+1,490,944 B** (the DC profile's own `flags&2` reservations, measured live
+at the hang: FB pair 1,228,800 + region 262,144).
+
+Guards: the walker no-ops until config`+4` reads `0x800000` or
+`0x1000000`; a non-RAM link stops that list; node count capped at 512
+(pool capacity is `0x105`).
+
+### Legs
+
+| Leg | Profile | Duration | Lines | ARENAHW | TEXERR |
+|---|---|---|---|---|---|
+| `phase5/arenahw-smoke` | Naomi, unattended | 150 s | 233,590 | 7 | baseline only |
+| `phase5/arenahw-op1` | Naomi, **operator** | ~2 h 15 m (23:47–02:02) | 13,548,793 (507 MB) | 11 | `code=0` throughout |
+
+**Smoke validation:** on every line `alloc + free = total = 0x1000000`
+exactly, one free node, zero fragmentation — the same closed arithmetic the
+Task 7 walk found; `alloc − tex = 0x700000` constant across all samples
+(the Naomi-mode reservations), confirming the `flags&2` split is stable.
+
+**Operator coverage (operator-attested, 2026-08-24):** ~11 min attract
+pre-roll untouched; 2P mode through **all stages** (each at least once,
+characters varied); Score Mode to a stage-2 death; 1P beginner+novice
+(Mika) stages 1–8 including the boss's two observed forms (big robot, then
+a bird/insect second form — not beaten; a third form and the ending remain
+unseen); post-play attract until the kill. The `TEXERR` sampler stayed
+`code=0` for the entire leg — **no texture-load error anywhere on the
+16 MB arena**, as the Task 7 arithmetic predicted.
+
+### Result
+
+Peak sample (`captures/phase5/arenahw-op1.log:2290180`, set in the early 2P
+window; ~11.2 M subsequent lines — the rest of the 2P sweep, Score Mode,
+the whole 1P run and the boss — never exceeded it):
+
+```
+ARENAHW total=01000000 alloc=00dd73e0 tex=006d73e0 nblk=55 free=00228c20 maxfree=00228c20 nfree=1
+```
+
+| Quantity | Bytes | Source |
+|---|---|---|
+| **Peak texture-class demand** | **7,173,088** (`0x6d73e0`) | ARENAHW max, whole leg |
+| DC `flags&2` reservations | 1,490,944 (`0x16c000`) | Task 7 §Step 5 (FB pair + region) |
+| **Required DC arena (measured)** | **8,664,032** (`0x843260`) | sum |
+| 8 MB cap | 8,388,608 (`0x800000`) | patched seed |
+| **Deficit (measured coverage)** | **275,424** (`0x433e0`) | vs the cap |
+| DC-evidence floor (Task 7) | 8,772,640 (`0x85e020`) → deficit **384,032** | hang alloc 8,244,256 + the chunk's 2 unplaced textures 528,384 |
+
+Attract cross-check: ARENAHW #8 (`arenahw-op1.log:388130`, ~4.2 min in,
+attract) reads `tex=0x688660` = 6,850,144 — within 1.5 % of the DC hang
+instant's texture-class total 6,753,312 (§Step 5), i.e. the Naomi attract
+reaches the same demand class at the same point in its loop.
+
+**Reconciliation — the DC floor stays binding.** The measured Naomi peak
+(8,664,032 DC-equivalent) sits 108,608 B *below* the Task 7 floor
+(8,772,640). So this leg never held the exact resident set the DC attract
+held at its failing instant — the attract demo rotation is not guaranteed
+identical across profiles (plausibly EEPROM/play-history-driven; **a
+reading, not a derived fact**), and the walker samples at frame boundaries
+(an alloc-then-free inside one frame is invisible). Neither gap changes the
+conclusion; it means the honest sizing number is the **larger** of the two:
+
+> **The fix must recover at least 384,032 B (the DC-evidence floor);
+> measured full-game coverage puts the true requirement within ~110 KB of
+> that floor. Recommended engineering target: ≥ 512 KB (0x80000) recovered,
+> covering both numbers with margin.**
+
+### Limits
+
+- Unseen contexts: a possible third boss form, the 1P ending/credits, and
+  Score Mode past stage 2. The walker now rides along free in every future
+  instrumented leg (including fix-verification soaks), so coverage keeps
+  accruing; a completed 1P run would close the ending gap.
+- Frame-boundary sampling (above): a strictly intra-frame transient peak
+  would be missed. No mechanism for one is known in this allocator (scene
+  textures persist across frames), but it is unproven.
+- The 1,490,944 B DC reservation figure is the hang-instant value; the FB
+  pair and region block are allocated once at init and were stable across
+  every observation, but no leg has watched them across a video-mode change.
+
 ## HUD kit — operator field guide (Task 8)
 
 **For:** the operator at the TV during Task 10 hardware rounds. No source
