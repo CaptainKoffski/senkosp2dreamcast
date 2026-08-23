@@ -694,3 +694,136 @@ one baseline line, a few legitimate content-driven lines, no flood — and,
 unplanned, caught a second live occurrence of the texture-error hang with
 its first classifier-cell evidence (`code=6`, `idx=2`), which is now part of
 the evidence base for Task 6/7 rather than a control-leg defect.
+
+## Auto-savestate capture (Task 6)
+
+**Question (controller re-scope, superseding the Task 6 brief's
+operator-legs plan):** Task 5's control leg proved the hang reproduces
+unattended, but carries no RAM state — the classifier table above (§What
+this means for the Task 7 verdict) needs the VRAM free-list / `TXTR` chunk
+structures at the hang to separate T1 (VRAM-arena exhaustion, category (b),
+our bug) from T4 (illegal header, category (a)). Task: extend the fork so
+the next occurrence auto-saves a savestate, then capture one.
+
+### Fork change — one-shot TEXERR auto-savestate
+
+`../flycast4naomi2dreamcast` (canonical) commits `167661363` (sampler
+extension) + `afc25186f` (`INSTRUMENTATION.md` row), cherry-picked clean
+into `../cleopatra/tools/flycast-src` as `631e7b9d6` + `c3d0c8451`, rebuilt
+(`docs/kb/tooling.md` §Phase 5 Task 6 fork commits has the full recipe).
+
+**Threading finding, not assumed.** `cartlog_texerr_tick()` runs on the
+`"Flycast-emu"` thread (`core/emulator.cpp` `Emulator::start()`,
+`std::async` with `ThreadName _("Flycast-emu")`, driven by the STARTRENDER
+MMIO write during SH4 execution). `dc_savestate()`'s only existing callers
+(`core/sdl/sdl.cpp`, `core/ui/gui.cpp`) all run on the `"Flycast-rend"`
+thread (`core/ui/mainui.cpp` `mainui_loop()`, `ThreadName _("Flycast-rend")`)
+via `mainui_rend_frame()` → `os_UpdateInputState()` → `input_sdl_handle()`.
+Calling `dc_savestate()` (or the `emu.stop()`/`emu.start()` wrapper
+`gui_saveState()` already uses for its own `AutoSaveState` path,
+`core/ui/gui.cpp:1635`) directly from the emu thread would self-join-deadlock:
+`Emulator::stop()` calls `checkStatus(true)` to wait on its own
+`std::async` result (`core/emulator.cpp`), and a thread cannot join itself.
+**Decision: split arm/execute across the two threads**, not a direct call.
+`cartlog_texerr_tick()` (emu thread) only flips a one-shot
+`std::atomic<bool>` latch (`g_texerrSavePending`, plus `g_texerrSaveCode`
+for the log line) on the classifier cell `0x8c1a20a8`'s 0→nonzero
+transition. A new `cartlog_texerr_save_poll()` (`core/hw/naomi/naomi.cpp`),
+called once per frame from `mainui_rend_frame()` (render thread), checks
+the latch and — precisely mirroring `gui_saveState(stopRestart=true)` —
+runs `emu.stop(); dc_savestate(0); emu.start();`, then emits
+`TEXERRSAVE code=<hex> slot=0 <path>`. Index 0 (default slot, no user
+`SavestatePath` configured) resolves through `hostfs::getSavestatePath(0,
+true)` to `~/Library/Application Support/Flycast/data/<basename>.state`;
+the poll function queries that exact path before saving rather than
+reconstructing it, so the logged path is ground truth, not a guess.
+
+**Sanity leg** (`phase5/task6-sanity`, 90 s unattended, one-call foreground
+pattern): 5 `TEXERR` lines, all `code=00000000` after the cold-start
+baseline — healthy, no transition, as expected (`docs/kb/tooling.md` §Phase
+5 Task 6 fork commits has the counts). The trigger path itself was **not**
+exercised by this leg (it can't be — a healthy leg never sees the
+transition); the arm/poll split and the deadlock reasoning above were
+verified by code read, per this task's scope, not by a forced firing. All
+three `check_stream_crc.py` CHECKs PASS on this leg too.
+
+### Repro campaign (Task 6 — unattended soak, supersedes the Task 6 brief's
+operator-legs plan per the controller's re-scope)
+
+One 600 s unattended leg (`phase5/soak-1`, one-call foreground pattern,
+`-config Debug:SerialConsoleEnabled=yes`, killed by PID) — the campaign
+stopped after leg 1 under the SUCCESS condition:
+
+| Leg | Duration | TEXERR lines | Transition? | TEXERRSAVE? | Checker | Notes |
+|---|---|---|---|---|---|---|
+| `phase5/soak-1` | 600 s (log spans to line 636,994) | 8 (`captures/phase5/soak-1.log` lines 128, 15368, 31800, 43654, 90872, 148429, 160387, 319549) | **YES** — line 319549, `code=00000006` (was `00000000` at line 160387, the immediately preceding sample) | **YES** — line 319564, `code=00000006 slot=0 .../data/disc.state` | `shimcrc_match` PASS (89/0), `gdread_match` PASS (420 verified, 4 lowfad, 0 mismatch), `coverage_nonzero` PASS (shim=89, drive=424) | Hang signature confirmed mechanically (below); savestate preserved |
+
+**Hang-signature cross-check**, same method as the Task 5 control leg:
+
+```
+awk 'NR<=319549 && /MDODMA/{a++} NR>319549 && /MDODMA/{b++} END{printf "before=%d after=%d\n", a, b+0}' captures/phase5/soak-1.log
+# -> before=110334 after=0        -- maple dead after the marker, same as instrument-ctl
+
+awk 'NR>319549 && /^C2D/{t++} NR>319549 && /C2D src=0c17e360/{a++} NR>319549 && /C2D src=0cedbc00/{b++} END{print t, a, b}' captures/phase5/soak-1.log
+# -> 42326 21163 21163            -- every post-marker C2D is the same frozen-frame pair (21163+21163=42326)
+```
+
+`grep -i 'abort|crash|signal|disconnected|fatal' captures/phase5/soak-1.stdout.log` → no matches. Same
+log signature as `play1` (`docs/kb/phase4-conversion.md` §Texture-error
+hang) and `instrument-ctl` (§Instrument control test above): render loop
+alive, maple/input dead, no reset attempted — this is the same hang, not a
+new failure mode.
+
+### The capture
+
+`TEXERRSAVE code=00000006 slot=0 /Users/captainkoffski/Library/Application
+Support/Flycast/data/disc.state` (`captures/phase5/soak-1.log:319564`, 15
+cartlog lines after the marker at line 319549 — one TA-list/PVR-register
+cycle in between, `captures/phase5/soak-1.log:319550-319563`: two
+`SOFTRESET`/`TA_ALLOC_CTRL`/`TA_LIST_INIT` sequences and one
+`TAREG`/`C2D`/`TAEND` render, i.e. the save fired within the same or the
+next rendered frame after detection, not a multi-second delay). `disc.state`
+(not
+`senkosp.state`): `hostfs::getSavestatePath()`'s basename comes from
+`settings.content.fileName` (`core/oslib/oslib.cpp`), and
+`capture_dc_leg.sh` loads `build/disc.gdi` directly — a different content
+path than the Phase 3 canary-snapshot's `AutoSaveState` route, hence the
+different basename; **both are index 0, same file-naming logic, no
+divergence in the mechanism itself.**
+
+**Preserved immediately** (savestates are overwritten by later runs, per
+this task's rule) to `captures/phase5/soak-1-texerr.state`:
+
+```
+$ ls -la captures/phase5/soak-1-texerr.state
+-rw-r--r--  8554748  captains  ...  captures/phase5/soak-1-texerr.state
+$ md5 captures/phase5/soak-1-texerr.state
+MD5 (captures/phase5/soak-1-texerr.state) = 1d3a3c6d943ec93292732f17dd7704d4
+```
+
+8,554,748 bytes (nonzero, RZip-compressed — same format as the Phase 3
+canary-snapshot, `docs/kb/tooling.md` §Phase 3: RAM snapshot; the
+`Flycast[...] N[SAVESTATE]: Saved state to .../disc.state size 28106129`
+line in `captures/phase5/soak-1.stdout.log` records the pre-compression
+serialized size). **Carving this state (locating the VRAM free-list and
+`TXTR` chunk structures to decide T1 vs. T4) is out of this task's
+re-scoped goal** ("make the next captured occurrence carry a RAM snapshot,
+then capture one") and is left for Task 7, using the same carve procedure
+Phase 3 established (RZip magic scan → inflate chunks → locate by
+plaintext/known-offset landmark).
+
+### Verdict
+
+**SUCCESS on the first soak leg.** The one-shot auto-savestate fired
+exactly as designed on a live, unattended, independently-reproduced
+occurrence of the texture-error hang (`code=6`, `idx=2` — the same T1/T4
+class the Task 5 control leg caught without RAM evidence); the resulting
+`disc.state` is preserved outside the emulator's overwrite-prone savestate
+directory, nonzero-size, and md5-recorded. Both the sanity leg and the
+capture leg pass all three `check_stream_crc.py` CHECKs, so the delivered-
+and drive-truth streams remain verified on every leg this task ran. No
+BLOCKED symptoms observed (no TEXERR flood — 8 lines over a 636,994-line
+capture; no checker mismatches; the save/stop/start sequence did not crash
+or hang the emulator — the process continued logging `SHIMCRC`/`GDPIO`
+records and the render loop stayed alive per the C2D evidence above). The
+soak campaign's BUDGET ceiling (8 legs) was never approached.

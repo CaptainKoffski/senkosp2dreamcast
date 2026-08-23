@@ -124,6 +124,54 @@ referenced, not duplicated — that file is part of this project's method.
   after a "successful" diagnostic build. **Always `make clean` before a
   flag-sensitive build, or verify with `strings`/`nm` that the requested
   macro actually compiled in** — the make exit code proves nothing here.
+  **Phase 5 Task 6 fork commits:** `167661363` (one-shot TEXERR
+  auto-savestate) + `afc25186f` (`INSTRUMENTATION.md` row) in
+  `flycast4naomi2dreamcast` (canonical). `cartlog_texerr_tick()`
+  (`core/hw/naomi/naomi.cpp`, emu thread) now arms a one-shot latch
+  (`g_texerrSavePending`/`g_texerrSaveCode`, file-scope `std::atomic`) on the
+  classifier-cell `0x8c1a20a8`'s 0->nonzero transition, independent of the
+  existing print-throttle statics. It does **not** call `dc_savestate()`
+  itself: `emu.stop()` (`core/emulator.cpp`) joins the emu thread's own
+  `std::async` result via `checkStatus(true)`, which self-join-deadlocks if
+  called from the thread being joined — the same reason every existing
+  savestate call site (`gui.cpp` hotkey/menu, `gui_saveState()`) runs from
+  the SDL/render thread, never the emu thread. New function
+  `cartlog_texerr_save_poll()` is called once per frame from
+  `mainui_rend_frame()` (`core/ui/mainui.cpp`, confirmed the "Flycast-rend"
+  thread by `ThreadName` in `mainui_loop()`); on a pending flag it runs
+  `emu.stop(); dc_savestate(0); emu.start();` — the exact sequence
+  `gui_saveState(stopRestart=true)` already uses for the `AutoSaveState`
+  path (`core/ui/gui.cpp:1635`) — and emits
+  `TEXERRSAVE code=<hex> slot=0 <path>` (or `TEXERRSAVE FAILED code=<hex>
+  reason=<...>` if `dc_savestateAllowed()` is false or the sequence throws
+  `FlycastException`). Index 0 (no user-configured `SavestatePath`) resolves
+  through `hostfs::getSavestatePath(0, true)` to
+  `~/Library/Application Support/Flycast/data/<contentbasename>.state` —
+  same location the Phase 3 canary-snapshot already established (`senkosp.state`,
+  §Phase 3: RAM snapshot above); the poll function queries that exact path
+  before saving and logs it, rather than reconstructing/guessing it. No
+  checkout drift (`git fetch && git log --oneline HEAD..origin/master` clean
+  in both checkouts before this edit). Cherry-picked into `flycast-src` the
+  same way as Tasks 2/5 (scratch local remote `phase5canon`, `git
+  cherry-pick`, remote removed after): both commits landed clean as
+  `631e7b9d6` + `c3d0c8451`. **Rebuild:** `export
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` then `cmake
+  --build build -j"$(sysctl -n hw.ncpu)"` — exit 0, same pre-existing linker
+  warnings as prior rebuilds, nothing new.
+  **Sanity leg** (`phase5/task6-sanity`, one-call foreground pattern, 90 s
+  unattended attract, `-config Debug:SerialConsoleEnabled=yes`, killed by
+  PID): `captures/phase5/task6-sanity.log` — 108,988 lines; 5 `TEXERR`
+  lines (cold-start baseline + 4 legitimate live-surface-count changes,
+  `code=00000000` throughout — same healthy signature as the Task 5 control
+  leg's first samples), 0 `TEXERRSAVE` lines (expected — the trigger
+  condition, `code` 0->nonzero, never occurred on this healthy leg; the
+  latch logic itself was verified by code read, not by a forced firing, per
+  this task's scope). `check_stream_crc.py` — all three CHECKs PASS
+  (`shimcrc_match`: 60 records/0 mismatches; `gdread_match`: 256
+  verified/4 lowfad/0 mismatches; `coverage_nonzero`: shim=60, drive=260).
+  No `abort|crash|signal|disconnected|fatal` in the `.stdout.log`. Build
+  confirmed healthy before the soak campaign (docs/kb/phase5-hardware.md
+  §Repro campaign has the per-leg soak table).
 - **BIOS:** `~/Library/Application Support/Flycast/data/naomi.zip` already
   installed (verified 2026-08-13); source copy in this repo: `bios/naomi.zip`.
 - **Launch gotchas (macOS, every unattended run):**
