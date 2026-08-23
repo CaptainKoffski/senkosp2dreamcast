@@ -4541,8 +4541,9 @@ reproduce the same way on silicon).
 Mirrors `docs/superpowers/specs/2026-08-22-phase4-conversion-design.md`
 §Exit criteria. Criteria 1-5: evidenced in §Attract, §Steady input, §Test
 menu and §Operator legs above (banked per the SDD ledger,
-`.superpowers/sdd/2026-08-22-phase4-conversion/progress.md`). Criteria 6-8
-below.
+`.superpowers/sdd/2026-08-22-phase4-conversion/progress.md` — session-local,
+untracked; the evidence itself lives in the tracked sections cited above, so
+a fresh clone loses nothing by not having this path). Criteria 6-8 below.
 
 ### Criterion 6 — VMU-safety static scan
 

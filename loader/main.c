@@ -46,9 +46,11 @@ extern uint8 handoff_end[];     /* end-of-stub label in handoff.S (stub is PIC) 
  * no separate mirror-zeroing pass. */
 #define SHIM_WINDOW     (SHIM_END - SHIM_BASE)      /* 0x8000 */
 
-/* Real-HW visibility: serial is invisible on a TV, so every stage is drawn to
- * the framebuffer (KOS init already set 640x480). A stuck screen names the
- * stage that hung; halt() turns the screen red with the reason. */
+/* Real-HW visibility: serial is invisible on a TV. Default is quiet --
+ * LOADER_QUIET 1 makes say() skip its per-stage framebuffer draws; the
+ * splash (KOS init already set 640x480) and halt()'s red screen carry
+ * visibility instead. Flip to 0 to have say() draw every stage too; a
+ * stuck screen then names the stage that hung. */
 #define LOADER_QUIET 1
 extern uint8 splash_bin[];      /* objcopy-embedded 640x480 RGB565 (Makefile) */
 

@@ -707,6 +707,14 @@ fresh checkout doesn't have to rediscover them the same way:
   (`mie_blobs.c`) from it at build time; a fresh clone without it fails with
   a clear `make` error naming the missing file, not a silent bad build.
 
+  **This one is more fragile than the other five.** It is not a dump that
+  `dd` can regenerate — it is an emulator capture tied to instrumented-fork
+  commit `0d55a1812`'s log format, and a re-captured leg is not guaranteed
+  byte-identical (the blob extractor only asserts per-class byte-stability
+  within a leg, not across legs). If this file is ever lost, "regenerable"
+  means rebuilding that fork commit and re-running a Naomi leg, not a
+  one-line `dd` — preserve it deliberately.
+
 Recipe, run against a clone that is **not** a sibling of `../cleopatra` (a
 scratch directory), so the top-level `Makefile`'s `. ../cleopatra/tools/kos/
 environ.sh` needs the same relative path to resolve — fixed with one

@@ -17,7 +17,7 @@
 #define MAPLE_RX        (SHIM_BASE + 0x5140)
 #define SHIM_STATE      (SHIM_BASE + 0x5200)  /* u32[8]: [0]=boot mode 0=main 1=test */
 #define SHIM_BOUNCE     (SHIM_BASE + 0x5800)  /* 2048-byte sector bounce */
-#define GD_STACK_BOTTOM (SHIM_BASE + 0x6000)  /* 8 KB private stack, grows down */
+#define GD_STACK_BOTTOM (SHIM_BASE + 0x6000)  /* 8 KB reserved/spare (gdstack.S deleted Task 10) */
 #define GD_STACK_TOP    (SHIM_BASE + 0x8000)  /* = SHIM_END */
 
 /* Loader-placed BIOS-derived blocks (outside shim home).

@@ -270,9 +270,9 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
     int odd = (int)((unsigned long)p & 1u);
     unsigned left = sectors * GD_SECSZ;
     while (left) {
-        int w = gd_wait_drq();
-        if (w < 0) return gd_fail(GD_E_DATA, fad);
-        if (w > 0) break;               /* drive ended the command early: verdict below */
+        int wait = gd_wait_drq();
+        if (wait < 0) return gd_fail(GD_E_DATA, fad);
+        if (wait > 0) break;            /* drive ended the command early: verdict below */
         unsigned n = ((unsigned)GD_BCHI << 8) | (unsigned)GD_BCLO;
         if (!n || (n & 1u) || n > left) return gd_fail(GD_E_COUNT, fad);
         left -= n;

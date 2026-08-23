@@ -22,15 +22,14 @@ void *xmemcpy(void *d, const void *s, unsigned int n) { return memcpy(d, s, n); 
  * the game blanks video during init and unblanks only after its first rendered
  * frame, so on a hang the screen stays black with zero information. Each
  * milestone paints once; which blocks appear names the phase that hung. */
-/* Round-17: HUD compiled out by default. On real HW every painted pixel is a
- * slow uncached VRAM bus write -- the full HUD (marks + classifiers + 6 hex
- * rows per trigger + 4 per poll) burns milliseconds of the 16.7 ms frame,
- * invisible in Flycast (instant memory). Prime suspect for the 2P-only
- * slowdown (heavier frames, no headroom left). Flip to 1 for stall hunts;
- * shim_die's fatal paints stay unconditional. */
-#ifndef SHIM_HUD
-#define SHIM_HUD 0
-#endif
+/* Round-17: HUD is ON by default (shim_iface.h:81 defines SHIM_HUD 1 --
+ * intended this phase per the spec's observability-early rule). On real HW
+ * every painted pixel is a slow uncached VRAM bus write -- the full HUD
+ * (marks + classifiers + 6 hex rows per trigger + 4 per poll) burns
+ * milliseconds of the 16.7 ms frame, invisible in Flycast (instant memory).
+ * Prime suspect for the 2P-only slowdown (heavier frames, no headroom
+ * left). Flip SHIM_HUD to 0 in shim_iface.h for release; shim_die's fatal
+ * paints stay unconditional. */
 
 void shim_mark(unsigned int slot, unsigned short color) {
 #if !SHIM_HUD
