@@ -1,0 +1,384 @@
+# Phase 5 — hardware bring-up results
+
+Analysis and bring-up results for Phase 5 (spec
+`docs/superpowers/specs/2026-08-23-phase5-hardware-design.md`, plan
+`docs/superpowers/plans/2026-08-23-phase5-hardware.md`). Phase 4 is closed
+(`docs/kb/00-status.md`, `docs/kb/phase4-conversion.md`); Phase 5's first
+gate is the texture-load-error hang (spec §Work item 1).
+
+Every claim below is cited to an instruction/pool-word address in the boot
+binary, a Ghidra decompilation of a named function, or a byte offset in
+`senkosp.dat`, per this project's citation rule (primary sources outrank
+wikis — `CLAUDE.md`). Addresses are P1 (`0x8c…`); `.dat` file offset =
+address − `0x8c020000` (the main load entry, `0x171ff8` bytes —
+`docs/kb/boot-binary.md`). Re-runnable tooling:
+`scripts/ghidra/FindTexErrXrefs.java`, `Decomp.java`, `DisasmRange.java`
+via `scripts/ghidra/run.sh script <Name.java> [addr…]`.
+
+---
+
+## Texture-error handler — static characterization
+
+**Question (spec §Work item 1; task brief
+`.superpowers/sdd/2026-08-23-phase5-hardware/task-4-brief.md`):** Phase 4
+observed the game's own `ERROR !! / TEXTURE LOAD ERROR !` handler fire once
+in ~6 sessions (`docs/kb/phase4-conversion.md` §Texture-error hang (play1);
+screenshot `docs/kb/img/phase4-dc-texerror.png`). Which conditions can
+reach that message — bad loaded bytes, an allocation/arena failure, or a
+lookup failure? The answer decides how Task 7 reads the CRC evidence.
+
+### Anchors — the error-string block
+
+The strings sit in one contiguous block at the tail of the main image,
+verified by direct byte read of `senkosp.dat` (`dd`/`xxd`, file offset =
+address − `0x8c020000`):
+
+| Address | `.dat` offset | String |
+|---|---|---|
+| `0x8c1885f0` | `0x1685f0` | `MEMORY ALLOCATE ERROR !\nHEAP:%p\nSIZE:%d\n` |
+| `0x8c188619` | `0x168619` | `I/O BD IS NOT CONNECTED TO NAOMI BD.\n` |
+| `0x8c18863f` | `0x16863f` | `I/O BD CONNECTED TO NAOMI BD DOES NOT FULFILL…` |
+| `0x8c18871b` | `0x16871b` | `ERROR !!` |
+| `0x8c18890c` | `0x16890c` | `COMMON.PAK` — **the base of the PAK-name/message region** |
+| `0x8c188b6a` | `0x168b6a` | `FILE LOAD ERROR !\nFILE NAME:%s\n` |
+| **`0x8c188b8a`** | **`0x168b8a`** | **`TEXTURE LOAD ERROR !\n`** |
+| `0x8c188ba0` | `0x168ba0` | `PACKTEX MALLOC FAILED %s\n` |
+| `0x8c188bba` | `0x168bba` | `PACKTEX DECODE ERROR\n` |
+| `0x8c188bd0` | `0x168bd0` | `PACKTEX LOAD ERROR\n` |
+| `0x8c188be4` | `0x168be4` | `LOADPACKSTEX LIST MALLOC FAILED %s\n` |
+| `0x8c188c08` | `0x168c08` | `LOADPACKSTEX WORK MALLOC FAILED %s\n` |
+| `0x8c188c2c` | `0x168c2c` | `LOADPACKSTEX DECODE ERROR\n` |
+| `0x8c188c47` | `0x168c47` | `LOADPACKSTEX LOAD ERROR\n` |
+
+**Correction to the task brief's anchor list.** The brief recorded the
+`TEXTURE LOAD ERROR !` string as "preceded by a `…!\nFILE NAME:%s\n` format
+string" and guessed its start at `0x8c188b7a`. The byte read shows the
+preceding item is **one** NUL-terminated string,
+`FILE LOAD ERROR !\nFILE NAME:%s\n` starting at `0x8c188b6a` (`0x8c188b7b`
+is its embedded `\n`, `0x8c188b89` its NUL) — it belongs to the **file**
+loader, not the texture one. **`TEXTURE LOAD ERROR !\n` contains no `%s`
+and prints no filename** — confirmed by the Phase 4 screenshot, which shows
+exactly two lines and no filename (`docs/kb/img/phase4-dc-texerror.png`,
+read directly).
+
+**Test-image twin (recorded, not analysed, per the brief).** Second copies
+of `TEXTURE LOAD ERROR !` at `.dat` `0x1bf8ae` and of `ERROR !!` at `.dat`
+`0x1bd17f` — both outside the `0x171ff8`-byte main load entry, i.e. in the
+separately-linked test image (`docs/kb/phase4-conversion.md` §Texture-error
+hang establishes that the two images are separately linked). `play1` booted
+**MAIN** (`pc=8c02d630`, same section), so the observed occurrence came
+from the main-image copy characterized here.
+
+### Why a raw pointer scan finds nothing — the addressing idiom
+
+No 32-bit word anywhere in the 251 MB `senkosp.dat` equals `0x8c188b8a`
+(exhaustive byte-stride scan). The address is **computed at runtime** as
+region base + immediate. Disassembly of the call site
+(`run.sh script DisasmRange.java 0x8c0b6340 0x8c0b6372`):
+
+```
+8c0b634c  mov.l 0x8c0b637c,r0     ; r0 = FUN_8c070ebc      (pool 0x8c0b637c = 0x8c070ebc)
+8c0b634e  mov   r8,r4             ; r4 = the texture-list struct
+8c0b6350  jsr   @r0
+8c0b6352  _mov  #0x1,r5           ; r5 = 1
+8c0b6354  mov   #-0x1,r1
+8c0b6356  cmp/eq r1,r0            ; returned -1 ?
+8c0b6358  bt    0x8c0b635e        ;   yes -> print
+8c0b635a  bra   0x8c0b6788        ;   no  -> carry on
+8c0b635e  mov   #0x2,r0
+8c0b6360  shll8 r0                ; r0 = 0x200
+8c0b6362  mov.l 0x8c0b6380,r1     ; r1 = 0x8c18890c  (region base "COMMON.PAK")
+8c0b6364  or    #0x7e,r0          ; r0 = 0x27e
+8c0b6366  add   r0,r1             ; r1 = 0x8c188b8a  "TEXTURE LOAD ERROR !\n"
+8c0b6368  mov.l r1,@-r15          ; push as the printer's format argument
+8c0b636a  mov.l 0x8c0b6384,r0     ; r0 = FUN_8c0ad720  (pool 0x8c0b6384 = 0x8c0ad720)
+8c0b636c  jsr   @r0
+```
+
+Ghidra's SH-4 constant propagation resolves this to a DATA reference from
+`0x8c0b6368`, which is how `FindTexErrXrefs.java` finds it.
+
+### The xref chain — string → pool → function → callers
+
+`scripts/ghidra/run.sh script FindTexErrXrefs.java` (no args = the whole
+block above; every target resolves, no `NOREF` at hop 0):
+
+```
+TARGET 0x8c188b8a  "TEXTURE LOAD ERROR !\n"
+  XREF hop=0 to=8c188b8a from=8c0b6368 fn=FUN_8c0b5fc8@8c0b5fc8
+```
+
+Exactly **one** site. Cross-check that this is complete rather than a
+resolution artefact: a 4-byte-aligned scan of the whole main image finds
+only four *code* pool words holding the region base `0x8c18890c`
+(`0x8c0b5c78`, `0x8c0b6380`, `0x8c0b64a8`, `0x8c0b696c` — plus
+`0x8c18880c`, which is the PAK-name table's own first entry, not code), and
+the nine resolved `base + imm` sites they feed account for all nine
+messages in the block, one site each — table below. There is no second
+producer of this string.
+
+| Print site (`jsr`) | Offset | Message | Enclosing function |
+|---|---|---|---|
+| `0x8c0b5c28` | `+0x25e` | `FILE LOAD ERROR !\nFILE NAME:%s\n` | `FUN_8c0b5be8` |
+| **`0x8c0b636c`** | **`+0x27e`** | **`TEXTURE LOAD ERROR !\n`** | **`FUN_8c0b5fc8`** (`TXTR` chunk) |
+| `0x8c0b642c` | `+0x294` | `PACKTEX MALLOC FAILED %s\n` | `FUN_8c0b5fc8` (`PKTX`) |
+| `0x8c0b6454` | `+0x2ae` | `PACKTEX DECODE ERROR\n` | `FUN_8c0b5fc8` (`PKTX`) |
+| `0x8c0b6496` | `+0x2c4` | `PACKTEX LOAD ERROR\n` | `FUN_8c0b5fc8` (`PKTX`) |
+| `0x8c0b680a` | `+0x2d8` | `LOADPACKSTEX LIST MALLOC FAILED %s\n` | `FUN_8c0b67d4` |
+| `0x8c0b68c4` | `+0x2fc` | `LOADPACKSTEX WORK MALLOC FAILED %s\n` | `FUN_8c0b67d4` |
+| `0x8c0b68ec` | `+0x320` | `LOADPACKSTEX DECODE ERROR\n` | `FUN_8c0b67d4` |
+| `0x8c0b691e` | `+0x33b` | `LOADPACKSTEX LOAD ERROR\n` | `FUN_8c0b67d4` |
+
+Print-site addresses are the `jsr` to `FUN_8c0ad720`, taken from that
+function's caller list (`Decomp.java 0x8c0ad720`); the string-materialising
+`mov.l …,@-r15` sits exactly 4 bytes earlier at each site — that earlier
+address is what `FindTexErrXrefs.java` reports (e.g. `0x8c0b6368` →
+`jsr 0x8c0b636c`). A second, independently-linked file-loader module carries
+its own `FILE LOAD ERROR !\nFILE NAME:%s\n` copy at `0x8c18700a`, printed
+from `0x8c08736a` (push at `0x8c087366`); the main-RAM heap OOM message
+`MEMORY ALLOCATE ERROR !\nHEAP:%p\nSIZE:%d\n` (`0x8c1885f0`) is printed from
+`0x8c0ad68c` (push at `0x8c0ad688`), with a second site at `0x8c0ad69c`
+using the same base. Neither is the texture message. Ghidra's auto-analysis
+did not recover containing functions for those sites (`fn=?`); they are
+recorded, not characterized, because neither can produce the observed text.
+
+### The printer is a terminal loop — this is the hang
+
+`FUN_8c0ad720` (`0x8c0ad720`–`0x8c0ad803`, decompiled via `Decomp.java`) is
+the game's fatal-error display. It is variadic (`vsprintf`-style formatting
+via `PTR_FUN_8c0ad810` = `0x8c0695e4` into a stack buffer) and **never
+returns** — its body is a `do { … } while(true)` with no exit path and no
+`rts` reachable from the loop. Each iteration:
+
+- prints the header `ERROR !!` (`0x8c1885f0 + 299` = `0x8c18871b`, loaded at
+  `0x8c0ad7e8`/`0x8c0ad7ec`) at text position `(4, 8)` — gated on
+  `uVar7 & 0x10`, i.e. it blinks;
+- prints the caller's formatted message at text position `(4, 10)`; the
+  colour is set once per iteration before both lines, `0xffffff00` (yellow)
+  or `0xffff0000` (red), alternating on `uVar7 & 0x20`;
+- calls the frame/present pair `PTR_FUN_8c0ad834` (`0x8c03df34`) and
+  `PTR_thunk_FUN_8c034ba0_8c0ad838` (`0x8c03dd22`) every iteration;
+- polls input through `FUN_8c06fb78` (`jsr` at `0x8c0ad77a`), which derives
+  its button mask from a **latched RAM byte** at `[0x8c1bf190 + 5]` (bits
+  `0x10`→`0x10000`, `0x20`→`0x40`, active-low), not from an MMIO read; if
+  bit `0x10000` stays set for more than 5 iterations (counter at
+  `0x8c1d8d98`) it calls `FUN_8c085c68` (`jsr` at `0x8c0ad79c`), a
+  three-call sequence (`0x8c06ed6c`, `0x8c085be8`, `0x8c071700`). The gating
+  call inside `FUN_8c06fb78` (`0x8c067546`, in the Phase 3 input/EEPROM
+  block) was not traced further, so whether any transport still runs beneath
+  it is **not** established here — the capture evidence, not this read, is
+  what shows maple stopped.
+
+This matches the Phase 4 capture exactly: render loop alive and
+re-presenting every vblank, `MDODMA` (maple) dead, no reset attempted
+(`docs/kb/phase4-conversion.md` §Texture-error hang (play1)). The two
+yellow lines in `docs/kb/img/phase4-dc-texerror.png` are this function's
+`(4,8)` + `(4,10)` output. **The hang is not a crash — it is the game
+deliberately parking in its own error display forever.**
+
+### The failure chain behind the one call site
+
+`FUN_8c0b5fc8` (`0x8c0b5fc8`–`0x8c0b67cd`) is the PAK chunk dispatcher: it
+walks a loaded PAK's chunks and switches on the 4-byte chunk tag. The
+`TXTR` branch (tag compare `uStack_38 == 0x54585452`) builds a texture list
+of 12-byte entries and then calls the loader:
+
+- entry allocation: `jsr` at `0x8c0b6326` → `FUN_8c06fe80`, size
+  `count * 0xc`, arena handle `*0x8c1d9400` (pool `0x8c0b6374`);
+  `0x8c06fe80` sits immediately after the heap-create pair
+  `0x8c06fd60`/`0x8c06fda8` recorded in `scripts/ghidra/WhichFunc.java`, so
+  it is a main-RAM heap allocator, not a VRAM one. The `TXTR` branch stores
+  its result unchecked (`mov.l r0,@r8` at `0x8c0b632a`) — unlike the `PKTX`
+  branch, which null-checks and prints `PACKTEX MALLOC FAILED %s`. A heap
+  failure here would therefore fault or corrupt, **not** produce this
+  message;
+- per entry: `[0] = texture data pointer`, `[1] = 0x40000000` (store at
+  `0x8c0b6344`; the constant is built `mov #0x40 / shll16 / shll8` at
+  `0x8c0b6032`–`0x8c0b6038`), `[2] = 0`;
+- `jsr` at `0x8c0b6350` → **`FUN_8c070ebc(list, 1)`**;
+- `cmp/eq #-1` at `0x8c0b6356` → on `-1`, print (above).
+
+`FUN_8c070ebc` (`0x8c070ebc`–`0x8c070ee9`):
+
+```
+if (list->count == 0) { *(0x8c1a20a0 + 8) = 1; return -1; }     // empty TXTR chunk
+else                    return FUN_8c070da8(list);               // arg2 = 1 -> pool 0x8c070ef0
+```
+
+`FUN_8c070da8` (`0x8c070da8`–`0x8c070ddb`) loops the list; the first entry
+whose per-texture load returns false records its index at `*0x8c1a20a0` and
+returns `-1`. The per-texture load is `FUN_8c070d4c` (`0x8c070d4c`), which
+masks the entry's flags with `0x5c000000` and dispatches through the table
+at `0x8c1813e4` — flags `0x40000000` selects **slot 1 = `0x8c070ae4`**
+(slots: `0`→`0x8c0708cc`, `1`→`0x8c070ae4`, `2`→`0x8c070bec`,
+`3`→`0x8c070c90`). Because the `TXTR` branch writes the flag word as a
+constant `0x40000000`, slot 1 is the only reachable loader for this path.
+
+Slot 1 (`0x8c070ae4`–`0x8c070bcc`, read as disassembly) returns **false**
+— the value that becomes `TEXTURE LOAD ERROR !` — from exactly three
+places:
+
+| Return-false site | Callee (pool) | Callee |
+|---|---|---|
+| `0x8c070b0c`–`0x8c070b14` | `0x8c070bd4` | `FUN_8c03e8ec` — reuse/alias an existing surface |
+| `0x8c070b7a`–`0x8c070b82` | `0x8c070bdc` | `FUN_8c0407ba` — find-or-create the texture surface |
+| `0x8c070b8c`–`0x8c070bb0` | `0x8c070be0` | `FUN_8c04074a` — upload the texture data to the surface |
+
+All three are KAMUI2 (NEC PVR library) entry points — the same library
+block as `kmInitDevice` at `0x8c031fee` (`scripts/ghidra/WhichFunc.java`,
+`docs/kb/relocation-map.md`). They share one error-code global,
+**`0x8c1a20a8`**, and one surface-table set:
+`*0x8c1a2088` = surface array base (stride `0x18`), `*0x8c1a208c` = its
+capacity, `*0x8c1a2090` = VRAM-block descriptor array (stride `0x28`),
+`*0x8c1a2094` = its capacity, `*0x8c1a2098` = live-surface counter.
+
+Descending each branch:
+
+- **`FUN_8c0407ba`** (`0x8c0407ba`) → `FUN_8c040648` (`0x8c040648`) →
+  - `FUN_8c03fb58` (`0x8c03fb58`, call at `0x8c04065a`): linear scan for a
+    free surface slot and a free VRAM-block descriptor; if either table is
+    full → `*0x8c1a20a8 = 7; return -1` (`0x8c03fbae`).
+  - `FUN_8c03ff38` (`0x8c03ff38`, call at `0x8c04066e`) → `FUN_8c03f38c`
+    (`0x8c03f38c`); any nonzero → `*0x8c1a20a8 = 6; return -1`.
+    - `FUN_8c03ea1c` (`0x8c03ea1c`, call at `0x8c03f39e`): validates the
+      texture's declared width/height/format and computes the byte size into
+      `param_1[5]`; returns **4** for a width or height outside
+      `{8,16,32,64,128,256,512,1024}`, for an unknown format code, or for a
+      non-square texture in a format that requires square
+      (`0x8c03eba8`, `param_2 != param_3`).
+    - `FUN_8c034e60` (`0x8c034e60`, call at `0x8c03f400`) → `FUN_8c03c46e`
+      (`0x8c03c46e`): the VRAM texture-arena allocator. Rounds the request
+      up to 32 bytes, best-fit-walks the free list rooted at
+      `[PTR_DAT_8c03c4c0 + bank*0x10 + 0x2c]`, and returns **3** when no
+      free block is large enough (`0x8c03c542`, reached from the
+      `puVar2 == 0` test) or when the block-descriptor pool
+      (`FUN_8c03c764`) is empty.
+- **`FUN_8c03e8ec`** (`0x8c03e8ec`) returns `-1` only when its own
+  `FUN_8c03fb58` call (`0x8c03e94e`) fails — the same table-exhaustion
+  condition (`*0x8c1a20a8 = 7`).
+- **`FUN_8c04074a`** (`0x8c04074a`) returns `-1` when the surface has no
+  texture buffer (`*0x8c1a20a8 = 1`), or when the upload
+  `FUN_8c03fdc6` (`0x8c03fdc6`) returns nonzero → `*0x8c1a20a8 = 8`.
+  `FUN_8c03fdc6` returns `7` when the source offset reaches or exceeds the
+  allocated surface size (`param_1[5] <= uVar4`) — i.e. the texture's
+  declared data extent does not fit the surface its own header asked for.
+
+### Trigger taxonomy
+
+| # | Proximate cause | Category | Evidence (addresses) |
+|---|---|---|---|
+| T1 | VRAM texture-arena has no free block ≥ the requested size (or the block-descriptor pool is empty) | **(b) allocation / arena-space** | `FUN_8c03c46e` returns 3 at `0x8c03c542` → `FUN_8c03f38c` `0x8c03f400` → `FUN_8c03ff38` sets `*0x8c1a20a8 = 6`, returns −1 → `FUN_8c040648` → `FUN_8c0407ba` → false at `0x8c070b7a` → `FUN_8c070da8` −1 → print `0x8c0b636c` |
+| T2 | KAMUI2 surface-slot table or VRAM-block-descriptor table full | **(b) allocation / arena-space** | `FUN_8c03fb58` sets `*0x8c1a20a8 = 7`, returns −1 at `0x8c03fbae`; reached from `0x8c04065a` (`FUN_8c040648`), `0x8c04057a` (`FUN_8c04052a`), `0x8c03e94e` (`FUN_8c03e8ec`) — all on the slot-1 path |
+| T3 | Surface exists but carries no texture buffer | **(b) allocation / arena-space** | `FUN_8c04074a` `*0x8c1a20a8 = 1`, `return -1`; checked at `0x8c070b8c` |
+| T4 | Texture header declares an illegal width, height, or format code | **(a) data integrity** | `FUN_8c03ea1c` returns 4 (`0x8c03eafe`, `0x8c03eba8`) → `FUN_8c03f38c` nonzero → `*0x8c1a20a8 = 6` → same chain as T1 |
+| T5 | Texture's declared data extent does not fit the surface its header asked for | **(a) data integrity** | `FUN_8c03fdc6` returns 7 (`param_1[5] <= uVar4`) → `FUN_8c04074a` `*0x8c1a20a8 = 8`, −1; checked at `0x8c070b8c` |
+| T6 | `TXTR` chunk declares zero entries | **(a) data integrity** (structural) | `FUN_8c070ebc` `*(0x8c1a20a0 + 8) = 1; return -1` — the `-1` is produced without ever calling the loader |
+| — | lookup / filename failure | **(c) — NOT reachable** | see below |
+
+**Category (c) is excluded, with evidence.** The texture path never sees a
+filename: `FUN_8c0b5fc8`'s `TXTR` branch operates on an already-resident
+buffer and passes no `%s` argument (`0x8c0b6368` pushes the format string
+and nothing else; `TEXTURE LOAD ERROR !\n` has no conversion specifier).
+Lookup and open failures print their own, different messages —
+`FILE LOAD ERROR !\nFILE NAME:%s\n` from `FUN_8c0b5be8` at `0x8c0b5c28`
+(when the open/lookup call `PTR_FUN_8c0b5c74` = `0x8c07136c` returns
+nonzero), and the `*MALLOC FAILED %s` variants. A lookup that returns the
+*wrong* data rather than failing outright would surface as T4/T5, i.e. as
+category (a).
+
+**Category (b) here means VRAM, not main RAM.** Main-RAM heap exhaustion
+has its own message and its own printer — `MEMORY ALLOCATE ERROR !\nHEAP:%p\nSIZE:%d\n`
+(`0x8c1885f0`, printed from `0x8c0ad688`) — and the PAK-level heap failures
+print `PACKTEX MALLOC FAILED %s` / `LOADPACKSTEX … MALLOC FAILED %s`. So
+`TEXTURE LOAD ERROR !` on its own indicts the **KAMUI2 VRAM texture arena**
+(and its fixed-size surface/block tables), not the relocated main-RAM heap.
+Both seeds are ours to get right — the 8 MB VRAM seed and the heap top are
+the two patched constants (`docs/kb/relocation-map.md`) — but this message
+points at the VRAM one.
+
+### What this means for the Task 7 verdict
+
+**The handler can fire on an allocation/arena failure that has nothing to do
+with the bytes on the disc (T1/T2/T3). Therefore clean CRCs do NOT, on
+their own, exonerate the port.** Stated as Task 7 must apply it:
+
+> Clean CRCs exonerate the emulator **only if** the captured occurrence's
+> path is (a) or (c)-with-good-bytes; **path (b) is our fit bug** — the VRAM
+> texture arena derived from the patched 8 MB seed — and blocks hardware per
+> the spec's hard gate.
+
+Because six of the six reachable triggers split 3-(b) / 3-(a) and **both
+groups produce byte-identical screen text**, the screenshot alone cannot
+classify an occurrence. The classifier must read the KAMUI2 state:
+
+| Read at the marked hang | Meaning | Category |
+|---|---|---|
+| `*0x8c1a20a8 == 6` and the VRAM free list has no block ≥ the request | out of VRAM arena | (b) — T1 |
+| `*0x8c1a20a8 == 6` with free VRAM available | illegal header w/h/format | (a) — T4 |
+| `*0x8c1a20a8 == 7` | surface/block table full | (b) — T2 |
+| `*0x8c1a20a8 == 1` | surface without buffer | (b) — T3 |
+| `*0x8c1a20a8 == 8` | data extent overruns the surface | (a) — T5 |
+| `*(0x8c1a20a0 + 8) == 1` | empty `TXTR` chunk | (a) — T6 |
+
+`*0x8c1a20a0` additionally holds the **index within the texture list** of
+the entry that failed (written at `FUN_8c070da8`), and
+`*0x8c1a2098` the live-surface count — both worth sampling at the marker.
+Note `*0x8c1a20a8` is a shared KAMUI2 global with no clear-on-read
+semantics observed here, so a value present at the hang may be stale from an
+earlier benign call; treat it as corroborating evidence alongside the CRC
+streams, not as a sole verdict.
+
+### Hang marker — the PC to watch (spec §Instrumentation)
+
+The spec's hang marker wants one address. Use the `jsr` at **`0x8c0b636c`**
+— texture-path-specific, one site, no false positives from the sibling
+messages. If the fork's marker uses the same `Sh4cntx.pc` convention as the
+existing `CARTDMAPC`/`PCSAMPLE` taps, the logged value is the instruction
+address **+ 2** (`scripts/ghidra/WhichFunc.java`, citing
+`core/hw/sh4/interpr/sh4_interpreter.cpp` `ctx->pc = addr + 2`), i.e. watch
+for **`0x8c0b636e`** and record `0x8c0b636c` as the true site. A broader
+alternative is the printer entry `0x8c0ad720` plus `PR` (return address
+`0x8c0b6370` for the texture site) — that catches all nine messages and
+discriminates them by `PR` against the call-site table above, which is
+strictly more informative if the fork can log `PR`.
+
+### Operator note
+
+**Photograph the full error text, every time.** Not because it names the
+asset — it does not; `TEXTURE LOAD ERROR !\n` carries no `%s`, and the
+Phase 4 screenshot correctly shows only two lines. Photograph it because
+**the exact wording selects which failure fired**, and the nine sibling
+messages are visually similar:
+
+- `TEXTURE LOAD ERROR !` — the `TXTR` path characterized here (this gate).
+- `PACKTEX LOAD ERROR` / `LOADPACKSTEX LOAD ERROR` — the same
+  `FUN_8c070ebc` loader failing on a *packed*-texture chunk; same taxonomy,
+  different chunk type.
+- `PACKTEX DECODE ERROR` / `LOADPACKSTEX DECODE ERROR` — decompression
+  failed: category (a), bad bytes, a much stronger indictment of the
+  cart-stream path.
+- `PACKTEX MALLOC FAILED %s` / `LOADPACKSTEX … MALLOC FAILED %s` /
+  `MEMORY ALLOCATE ERROR ! HEAP:%p SIZE:%d` — **main-RAM heap** exhaustion,
+  not VRAM. These *do* carry a filename or a size; capture it.
+- `FILE LOAD ERROR !` + `FILE NAME:<name>` — file open/lookup failed;
+  **this** is the message whose second line names the failing asset.
+
+Also record whether the header line is blinking and note that the machine
+will sit in this loop indefinitely (it never resets itself — consistent
+with Phase 4's `MMUCRWR == 4` for the whole capture), so a kill/power-cycle
+by the operator is expected, not a second symptom.
+
+### Limits of this analysis
+
+- Static only. Which of T1–T6 fired in the `play1` occurrence is **not**
+  decidable from the image; it needs the runtime reads listed above plus
+  the Task 5/6 CRC streams. An honest "the static evidence cannot separate
+  T1 from T4 without the error code" is the finding, and the error-code
+  table is the instrument that separates them.
+- `FUN_8c03c46e`'s free-list root (`PTR_DAT_8c03c4c0`) and the bank
+  selection in `FUN_8c034e60` were read but not traced to the patched VRAM
+  seed; that link (arena size ← 8 MB seed) is asserted in
+  `docs/kb/relocation-map.md`, not re-derived here.
+- Two print sites for non-texture messages (`0x8c087366`/`0x8c08736a` and
+  `0x8c0ad686`/`0x8c0ad688`) sit in code Ghidra's auto-analysis left without
+  a containing function; they are recorded, not characterized.
