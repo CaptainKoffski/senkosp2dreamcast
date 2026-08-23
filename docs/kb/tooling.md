@@ -8,11 +8,12 @@ referenced, not duplicated — that file is part of this project's method.
 ### Instrumented Flycast (reused build)
 
 - **Binary:** `../cleopatra/tools/flycast-src/build/Flycast.app/Contents/MacOS/Flycast`
-  (Mach-O arm64), commit `6e3522822` (Phase 4 Task 2, rebuilt 2026-08-22 —
-  see below). Originally the same build the senkosp assessment v9 capture
-  used (`../naomi2dreamcast/assessments/senkosp.md` §1, then `f014a410c`).
-- **Source of truth:** `../flycast4naomi2dreamcast` (fork), HEAD `6e3522822`
-  (Phase 4 Task 2, 2026-08-22) — the built copy is current. Phase 2 rebuilds
+  (Mach-O arm64), `flycast-src` checkout commit `625425f72` (Phase 5 Task 2,
+  rebuilt 2026-08-23 — see below). Originally the same build the senkosp
+  assessment v9 capture used (`../naomi2dreamcast/assessments/senkosp.md` §1,
+  then `f014a410c`).
+- **Source of truth:** `../flycast4naomi2dreamcast` (fork), HEAD `79182301d`
+  (Phase 5 Task 2, 2026-08-23) — the built copy is current. Phase 2 rebuilds
   only if it adds instrumentation; full build recipe (CMake 3.31.6 pin,
   DEVELOPER_DIR, ZLIB_TBD, Syphon patch): `../cleopatra/docs/kb/tooling.md`
   §"Flycast — source build".
@@ -50,6 +51,43 @@ referenced, not duplicated — that file is part of this project's method.
   No checkout drift this time (`git fetch && git log --oneline
   HEAD..origin/master` in both checkouts was clean before this edit landed).
   `docs/kb/phase4-conversion.md` §Shim home (V2s).
+  **Phase 5 Task 2 fork commit:** `79182301d` in `flycast4naomi2dreamcast`
+  (canonical) — `gd_crc32()` (CRC-32/IEEE, same variant as the shim's
+  `shim_crc32`/Python `zlib.crc32`) plus two `cartlog()` call sites in
+  `gdromv3.cpp`: `GDPIO` after the PIO refill's `libGDR_ReadSector` (before
+  `read_params.start_sector += sector_count`) and `GDDMA` after
+  `DmaBuffer::fill`'s `libGDR_ReadSector` (before `params.start_sector +=
+  count`) — drive-truth CRCs for `scripts/check_stream_crc.py` (Task 3).
+  Both format strings end in `\n`, one deliberate departure from the task
+  brief's snippet: every existing `cartlog()` call site in this fork
+  (`naomi.cpp`, `maple_if.cpp`) terminates its line with `\n` (`cartlog()`
+  is a raw `vfprintf`, no auto-newline — `cartlog.cpp`), and Task 3's
+  parser reads `GDPIO`/`GDDMA` as one record per line; the brief's snippet
+  omitted `\n` on both calls, which the smoke leg confirms would have run
+  every record together into a single unparseable line.
+  **No push this task** (task instruction: do not push either repo), so
+  this checkout (`flycast-src`) could not `git pull --ff-only` from
+  `origin` the way the drift note above prescribes. Instead: added the
+  canonical fork as a scratch local remote inside `flycast-src`
+  (`git remote add phase5canon /Users/captainkoffski/AntigravityProjects/flycast4naomi2dreamcast`),
+  `git fetch phase5canon master`, `git cherry-pick 79182301d` (clean,
+  `flycast-src` had no local commits ahead), then removed the scratch
+  remote. Result: `flycast-src` HEAD `625425f72` — same author, message,
+  and diff as `79182301d`, different SHA (different commit timestamp/tree
+  parent chain from the independent checkout) rather than a true
+  fast-forward. Rebuilt at `625425f72`, not `79182301d` — record this
+  commit pairing, not just one SHA, if reconciling the two checkouts later.
+  **Rebuild (2026-08-23):** `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+  then `cmake --build build -j"$(sysctl -n hw.ncpu)"` in `flycast-src`
+  (incremental — the configured tree already existed, no reconfigure
+  needed), exit 0, only pre-existing linker warnings (`-s` obsolete,
+  duplicate static libs, deployment-target mismatches on `libomp`/`libpng`
+  dylibs — unrelated to this change). **Smoke leg** (`phase5/probe-smoke`,
+  one-call foreground pattern, 60 s unattended attract, killed by PID):
+  `captures/phase5/probe-smoke.log` — 241 `GDPIO|GDDMA` lines (129 `GDPIO`,
+  112 `GDDMA`), all 241 correctly newline-terminated one-record-per-line
+  (verified: 0 lines match two tags concatenated, 0 lines contain a tag
+  without starting with it).
 - **BIOS:** `~/Library/Application Support/Flycast/data/naomi.zip` already
   installed (verified 2026-08-13); source copy in this repo: `bios/naomi.zip`.
 - **Launch gotchas (macOS, every unattended run):**
