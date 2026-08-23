@@ -131,6 +131,17 @@ with tempfile.TemporaryDirectory() as d:
     assert rc == 1, (rc, out, err)
     assert "CHECK gdread_match: FAIL" in out, out
 
+    # -- in-range GDPIO with a corrupted crc= -> FAIL via the byte-compare
+    # itself, distinct from the out-of-range guard above (must exercise the
+    # actual got == c comparison, not just the off + length > size check).
+    badcrc_log = os.path.join(d, "badcrc.log")
+    with open(badcrc_log, "w") as f:
+        f.write(f"GDPIO fad={CART_FAD:08x} secs={gd_secs:x} type={gd_type:x} "
+                 f"crc={gd_crc ^ 0xffffffff:08x}\n")
+    rc, out, err = run("--stdout", stdout_ok, "--cartlog", badcrc_log, *common)
+    assert rc == 1, (rc, out, err)
+    assert "CHECK gdread_match: FAIL" in out, out
+
     # -- --tail N: last N records of EACH stream, with verify status --------
     rc, out, err = run("--stdout", stdout_ok, "--cartlog", cartlog_path,
                         "--tail", "2", *common)
