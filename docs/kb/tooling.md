@@ -828,13 +828,29 @@ A plain `make clean && make gdi` release rebuild that same day reproduced
 `track01.iso`/`track02.raw`/`track03.iso`/`disc.gdi` byte-identically to the
 table above, but `track04.iso` came back `126e587e977315febaac0c833ed86777`,
 not `89ccb3e02522a8bd802f762ee1f74a2f` — deterministic (two consecutive
-clean rebuilds matched each other), not a flake. Root cause: Phase 5 Task 1's
-`dc64fbb` (`shims/src/gd.c`, landed **after** this criterion-7 capture) adds
-`shim_crc32()` **unconditionally** — only its call site is `#if SHIM_CRC`-
-gated, the function definition is not — so every release build from
-`dc64fbb` onward carries a few dozen extra bytes of dead code this baseline
-never saw. `docs/kb/phase5-hardware.md` §Instrument control test → Step 5
-has the full account. The table above is left as originally recorded (it is
-Phase 4's own gate-closure evidence); treat only the four unaffected files
-as still-valid reproducibility checks, and recapture `track04.iso`'s
-baseline before relying on it again.
+clean rebuilds matched each other), not a flake. **Root cause empirically
+isolated (fix round 1), not just inferred from the diff:** a single-variable
+before/after rebuild of `shims/` alone (same toolchain, same `mie_blobs.c`
+generation, no `DEFS` either time — only `shims/src/gd.c`'s content
+changed) —
+```
+git checkout 3bb4d05 -- shims/src/gd.c && make -C shims clean && make -C shims
+# shim.bin: 5896 B, md5 adce0a3702b701ec7eb41feb1f809eac
+git checkout HEAD    -- shims/src/gd.c && make -C shims clean && make -C shims
+# shim.bin: 5948 B, md5 035d3537024c0b39c7b7f0615cede0a7
+```
+reproduces exactly the Phase 4 5,896 B artifact pre-Task-1 and exactly
+5,948 B (+52 B) with Task 1's `gd.c` restored — isolating the variable and
+also confirming `shim_crc32()` (added **unconditionally** by Task 1's
+`dc64fbb`; only its call site is `#if SHIM_CRC`-gated, not the function
+itself) is **not** dead-code-eliminated at `-Os`, an assumption the first
+pass of this note made silently and this measurement now confirms rather
+than asserts. `shim.bin` embeds byte-for-byte into `1ST_READ.BIN` into
+`track04.iso` (§GDI mastering below, unchanged deterministic steps), so this
++52 B at the shim layer fully accounts for the md5 divergence.
+`docs/kb/phase5-hardware.md` §Instrument control test → Step 5 has the full
+account, both md5s, and the working-tree restore-to-HEAD confirmation. The
+table above is left as originally recorded (it is Phase 4's own
+gate-closure evidence); treat only the four unaffected files as still-valid
+reproducibility checks, and recapture `track04.iso`'s baseline before
+relying on it again.

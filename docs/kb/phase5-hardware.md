@@ -629,21 +629,60 @@ MD5 (build/disc.gdi)    = c527f1ec937b56caa65084d436f8c0a0   == criterion 7
 ```
 
 Four of five match byte-identically. `track04.iso` (the loader+cart track)
-legitimately differs, root-caused rather than waved off: `git log --oneline
--- shims/src/gd.c` shows Phase 5 Task 1's `dc64fbb` ("SHIM_CRC delivered-
-bytes probe in gd_read_cart") landed **after** Phase 4 Task 14 captured the
-criterion-7 baseline, and its diff adds `shim_crc32()` **unconditionally**
-(only the call site inside `gd_read_cart` is `#if SHIM_CRC`-gated, the
-function definition is not) — so every release build from `dc64fbb` onward
-carries a few dozen extra bytes of dead code that Task 14's baseline never
-saw, regardless of `SHIM_CRC`'s value. Confirmed deterministic, not a build
-flake: two consecutive `make clean && make gdi` runs in this session
-produced the identical `126e587e977315febaac0c833ed86777` both times. The
-disc mastered by this task is the correct, current release output; criterion
-7's `track04.iso` entry in `docs/kb/phase4-conversion.md` is now stale as a
-byte-reproducibility check (superseded by Task 1's landed code, not by
-anything in this task) and would need a fresh baseline capture to be useful
-again — not done here, out of this task's scope.
+legitimately differs. Confirmed deterministic, not a build flake first: two
+consecutive `make clean && make gdi` runs in this session produced the
+identical `126e587e977315febaac0c833ed86777` both times.
+
+**Root cause — empirically isolated (fix round 1), not just inferred from
+reading the diff.** `git log --oneline -- shims/src/gd.c` shows Phase 5 Task
+1's `dc64fbb` ("SHIM_CRC delivered-bytes probe in gd_read_cart") landed
+**after** Phase 4 Task 14 captured the criterion-7 baseline, and its diff
+adds `shim_crc32()` **unconditionally** — only the call site inside
+`gd_read_cart` is `#if SHIM_CRC`-gated, the function definition is not. That
+reading only proves the source *could* be the cause; it doesn't rule out the
+unreferenced function being dead-code-eliminated at `-Os`, which would make
+the diff a no-op for the compiled bytes. Isolated with a single-variable
+before/after rebuild of `shims/` alone (same toolchain, same `mie_blobs.c`
+generation, no `DEFS` in either run — everything held constant except
+`gd.c`'s content):
+
+```
+$ git checkout 3bb4d05 -- shims/src/gd.c   # pre-Task-1 gd.c (9994370, last Phase 4 commit)
+$ make -C shims clean && make -C shims
+$ wc -c < shims/build/shim.bin; md5 shims/build/shim.bin
+5896
+MD5 (shims/build/shim.bin) = adce0a3702b701ec7eb41feb1f809eac
+
+$ git checkout HEAD -- shims/src/gd.c      # restore Task 1's gd.c
+$ make -C shims clean && make -C shims
+$ wc -c < shims/build/shim.bin; md5 shims/build/shim.bin
+5948
+MD5 (shims/build/shim.bin) = 035d3537024c0b39c7b7f0615cede0a7
+```
+
+Pre-Task-1 `gd.c` reproduces exactly the **5,896 B** Phase 4 artifact;
+restoring Task 1's `gd.c` reproduces exactly **5,948 B**, a **+52 B**
+delta with no other variable changed. This both root-causes the divergence
+(the only changed input is `gd.c`) and confirms `shim_crc32()` is **not**
+dead-code-eliminated under `SHIM_CRC=0` at `-Os` — the assumption the first
+pass of this section made silently is now measured, not asserted. Because
+`shim.bin` is embedded byte-for-byte into `shim_blob.o` → linked into
+`loader.elf` → `objcopy`'d into `1ST_READ.BIN` → placed into `track04.iso`
+by `make_gdi.py` (all deterministic, unchanged steps — §GDI mastering,
+`docs/kb/tooling.md`), this +52 B at the shim layer is sufficient to explain
+`track04.iso`'s md5 divergence without needing to isolate any further link
+in that chain. Working tree left at HEAD (`git checkout HEAD --
+shims/src/gd.c`, confirmed via `git diff --stat` = no output) and the
+release disc rebuilt clean afterward (`make clean && make gdi`,
+`track04.iso` reproduces the same `126e587e977315febaac0c833ed86777`
+recorded above; `strings build/1ST_READ.BIN | grep SHIMCRC` → no match);
+`git status` clean except this doc edit.
+
+The disc mastered by this task is the correct, current release output;
+criterion 7's `track04.iso` entry in `docs/kb/phase4-conversion.md` is now
+stale as a byte-reproducibility check (superseded by Task 1's landed code,
+not by anything in this task) and would need a fresh baseline capture to be
+useful again — not done here, out of this task's scope.
 
 ### Verdict
 
