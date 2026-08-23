@@ -1554,6 +1554,111 @@ conclusion; it means the honest sizing number is the **larger** of the two:
   pair and region block are allocated once at init and were stable across
   every observation, but no leg has watched them across a video-mode change.
 
+## Fix scoping (2026-08-24, user-directed)
+
+User direction on the measurement verdict: scope **option 1** (shrink the
+framebuffer reservation) first, but "if there will be flickering, I would
+like to continue with other options"; if option 1 fails, identify the
+offender textures ("grab and save the textures … which stage it is").
+
+### Option 1 — FB reservation: REJECTED under the no-flicker constraint
+
+The verdict is arithmetic, not archaeology. The scan-out reservation at the
+hang is one arena block of **1,228,800 B = exactly 2 × (640 × 480 × 2)** —
+a double-buffered 16-bit 640×480 pair (§Step 5). Every way to shrink it
+gives up one of those three factors:
+
+| Shrink | Saves | Visual cost |
+|---|---|---|
+| 2 buffers → 1 | 614,400 | rendering into the displayed buffer — tearing/flicker. **Vetoed.** |
+| 480 → 240 lines | 614,400 | half vertical resolution (240p), or field-rendered interlace — whose *characteristic artifact is flicker* on static art. **Vetoed / quality loss.** |
+| 640 → 512 columns | 245,760 | aspect distortion, and alone under the 384,032 B floor anyway |
+| 16 bpp → less | — | no smaller DC scan-out format exists (555/565 are both 16-bit) |
+
+The other `flags&2` reservation (region/TA block, 262,144 B) is below the
+floor even at zero. **Option 1 cannot recover the deficit without a visual
+cost the user has excluded.** Supporting archaeology, recorded for reuse:
+`FUN_8c038aa0` (called only from `FUN_8c02e300`, `jsr 0x8c02e352`) is the
+**arena initializer** — `PTR_DAT_8c038b44` = the config block `0x8c170eb8`,
+and it builds the initial free list with an optional top-of-VRAM reserve
+from config`+0x4c` (zero in our runs; the 16 MB/8 MB duality is the
+`DAT_8c038b48`/`DAT_8c038b50` compare, with any non-16 MB size falling to
+the hardcoded 8 MB arm — an intermediate seed would waste space above
+8 MB). The scan-out FB *size* is computed in `FUN_8c031b60`
+(bytes-per-line × (lines+1 & ~1), from the game's config struct passed
+down `FUN_8c06ed98` → `FUN_8c03d9d8` → `FUN_8c02e300`). `FUN_8c042b44`
+(callers `0x8c08636c`) is the creator of the **6,144 B KAMUI2-internal
+block** — its descriptor is the global `0x8c1a2180` (whose `+0x1c` is the
+`0x8c1a219c` owner slot §Step 4 found), and its content is the system
+debug font (`"0123456789ABCDEF"` glyph bitmap at `0x8c171008`).
+
+### The offenders identified — STAGE08.PAK, the boss stage
+
+The flat image is an **ISO9660 filesystem**: PVD at `.dat 0x808000`
+(`\x01CD001`), root LBA 45,020, mapping `dat_off = (LBA − 40904) × 2048`.
+Walking it yields 1,001 files; the four failing textures all fall inside
+**`/STAGE08.PAK`** (dat `0xb496800`, 3,925,728 B) at `+0x21f7a0`,
+`+0x25ffc0`, `+0x2a07e0` (the failing one), `+0x2e1000` — a 4-entry `TXTR`
+chunk (tag at `+0x21f788`: size `0x102094`, count 4, offset table
+`{0x14, 0x40834, 0x81054, 0xc1874}` — **explicit per-texture offsets**,
+which is what makes an in-place shrink structurally safe). Decoded to PNG
+(`scripts/decode_pvr_vq.py`, pure-stdlib VQ decoder;
+`captures/phase5/textures/stage08-*.png`, gitignored — ROM-derived): dark
+mechanical hull-panel atlases with red/orange accent lights — the boss
+battleship architecture. Three are RGB565 VQ, the fourth ARGB4444 VQ
+(alpha decals).
+
+**Load-timeline attribution** (cartlog `CARTDMA src=` mapped through the
+ISO table, `captures/phase5/arenahw-op1.log`): the attract rotation is
+stage-4 title demo → stage-1 tutorial → **stage-8 demo** → stage-10
+ranking card, cycling through `OP_P12/34/56/78` character-intro pairs. The
+ARENAHW running max was set, after boot, **only ever by STAGE08 scenes**:
+the attract stage-8 demo (`load /STAGE08.PAK` at line 387,940 →
+ARENAHW #8 at 388,130 — the same scene class that kills the DC build),
+then the operator's two 2P matches on stage 8 (lines 1,094,833 and
+2,023,598 → maxima #9/#10 and the all-time peak #11). The 1P boss fight
+is `P11.PAK` + `STAGE10.PAK` (line 6,920,700; d98=0x30) — small, never
+near the peak.
+
+**Per-PAK texture census** (`PVRT` header scan, VRAM size by the KAMUI2
+formula — VQ = 2048 + w·h/4):
+
+| PAK | Textures | VRAM if all resident | Note |
+|---|---|---|---|
+| STAGE08 | 40 | **3,280,896** | the four 1024×1024 VQs are 1,056,768 of it |
+| STAGE09 | 47 | 2,807,808 | biggest *file* (6.6 MB) but max texture 512×512 |
+| STAGE07 | 50 | 2,310,144 | played, never set a max |
+| STAGE06 | 43 | 1,740,800 | played, never set a max |
+| others | — | ≤ 1,376,256 | STAGE10's two 512×512 non-VQ (dt01) are its bulk |
+
+STAGE08 is the heaviest stage **because of** the four big VQs. Shrinking
+them 1024×1024 → 512×512 (264,192 → 67,584 each) saves **786,432 B**:
+the DC-floor scene drops 8,772,640 → 7,986,208 (headroom 402,400) and the
+measured peak drops 8,664,032 → 7,877,600 (headroom 511,008) — both
+comfortably under the 8 MB cap, from a change to four background textures
+in one PAK. Mechanically: same GBIX index, PVRT header rewritten
+512×512, re-encoded VQ payload, rest of the record left as dead padding —
+the chunk's explicit offset table and every other byte of the PAK
+unchanged; KAMUI2 reads dims from the PVRT header (§Step 9) and PVR UVs
+are normalized, so the art simply renders softer. The patch bytes are
+ROM-derived (never committed; regenerated by script from `senkosp.dat` at
+GDI build time).
+
+### Limits / residual risk
+
+- **`STAGE09.PAK` never loaded in the entire 2¼ h leg** (neither did
+  `P09`/`P10.PAK`) — unreached content, possibly a true-final-boss or
+  ending sequence. Census puts its all-resident worst case ≈
+  8,190,944 B with stage-8-like overhead — under the cap by ~198 KB, but
+  that is a heuristic (all-resident assumption), not a measurement. Any
+  future leg that reaches it will be measured for free by the walker.
+- The stage-8 2P peak and the attract-demo floor bound every scene
+  *observed*; the ending/credits and a possible third boss form remain
+  unobserved (§High-water measurement, Limits).
+- The census skips ~40 textures with unrecognized `PVRT` datatypes
+  (marked `unk`) — small formats in the observed PAKs; their omission
+  biases the census low by small amounts.
+
 ## HUD kit — operator field guide (Task 8)
 
 **For:** the operator at the TV during Task 10 hardware rounds. No source

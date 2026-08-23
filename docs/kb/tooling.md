@@ -185,6 +185,13 @@ referenced, not duplicated — that file is part of this project's method.
   measurement). The walker is passive and always-on-when-cartlog: any
   future instrumented leg (either profile) keeps emitting `ARENAHW`
   running-max lines for free.
+  **Phase 5 fix-scoping local tools:** `scripts/decode_pvr_vq.py` (pure
+  stdlib GBIX/PVRT VQ→PNG decoder; usage
+  `python3 scripts/decode_pvr_vq.py senkosp.dat <offset-hex> <out.png>`;
+  outputs are ROM-derived — keep under gitignored `captures/`). The flat
+  `.dat` is an ISO9660 image: PVD at `.dat 0x808000`, file mapping
+  `dat_off = (LBA − 40904) × 2048` — walk recipe and file inventory in
+  `docs/kb/phase5-hardware.md` §Fix scoping.
 - **BIOS:** `~/Library/Application Support/Flycast/data/naomi.zip` already
   installed (verified 2026-08-13); source copy in this repo: `bios/naomi.zip`.
 - **Launch gotchas (macOS, every unattended run):**
