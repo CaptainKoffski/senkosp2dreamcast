@@ -29,6 +29,13 @@
  */
 #include "shim_iface.h"
 
+#ifndef SHIM_CRC
+#define SHIM_CRC 0      /* diagnostic: CRC every delivered cart read over serial */
+#endif
+#if SHIM_CRC
+void scif_puts(const char *); void scif_puthex(unsigned int);
+#endif
+
 /* ---- pure splitter (host-tested: test/test_gd_math.c) -------------------
  * Decompose a (cart byte offset, byte length) request into a partial head, a
  * whole-sector body and a partial tail. Same members/order as the test's own
@@ -55,6 +62,21 @@ struct plan gd_plan(unsigned cart_off, unsigned len) {
     p.body_secs = len / 2048u;
     p.tail_len = len % 2048u;
     return p;
+}
+
+/* CRC-32/IEEE (reflected, poly 0xEDB88320) -- matches Python zlib.crc32 and
+ * the fork's GDPIO/GDDMA probe. Diagnostic (SHIM_CRC) only. Caller passes the
+ * alias it wants read (the hook passes P2 -- uncached, the C1 rule).
+ * ponytail: bitwise ~50 cycles/byte; switch to a 1 KB table if diag legs drag. */
+unsigned int shim_crc32(const void *p, unsigned len) {
+    const unsigned char *s = (const unsigned char *)p;
+    unsigned int c = 0xffffffffu;
+    while (len--) {
+        c ^= *s++;
+        for (int k = 0; k < 8; k++)
+            c = (c >> 1) ^ (0xedb88320u & (0u - (c & 1u)));
+    }
+    return ~c;
 }
 
 #ifndef HOST_TEST
@@ -340,6 +362,13 @@ int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
         if ((r = gd_read_fad(fad, b, 1)) < 0) return r;
         for (i = 0; i < pl.tail_len; i++) d[i] = b[i];
     }
+#if SHIM_CRC
+    scif_puts("SHIMCRC o="); scif_puthex(cart_off);
+    scif_puts(" l=");        scif_puthex(len);
+    scif_puts(" c=");        scif_puthex(shim_crc32(
+                                 (const void *)P2ADDR((unsigned long)dst), len));
+    scif_puts("\n");
+#endif
     return 0;
 }
 #endif /* !GD_LOADER_BUILD */

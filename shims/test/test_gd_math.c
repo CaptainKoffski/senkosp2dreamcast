@@ -13,6 +13,7 @@
  * copy carries the matching "keep in sync" note). */
 struct plan { unsigned fad, head_skip, head_len, body_secs, tail_len; };
 struct plan gd_plan(unsigned cart_off, unsigned len);   /* from gd.c, pure */
+unsigned int shim_crc32(const void *p, unsigned len);   /* from gd.c, pure */
 
 int main(void) {
     /* --- the task brief's three cases ---------------------------------- */
@@ -65,5 +66,11 @@ int main(void) {
         && p.head_len == 1 && p.body_secs == 0 && p.tail_len == 0);
 
     printf("PASS test_gd_math gd_plan\n");
+
+    /* CRC-32/IEEE check vector (zlib.crc32 compatible) */
+    assert(shim_crc32("123456789", 9) == 0xcbf43926u);
+    assert(shim_crc32("", 0) == 0u);
+
+    printf("PASS test_gd_math shim_crc32\n");
     return 0;
 }
