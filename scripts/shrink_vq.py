@@ -38,7 +38,10 @@ PSNR_FLOOR = 26.0
 # elements — lit window strips, red truss markings — smeared in stills):
 UNSHARP = 0.5   # recover contrast the 2x2 box average smears; 0 disables
 EDGE_W = 3.0    # extra codebook pull toward high-variance (edge) blocks
-ALPHA_W = 2.0   # pf2 only: prioritize decal shape (alpha) over hidden RGB
+ALPHA_W = 1.0   # pf2 alpha emphasis in the distance metric. 2.0 regressed:
+                # it merged small opaque color features (red indicator
+                # lights) into gray codes — operator-caught 2026-08-24.
+                # The RGB dilation below is what actually helps pf2.
 # decoder texel order within a 2x2 block, as (dx, dy) — must match decode()
 TEXELS = ((0, 0), (0, 1), (1, 0), (1, 1))
 
@@ -149,11 +152,14 @@ def encode_one(rom, off, pixfmt, rng):
     if pixfmt == 0x02:
         scale[3::4] = ALPHA_W
     vecs = ref.reshape(DST // 2, 2, DST // 2, 2, 4) \
-              .transpose(0, 2, 3, 1, 4).reshape(-1, 16) * scale
+              .transpose(0, 2, 3, 1, 4).reshape(-1, 16).copy()
     uniq, inv, counts = np.unique(vecs, axis=0, return_inverse=True,
                                   return_counts=True)
+    # edge measured in UNSCALED space — a channel-emphasis scale must not
+    # skew which blocks count as high-contrast (the ALPHA_W=2.0 regression)
     edge = uniq.std(1)
     wgt = counts * (1.0 + EDGE_W * edge / max(float(edge.max()), 1e-9))
+    uniq = uniq * scale
     cent = kmeans(uniq, wgt, 256, rng)
 
     # store quantized, then assign against what will actually be stored
