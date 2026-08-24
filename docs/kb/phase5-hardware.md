@@ -1742,8 +1742,22 @@ post-boot sample (line-128 boot-garbage sample as in every leg), and the
 `d98` scene-counter values repeat across the log (0x17/0x19/0x22 seen
 twice) — the attract rotation finished a full cycle past the stage-8
 demo and started a second one. First DC build ever to survive the scene.
-Remaining for the gate: A/B visual (task 17), ≥6 operator sessions +
-≥30-min soak + savestate-assisted 1P completion (task 18).
+**Soak leg `phase5/fix-soak-1`** (patched DC attract, 31 min,
+2,527,726 lines): **clean.** ~6–7 full attract rotations (`d98` 0x17
+seen 7×); all 46 post-boot TEXERR samples `code=0`; the ARENAHW all-time
+max never moved past the first rotation's stage-8 demo (`alloc=0079dc20`
+at line 319,286 — byte-deterministic with `fix-smoke-1`, same line
+number from clean boot). Checkers: `shimcrc_match` PASS (vacuous — 0
+records, SHIM_CRC diag flag off by policy on release-shaped builds),
+`gdread_match` **PASS — 1,742 reads verified against the patched
+track04, 0 mismatches** (4 lowfad, same donor-region reads as soak-1),
+`coverage_nonzero` FAIL-by-config (its shim half presumes a diagnostic
+leg; ruling in the ledger: it applies to SHIM_CRC-enabled legs only —
+see the texpatch caveat now in `check_stream_crc.py`'s docstring).
+This closes the ≥30-min-soak half of the task-18 standard.
+
+Remaining for the gate: A/B visual + play-both-builds (task 17), ≥6
+operator sessions + savestate-assisted 1P completion (task 18).
 
 ### Limits / residual risk
 
