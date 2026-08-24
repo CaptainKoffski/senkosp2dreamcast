@@ -1835,7 +1835,14 @@ hand or with an image AI; drop it as
 that one needs RGBA for the decals); rerun `shrink_vq.py` +
 `make_gdi.py`. The encoder VQ-encodes the override as-is (256-code VQ
 still applies, PSNR-gated, `source:` recorded in the manifest, preview
-regenerated). Everything stays gitignored. Contour-preservation ideas
+regenerated). Everything stays gitignored. **Importance masks
+(2026-08-24):** an optional `edit/<pvrt-off>-mask.png` (512×512,
+white = important) reweights codebook training toward the marked
+regions (`MASK_W`, default 4.0 → white blocks count 5×); composes with
+an edit PNG or the plain downscale, and cannot introduce noise (pixels
+untouched, only code allocation shifts). Control-verified: no mask ⇒
+byte-identical blobs; synthetic corner mask on `0b777810` moved the
+masked region 28.9→30.6 dB for −0.3 dB globally. Contour-preservation ideas
 if ever revisited encoder-side: luma-only mild unsharp (avoids chroma
 noise), sqrt-count weighting (frees codes from flat repeats without
 sharpening). Any post-verification art change re-validates cheaply: the

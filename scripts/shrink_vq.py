@@ -46,6 +46,8 @@ EDGE_W = 0.0    # extra codebook pull toward high-variance (edge) blocks
 ALPHA_W = 1.0   # pf2 alpha emphasis. 2.0 regressed (merged small opaque
                 # color features into gray codes — the red lights).
 DILATE = 0      # pf2 RGB dilation into transparent texels. Off = exact v1.
+MASK_W = 4.0    # importance-mask boost: a block under pure white counts
+                # (1+MASK_W)x in codebook training. No mask file = exact v1.
 # decoder texel order within a 2x2 block, as (dx, dy) — must match decode()
 TEXELS = ((0, 0), (0, 1), (1, 0), (1, 1))
 
@@ -54,6 +56,10 @@ TEXELS = ((0, 0), (0, 1), (1, 0), (1, 1))
 # <pvrt-off>.png (e.g. 0b777810.png) here and the encoder VQ-encodes it
 # instead of box-downscaling the original — the export/edit/import path
 # (decode with scripts/decode_pvr_vq.py, edit or AI-process, re-import).
+# An optional <pvrt-off>-mask.png (512x512, white = important) reweights
+# codebook training toward the marked regions (MASK_W); it composes with
+# an edit PNG or with the plain downscale. Pixels are never touched —
+# only code allocation shifts, so a mask cannot introduce noise.
 # ROM-derived art -> the directory stays under gitignored captures/.
 EDIT_DIR = REPO / "captures/phase5/textures/edit"
 
@@ -182,13 +188,24 @@ def encode_one(rom, off, pixfmt, rng):
     assert struct.unpack_from("<HH", hdr, 12) == (SRC, SRC), hdr.hex()
     assert struct.unpack_from("<I", hdr, 4)[0] == 8 + 2048 + (SRC // 2) ** 2
 
+    # optional importance mask: per-2x2-block training weight 1+MASK_W*luma
+    mask = EDIT_DIR / ("%08x-mask.png" % off)
+    blk_w = None
+    mask_note = ""
+    if mask.exists():
+        mw, mh, mimg = load_png_rgba(mask)
+        assert (mw, mh) == (DST, DST), "%s: must be %dx%d" % (mask, DST, DST)
+        m = mimg[..., :3].mean(-1) / 255.0
+        blk_w = 1.0 + MASK_W * m.reshape(DST // 2, 2, DST // 2, 2).mean((1, 3)).ravel()
+        mask_note = "+mask"
+
     edit = EDIT_DIR / ("%08x.png" % off)
     if edit.exists():
         # art override: VQ-encode the edited/AI-processed image as-is
         ew, eh, ref = load_png_rgba(edit)
         assert (ew, eh) == (DST, DST), "%s: must be %dx%d" % (edit, DST, DST)
-        src_note = "edit/" + edit.name
-        return finish(ref, pixfmt, rng) + (src_note,)
+        src_note = "edit/" + edit.name + mask_note
+        return finish(ref, pixfmt, rng, blk_w) + (src_note,)
 
     # source decode through the control-tested decoder
     w, h, pf, rgba = dec.decode(io.BytesIO(rom), off)
@@ -217,10 +234,10 @@ def encode_one(rom, off, pixfmt, rng):
     if UNSHARP:
         ref = np.clip(ref + UNSHARP * (ref - box3(ref)), 0.0, 255.0)
 
-    return finish(ref, pixfmt, rng) + ("box-downscale",)
+    return finish(ref, pixfmt, rng, blk_w) + ("box-downscale" + mask_note,)
 
 
-def finish(ref, pixfmt, rng):
+def finish(ref, pixfmt, rng, blk_w=None):
     """VQ-encode a prepared 512x512 float RGBA target into a PVRT record."""
     # 2x2 blocks as 16-vectors in decoder texel order (dx-major, dy fastest).
     # Training runs in a per-channel scaled space (alpha boosted for pf2);
@@ -235,7 +252,11 @@ def finish(ref, pixfmt, rng):
     # edge measured in UNSCALED space — a channel-emphasis scale must not
     # skew which blocks count as high-contrast (the ALPHA_W=2.0 regression)
     edge = uniq.std(1)
-    wgt = counts * (1.0 + EDGE_W * edge / max(float(edge.max()), 1e-9))
+    if blk_w is None:
+        base = counts
+    else:   # mask: sum per-block importance instead of a flat count per block
+        base = np.bincount(inv, weights=blk_w, minlength=len(uniq))
+    wgt = base * (1.0 + EDGE_W * edge / max(float(edge.max()), 1e-9))
     uniq = uniq * scale
     cent = kmeans(uniq, wgt, 256, rng)
 
