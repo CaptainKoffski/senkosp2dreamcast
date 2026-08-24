@@ -34,8 +34,20 @@ OLD_RECORD = 16 + 2048 + (SRC // 2) ** 2   # 264,208
 NEW_RECORD = 16 + 2048 + (DST // 2) ** 2   #  67,600
 KMEANS_ITERS = 30
 PSNR_FLOOR = 26.0
+# v2 quality knobs (operator A/B feedback 2026-08-24: high-contrast 1-2px
+# elements — lit window strips, red truss markings — smeared in stills):
+UNSHARP = 0.5   # recover contrast the 2x2 box average smears; 0 disables
+EDGE_W = 3.0    # extra codebook pull toward high-variance (edge) blocks
+ALPHA_W = 2.0   # pf2 only: prioritize decal shape (alpha) over hidden RGB
 # decoder texel order within a 2x2 block, as (dx, dy) — must match decode()
 TEXELS = ((0, 0), (0, 1), (1, 0), (1, 1))
+
+
+def box3(img):
+    """3x3 edge-padded box mean over the leading two axes."""
+    h, w = img.shape[:2]
+    p = np.pad(img, ((1, 1), (1, 1), (0, 0)), mode="edge")
+    return sum(p[y:y + h, x:x + w] for y in (0, 1, 2) for x in (0, 1, 2)) / 9.0
 
 
 def morton_compact(n):
@@ -112,16 +124,41 @@ def encode_one(rom, off, pixfmt, rng):
     # filters in; linearize first if the A/B gate finds it too dark.
     ref = img.reshape(DST, 2, DST, 2, 4).mean((1, 3))
 
-    # 2x2 blocks as 16-vectors in decoder texel order (dx-major, dy fastest)
+    if pixfmt == 0x02:
+        # Dilate visible RGB into fully-transparent texels: their RGB is
+        # invisible, but bilinear sampling still reads it (fringe control),
+        # and undilated noise wastes codebook fidelity on hidden bytes.
+        a = ref[..., 3]
+        m = (a > 0).astype(np.float32)[..., None]
+        col = ref[..., :3] * m
+        for _ in range(4):
+            ns, nm = box3(col), box3(m)
+            fill = (m == 0) & (nm > 0)
+            col = np.where(fill, ns / np.maximum(nm, 1e-9), col)
+            m = np.where(fill, 1.0, m)
+        ref = ref.copy()
+        ref[..., :3] = np.where(a[..., None] > 0, ref[..., :3], col)
+
+    if UNSHARP:
+        ref = np.clip(ref + UNSHARP * (ref - box3(ref)), 0.0, 255.0)
+
+    # 2x2 blocks as 16-vectors in decoder texel order (dx-major, dy fastest).
+    # Training runs in a per-channel scaled space (alpha boosted for pf2);
+    # the scaling is uniform across blocks, so Euclidean distance stays valid.
+    scale = np.ones(16, np.float32)
+    if pixfmt == 0x02:
+        scale[3::4] = ALPHA_W
     vecs = ref.reshape(DST // 2, 2, DST // 2, 2, 4) \
-              .transpose(0, 2, 3, 1, 4).reshape(-1, 16).copy()
+              .transpose(0, 2, 3, 1, 4).reshape(-1, 16) * scale
     uniq, inv, counts = np.unique(vecs, axis=0, return_inverse=True,
                                   return_counts=True)
-    cent = kmeans(uniq, counts, 256, rng)
+    edge = uniq.std(1)
+    wgt = counts * (1.0 + EDGE_W * edge / max(float(edge.max()), 1e-9))
+    cent = kmeans(uniq, wgt, 256, rng)
 
     # store quantized, then assign against what will actually be stored
-    packed = pack_texels(cent.reshape(256, 4, 4), pixfmt)          # (256,4)
-    stored = unpack_texels(packed, pixfmt).reshape(256, 16)
+    packed = pack_texels((cent / scale).reshape(256, 4, 4), pixfmt)  # (256,4)
+    stored = unpack_texels(packed, pixfmt).reshape(256, 16) * scale
     d = (uniq ** 2).sum(1)[:, None] - 2 * uniq @ stored.T + (stored ** 2).sum(1)
     assign = d.argmin(1).astype(np.uint8)[inv]                     # per block
 

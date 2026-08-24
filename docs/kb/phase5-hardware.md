@@ -1759,6 +1759,42 @@ This closes the ≥30-min-soak half of the task-18 standard.
 Remaining for the gate: A/B visual + play-both-builds (task 17), ≥6
 operator sessions + savestate-assisted 1P completion (task 18).
 
+### A/B gate result (2026-08-24) — PASS, plus a v2 polish pass
+
+Operator played both builds back to back (`phase5/ab-naomi` 17:28–17:44,
+`phase5/ab-dc-patched` 17:46–17:51; curated grabs in
+`captures/phase5/ab-keep-*.png`, gitignored). **Verdict: stills show a
+clear but "not very critical" difference; in motion the builds are
+"indistinguishable at all"** (the arena structure circles constantly).
+Whole-texture compression accepted. Residual complaint: several
+high-contrast elements (lit window strips, red truss markings) look poor
+in stills.
+
+- **Stage-select correction:** the patched arena is **slot 3** of the
+  stage-select grid (left→right, top→bottom), not slot 8 — `STAGEnn`
+  file numbers match neither campaign-level number nor select position.
+  (The operator initially played select-slot 8 — a different arena — and
+  pruned those grabs.)
+- Leg evidence: DC leg TEXERR 12/12 clean post-boot; ARENAHW peak during
+  the operator's real 2P match on the patched arena **7,604,192 B**
+  (headroom 783,392). Naomi leg tex peak 7,097,344 — consistent with the
+  op1 measurement.
+- **v2 encoder polish** — the answer to "can the contrast elements be
+  fixed separately": yes, encoder-side at zero size cost. Knobs
+  (shrink_vq.py): `UNSHARP=0.5` post-downscale (recovers the 1–2 px
+  contrast the box average smears), `EDGE_W=3.0` edge-weighted codebook
+  training (variance-weighted k-means — flat repeats stop hogging
+  codes), and for the ARGB4444 decal texture `ALPHA_W=2.0` +
+  visible-RGB dilation into fully-transparent texels (bilinear fringe
+  control; stops wasting codebook fidelity on invisible bytes). v2
+  PSNRs 36.2/35.5/37.3/31.8 dB are measured against the *sharpened*
+  reference and are not comparable to v1's 38.2/37.1/39.3/33.8 against
+  the plain one. Side-by-sides for the operator:
+  `captures/phase5/textures/compare-v1v2-*.png` (left v1, right v2).
+- v2 bytes → GDI rebuilt; deterministic smoke re-run (`fix-smoke-2`)
+  before freezing. Verification batch (task 18) runs on the frozen
+  bytes.
+
 ### Limits / residual risk
 
 - **`STAGE09.PAK` never loaded in the entire 2¼ h leg** (neither did
