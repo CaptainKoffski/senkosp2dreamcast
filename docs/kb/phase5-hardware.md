@@ -1791,9 +1791,13 @@ in stills.
   reference and are not comparable to v1's 38.2/37.1/39.3/33.8 against
   the plain one. Side-by-sides for the operator:
   `captures/phase5/textures/compare-v1v2-*.png` (left v1, right v2).
-- v2 bytes → GDI rebuilt; deterministic smoke re-run (`fix-smoke-2`)
-  before freezing. Verification batch (task 18) runs on the frozen
-  bytes.
+- v2 bytes → GDI rebuilt; deterministic smoke re-run **`fix-smoke-2`:
+  CLEAN** — TEXERR 14/14 `code=0` post-boot, ARENAHW peak
+  `alloc=0079dc20` at line 319,286: byte-identical position and value to
+  `fix-smoke-1` (expected — v2 only redistributes codebook quality, the
+  record sizes are unchanged). Verification batch (task 18) runs on the
+  bytes the operator freezes (v2, or v1 by re-encoding with the v1
+  knobs `UNSHARP=0 EDGE_W=0 ALPHA_W=1`).
 
 ### Limits / residual risk
 
