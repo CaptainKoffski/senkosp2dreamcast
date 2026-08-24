@@ -16,7 +16,7 @@ Every produced record is decoded back through scripts/decode_pvr_vq.py's
 decode() — the path control-tested against /FONT.PAK — and gated on PSNR
 vs the downscaled reference, so an encoder bug cannot ship silently.
 """
-import hashlib, importlib.util, io, json, pathlib, struct, sys
+import hashlib, importlib.util, io, json, pathlib, struct, sys, zlib
 import numpy as np
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -36,14 +36,26 @@ KMEANS_ITERS = 30
 PSNR_FLOOR = 26.0
 # v2 quality knobs (operator A/B feedback 2026-08-24: high-contrast 1-2px
 # elements — lit window strips, red truss markings — smeared in stills):
-UNSHARP = 0.5   # recover contrast the 2x2 box average smears; 0 disables
-EDGE_W = 3.0    # extra codebook pull toward high-variance (edge) blocks
-ALPHA_W = 1.0   # pf2 alpha emphasis in the distance metric. 2.0 regressed:
-                # it merged small opaque color features (red indicator
-                # lights) into gray codes — operator-caught 2026-08-24.
-                # The RGB dilation below is what actually helps pf2.
+# Quality knobs. Operator A/B verdict 2026-08-24: v1 (all off) IS the frozen
+# version — the v2 experiments (UNSHARP 0.5 + EDGE_W 3.0) added visible
+# noise (chroma shifts from per-channel sharpening + RGB565's extra green
+# bit produced stray green dots) without improving the elements that
+# mattered. Kept as knobs for future experiments only.
+UNSHARP = 0.0   # unsharp after downscale. If ever re-tried: luma-only.
+EDGE_W = 0.0    # extra codebook pull toward high-variance (edge) blocks
+ALPHA_W = 1.0   # pf2 alpha emphasis. 2.0 regressed (merged small opaque
+                # color features into gray codes — the red lights).
+DILATE = 0      # pf2 RGB dilation into transparent texels. Off = exact v1.
 # decoder texel order within a 2x2 block, as (dx, dy) — must match decode()
 TEXELS = ((0, 0), (0, 1), (1, 0), (1, 1))
+
+
+# Per-texture art override: drop a 512x512 8-bit RGB/RGBA PNG named
+# <pvrt-off>.png (e.g. 0b777810.png) here and the encoder VQ-encodes it
+# instead of box-downscaling the original — the export/edit/import path
+# (decode with scripts/decode_pvr_vq.py, edit or AI-process, re-import).
+# ROM-derived art -> the directory stays under gitignored captures/.
+EDIT_DIR = REPO / "captures/phase5/textures/edit"
 
 
 def box3(img):
@@ -51,6 +63,58 @@ def box3(img):
     h, w = img.shape[:2]
     p = np.pad(img, ((1, 1), (1, 1), (0, 0)), mode="edge")
     return sum(p[y:y + h, x:x + w] for y in (0, 1, 2) for x in (0, 1, 2)) / 9.0
+
+
+def load_png_rgba(path):
+    """Minimal PNG reader: 8-bit RGB/RGBA, filters 0-4. Returns (w, h, img)
+    with img float32 (h, w, 4)."""
+    b = path.read_bytes()
+    assert b[:8] == b"\x89PNG\r\n\x1a\n", path
+    o, idat = 8, b""
+    while o < len(b):
+        ln = struct.unpack_from(">I", b, o)[0]
+        tag = b[o + 4:o + 8]
+        if tag == b"IHDR":
+            w, h, depth, ctype = struct.unpack_from(">IIBB", b, o + 8)
+            assert depth == 8 and ctype in (2, 6), \
+                "%s: need 8-bit RGB or RGBA (no palette/16-bit)" % path
+            nch = 3 if ctype == 2 else 4
+        elif tag == b"IDAT":
+            idat += b[o + 8:o + 8 + ln]
+        o += 12 + ln
+    raw = zlib.decompress(idat)
+    stride = w * nch
+    out = np.empty((h, stride), np.uint8)
+    prev = np.zeros(stride, np.int32)
+    pos = 0
+    for y in range(h):
+        f = raw[pos]; pos += 1
+        row = np.frombuffer(raw, np.uint8, stride, pos).astype(np.int32)
+        pos += stride
+        if f == 0:
+            cur = row
+        elif f == 2:
+            cur = (row + prev) & 0xff
+        else:               # Sub / Average / Paeth need a serial pass
+            cur = np.empty(stride, np.int32)
+            for i in range(stride):
+                a = cur[i - nch] if i >= nch else 0
+                up = prev[i]
+                c = prev[i - nch] if i >= nch else 0
+                if f == 1:
+                    p = a
+                elif f == 3:
+                    p = (a + up) >> 1
+                else:
+                    pa, pb, pc = abs(up - c), abs(a - c), abs(a + up - 2 * c)
+                    p = a if (pa <= pb and pa <= pc) else (up if pb <= pc else c)
+                cur[i] = (row[i] + p) & 0xff
+        out[y] = cur
+        prev = cur
+    img = out.reshape(h, w, nch).astype(np.float32)
+    if nch == 3:
+        img = np.concatenate([img, np.full((h, w, 1), 255.0, np.float32)], -1)
+    return w, h, img
 
 
 def morton_compact(n):
@@ -118,6 +182,14 @@ def encode_one(rom, off, pixfmt, rng):
     assert struct.unpack_from("<HH", hdr, 12) == (SRC, SRC), hdr.hex()
     assert struct.unpack_from("<I", hdr, 4)[0] == 8 + 2048 + (SRC // 2) ** 2
 
+    edit = EDIT_DIR / ("%08x.png" % off)
+    if edit.exists():
+        # art override: VQ-encode the edited/AI-processed image as-is
+        ew, eh, ref = load_png_rgba(edit)
+        assert (ew, eh) == (DST, DST), "%s: must be %dx%d" % (edit, DST, DST)
+        src_note = "edit/" + edit.name
+        return finish(ref, pixfmt, rng) + (src_note,)
+
     # source decode through the control-tested decoder
     w, h, pf, rgba = dec.decode(io.BytesIO(rom), off)
     assert (w, h, pf) == (SRC, SRC, pixfmt)
@@ -127,7 +199,7 @@ def encode_one(rom, off, pixfmt, rng):
     # filters in; linearize first if the A/B gate finds it too dark.
     ref = img.reshape(DST, 2, DST, 2, 4).mean((1, 3))
 
-    if pixfmt == 0x02:
+    if DILATE and pixfmt == 0x02:
         # Dilate visible RGB into fully-transparent texels: their RGB is
         # invisible, but bilinear sampling still reads it (fringe control),
         # and undilated noise wastes codebook fidelity on hidden bytes.
@@ -145,6 +217,11 @@ def encode_one(rom, off, pixfmt, rng):
     if UNSHARP:
         ref = np.clip(ref + UNSHARP * (ref - box3(ref)), 0.0, 255.0)
 
+    return finish(ref, pixfmt, rng) + ("box-downscale",)
+
+
+def finish(ref, pixfmt, rng):
+    """VQ-encode a prepared 512x512 float RGBA target into a PVRT record."""
     # 2x2 blocks as 16-vectors in decoder texel order (dx-major, dy fastest).
     # Training runs in a per-channel scaled space (alpha boosted for pf2);
     # the scaling is uniform across blocks, so Euclidean distance stays valid.
@@ -197,19 +274,20 @@ def main():
     rng = np.random.default_rng(0x53454e4b)   # fixed seed: reproducible bytes
     manifest = []
     for off, pixfmt in TARGETS:
-        new, out_rgba, psnr = encode_one(rom, off, pixfmt, rng)
+        new, out_rgba, psnr, src_note = encode_one(rom, off, pixfmt, rng)
         blob = outdir / ("%08x.bin" % off)
         blob.write_bytes(new)
         dec.write_png(str(prevdir / ("patched-%08x.png" % off)), DST, DST, out_rgba)
         manifest.append({
             "pvrt_off": off,
             "blob": blob.name,
+            "source": src_note,
             "orig_len": OLD_RECORD,
             "orig_md5": hashlib.md5(rom[off:off + OLD_RECORD]).hexdigest(),
             "blob_md5": hashlib.md5(new).hexdigest(),
             "psnr_db": round(float(psnr), 2),
         })
-        print("0x%08x: PSNR %.1f dB -> %s" % (off, psnr, blob.name))
+        print("0x%08x: PSNR %.1f dB (%s) -> %s" % (off, psnr, src_note, blob.name))
     (outdir / "manifest.json").write_text(json.dumps(manifest, indent=1))
     print("manifest: %d records, %d B saved in-arena" %
           (len(manifest), len(manifest) * ((SRC // 2) ** 2 - (DST // 2) ** 2)))

@@ -1809,6 +1809,38 @@ in stills.
   three RGB565 blobs are byte-identical to v2a. Lesson recorded: a
   channel-emphasis scale must never feed the block-importance measure.
 
+### Final freeze (2026-08-24) — v1, operator-decided
+
+The operator played a third leg on v2b (`phase5/ab-dc-v2b`, TEXERR
+19/19 clean, ARENAHW peak 7,967,712 during the session) and compared
+all three screenshot sets. **Verdict: v2/v2b rejected** — no real
+improvement on the elements that mattered, *more* noise overall, and
+stray green dots (probable mechanism: per-channel unsharp shifts
+chroma, RGB565's green channel has one more bit than red/blue so
+sharpened near-grays round greenish, and the edge-weighted codebook
+then spends codes preserving that noise). **v1 is the frozen version.**
+
+Freeze evidence: encoder knobs zeroed (`UNSHARP=0 EDGE_W=0 ALPHA_W=1
+DILATE=0`); the knobs-off encoder output verified **byte-identical** to
+the archived commit-`b32114e` encoder (control run of the archived
+script); rebuilt `track04.iso` md5 `382b161d83fc205ca45eed49d23b939a` —
+the exact build `fix-smoke-1` and the 31-min `fix-soak-1` validated, so
+that evidence covers the frozen build verbatim, no re-runs needed.
+
+**Art-override pipeline** (operator asked for an editable export/import
+path — it exists now): export any texture to PNG with
+`scripts/decode_pvr_vq.py`; produce a 512×512 8-bit RGB/RGBA PNG by
+hand or with an image AI; drop it as
+`captures/phase5/textures/edit/<pvrt-off>.png` (e.g. `0b777810.png` —
+that one needs RGBA for the decals); rerun `shrink_vq.py` +
+`make_gdi.py`. The encoder VQ-encodes the override as-is (256-code VQ
+still applies, PSNR-gated, `source:` recorded in the manifest, preview
+regenerated). Everything stays gitignored. Contour-preservation ideas
+if ever revisited encoder-side: luma-only mild unsharp (avoids chroma
+noise), sqrt-count weighting (frees codes from flat repeats without
+sharpening). Any post-verification art change re-validates cheaply: the
+deterministic smoke + unattended soak, both operator-free.
+
 ### Limits / residual risk
 
 - **`STAGE09.PAK` never loaded in the entire 2¼ h leg** (neither did
