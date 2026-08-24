@@ -188,7 +188,15 @@ referenced, not duplicated — that file is part of this project's method.
   **Phase 5 fix-scoping local tools:** `scripts/decode_pvr_vq.py` (pure
   stdlib GBIX/PVRT VQ→PNG decoder; usage
   `python3 scripts/decode_pvr_vq.py senkosp.dat <offset-hex> <out.png>`;
-  outputs are ROM-derived — keep under gitignored `captures/`). The flat
+  outputs are ROM-derived — keep under gitignored `captures/`). Fixed
+  2026-08-24: the codebook read started 16 B late (32-byte read of the
+  16-byte `PVRT` header); control-tested after the fix against
+  `/FONT.PAK`'s glyph sheet (clean A–Z/0–9 grid — see
+  `docs/kb/phase5-hardware.md` §Fix scoping correction note).
+  `scripts/list_pak_textures.py` (added 2026-08-24): lists the ISO root
+  (`python3 scripts/list_pak_textures.py senkosp.dat`) or the `PVRT`
+  textures inside one file (`… senkosp.dat STAGE08.PAK`) with absolute
+  dat offsets ready for the decoder. The flat
   `.dat` is an ISO9660 image: PVD at `.dat 0x808000`, file mapping
   `dat_off = (LBA − 40904) × 2048` — walk recipe and file inventory in
   `docs/kb/phase5-hardware.md` §Fix scoping.

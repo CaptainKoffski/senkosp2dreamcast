@@ -65,9 +65,11 @@ def main():
     head = f.read(32)
     if head[:4] == b'GBIX':
         glen = struct.unpack_from('<I', head, 4)[0]
-        f.seek(off + 8 + glen)
+        off = off + 8 + glen
+        f.seek(off)
         head = f.read(32)
     assert head[:4] == b'PVRT', head[:4]
+    f.seek(off + 16)	# PVRT header is 16 B; codebook starts right after
     pixfmt, datatype = head[8], head[9]
     w, h = struct.unpack_from('<HH', head, 12)
     assert datatype == 0x03, 'only VQ supported, got 0x%02x' % datatype

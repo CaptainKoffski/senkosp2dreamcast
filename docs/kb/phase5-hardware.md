@@ -1592,7 +1592,14 @@ block** — its descriptor is the global `0x8c1a2180` (whose `+0x1c` is the
 `0x8c1a219c` owner slot §Step 4 found), and its content is the system
 debug font (`"0123456789ABCDEF"` glyph bitmap at `0x8c171008`).
 
-### The offenders identified — STAGE08.PAK, the boss stage
+### The offenders identified — STAGE08.PAK, a selectable arena
+
+> **Correction (2026-08-24).** An earlier revision titled this section
+> "the boss stage" — wrong, caught by the operator. STAGE08.PAK is a
+> regular *selectable* arena (the operator fought on it in 2P, and the
+> attract demo plays on it); the 1P campaign's 8th-stage boss fight
+> loads `STAGE10.PAK` + `P11.PAK` (see load-timeline attribution below).
+> Campaign position and `STAGEnn` file number do not map 1:1.
 
 The flat image is an **ISO9660 filesystem**: PVD at `.dat 0x808000`
 (`\x01CD001`), root LBA 45,020, mapping `dat_off = (LBA − 40904) × 2048`.
@@ -1603,10 +1610,25 @@ chunk (tag at `+0x21f788`: size `0x102094`, count 4, offset table
 `{0x14, 0x40834, 0x81054, 0xc1874}` — **explicit per-texture offsets**,
 which is what makes an in-place shrink structurally safe). Decoded to PNG
 (`scripts/decode_pvr_vq.py`, pure-stdlib VQ decoder;
-`captures/phase5/textures/stage08-*.png`, gitignored — ROM-derived): dark
-mechanical hull-panel atlases with red/orange accent lights — the boss
-battleship architecture. Three are RGB565 VQ, the fourth ARGB4444 VQ
+`captures/phase5/textures/stage08-*.png`, gitignored — ROM-derived):
+crisp mechanical hull/station panel atlases — girders, X-braced trusses,
+vents, hatch and window arrays, red accent squares — the arena's
+battleship-architecture set. Three are RGB565 VQ, the fourth ARGB4444 VQ
 (alpha decals).
+
+> **Decoder bug found and fixed (2026-08-24), control-tested.** The
+> first decode run read the VQ codebook 16 B late (a 32-byte header read
+> against the 16-byte `PVRT` header shifted the palette by two entries
+> and the index stream by 16 B), producing speckled "mixed-pixel" images
+> the operator flagged. Control test per the working rules: decoding
+> `/FONT.PAK`'s 256×256 ARGB4444 VQ sheet (dat `0x345e05c`) with the
+> fixed decoder yields a pristine A–Z/0–9 glyph grid — a known-content
+> reference that would scramble under any morton/codebook-order error.
+> This also confirms the documented conventions (y-in-LSB morton,
+> codebook texel order (0,0),(0,1),(1,0),(1,1)) empirically; the earlier
+> A/B against the stage art could not discriminate. Texture *sizes* and
+> the arena arithmetic never depended on the decode — only the pictures
+> did.
 
 **Load-timeline attribution** (cartlog `CARTDMA src=` mapped through the
 ISO table, `captures/phase5/arenahw-op1.log`): the attract rotation is
@@ -1652,6 +1674,13 @@ GDI build time).
   8,190,944 B with stage-8-like overhead — under the cap by ~198 KB, but
   that is a heuristic (all-resident assumption), not a measurement. Any
   future leg that reaches it will be measured for free by the walker.
+  **Content identified (2026-08-24):** decoded samples
+  (`captures/phase5/textures/stage09-*.png`, gitignored) are
+  **Earth-from-orbit backdrops** — planet horizon against space, ocean
+  and cloud surface tiles — consistent with a finale/ending setting.
+  Its largest texture is 512×512 (34 of them), so if it ever measures
+  over the cap the shrink lever is many 512→256 steps, weaker per
+  texture than STAGE08's 1024→512.
 - The stage-8 2P peak and the attract-demo floor bound every scene
   *observed*; the ending/credits and a possible third boss form remain
   unobserved (§High-water measurement, Limits).
