@@ -196,7 +196,18 @@ referenced, not duplicated — that file is part of this project's method.
   `scripts/list_pak_textures.py` (added 2026-08-24): lists the ISO root
   (`python3 scripts/list_pak_textures.py senkosp.dat`) or the `PVRT`
   textures inside one file (`… senkosp.dat STAGE08.PAK`) with absolute
-  dat offsets ready for the decoder. The flat
+  dat offsets ready for the decoder.
+  **Option-2 fix tools (2026-08-24):** `tools/pyenv` — venv created with
+  `python3 -m venv tools/pyenv && tools/pyenv/bin/pip install numpy`
+  (numpy 2.5.2, Homebrew python 3.14.3; gitignored under `/tools/`).
+  `scripts/shrink_vq.py` (run as
+  `tools/pyenv/bin/python scripts/shrink_vq.py`) re-encodes the four
+  STAGE08 textures at 512×512 into `build/texpatch/` (gitignored,
+  deterministic — fixed k-means seed); `scripts/make_gdi.py` splices
+  them at mastering time (md5-guarded both sides), `--no-texpatch` for
+  the unpatched reference build. `decode_pvr_vq.py` gained an importable
+  `decode()` (CLI unchanged, refactor verified byte-identical on a
+  stage08 decode). The flat
   `.dat` is an ISO9660 image: PVD at `.dat 0x808000`, file mapping
   `dat_off = (LBA − 40904) × 2048` — walk recipe and file inventory in
   `docs/kb/phase5-hardware.md` §Fix scoping.

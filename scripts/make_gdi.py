@@ -33,7 +33,7 @@ Status for senkosp: this build has NOT been real-HW verified yet. Task 8 is
 the first Flycast DC-profile boot proof (emulator only); Phase 5 is real
 hardware.
 """
-import argparse, pathlib, re, shutil, subprocess, sys
+import argparse, hashlib, json, pathlib, re, shutil, subprocess, sys
 
 # Final review (Cleopatra, carried over): bare asserts are this script's only
 # guards -- die loudly if they were stripped (same pattern as
@@ -181,11 +181,37 @@ def donor_tracks(out: pathlib.Path) -> pathlib.Path:
     return dest
 
 
+def apply_texpatch(rom: bytes) -> bytes:
+    """Splice the option-2 VRAM-fix texture records (shrink_vq.py output,
+    ROM-derived and gitignored) into the cart image before mastering —
+    docs/kb/phase5-hardware.md §Fix decision. senkosp.dat itself is never
+    modified; each splice is md5-guarded on both source record and blob."""
+    mf = pathlib.Path("build/texpatch/manifest.json")
+    assert mf.exists(), (
+        "texpatch manifest missing -- run: tools/pyenv/bin/python "
+        "scripts/shrink_vq.py  (or pass --no-texpatch for an unpatched "
+        "reference build)")
+    rom = bytearray(rom)
+    entries = json.loads(mf.read_text())
+    for e in entries:
+        off, n = e["pvrt_off"], e["orig_len"]
+        blob = (mf.parent / e["blob"]).read_bytes()
+        assert hashlib.md5(blob).hexdigest() == e["blob_md5"], e["blob"]
+        assert len(blob) <= n, "blob outgrew the record it replaces"
+        assert hashlib.md5(bytes(rom[off:off + n])).hexdigest() == e["orig_md5"], \
+            f"cart bytes at {off:#x} don't match the manifest's source record"
+        rom[off:off + len(blob)] = blob
+    print(f"texpatch: {len(entries)} records spliced (option-2 VRAM fix)")
+    return bytes(rom)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", default="senkosp.dat")
     ap.add_argument("--loader", default="build/1ST_READ.BIN")
     ap.add_argument("--out", default="build")
+    ap.add_argument("--no-texpatch", action="store_true",
+                    help="unpatched reference build (A/B gate, task 17)")
     a = ap.parse_args()
     out = pathlib.Path(a.out); out.mkdir(exist_ok=True)
     donor = donor_tracks(out)
@@ -193,6 +219,11 @@ def main():
     rom = pathlib.Path(a.rom).read_bytes()
     assert len(rom) == CART_SIZE, f"cart size {len(rom):#x} != {CART_SIZE:#x}"
     assert len(rom) == 251342848, f"cart size {len(rom)} != 251342848"
+    if a.no_texpatch:
+        print("texpatch: DISABLED -- unpatched reference build")
+    else:
+        rom = apply_texpatch(rom)
+        assert len(rom) == CART_SIZE
     ldr = pathlib.Path(a.loader).read_bytes()
     assert len(ldr) <= BOOT_FILE_SIZE, "loader outgrew the donor boot region"
 

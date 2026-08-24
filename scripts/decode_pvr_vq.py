@@ -58,9 +58,10 @@ def write_png(path, w, h, rgba):
         f.write(chunk(b'IEND', b''))
 
 
-def main():
-    dat, off, out = sys.argv[1], int(sys.argv[2], 16), sys.argv[3]
-    f = open(dat, 'rb')
+def decode(f, off):
+    """Decode one GBIX/PVRT VQ record from file object f at offset off.
+    Returns (w, h, pixfmt, rgba_bytes). Importable (shrink_vq.py uses it
+    as the trusted roundtrip check)."""
     f.seek(off)
     head = f.read(32)
     if head[:4] == b'GBIX':
@@ -83,7 +84,14 @@ def main():
         for k, (dx, dy) in enumerate(((0, 0), (0, 1), (1, 0), (1, 1))):
             x, y = bx * 2 + dx, by * 2 + dy
             px[(y * w + x) * 4:(y * w + x) * 4 + 4] = bytes(unpack(t[k]))
-    write_png(out, w, h, bytes(px))
+    return w, h, pixfmt, bytes(px)
+
+
+def main():
+    dat, off, out = sys.argv[1], int(sys.argv[2], 16), sys.argv[3]
+    with open(dat, 'rb') as f:
+        w, h, pixfmt, px = decode(f, off)
+    write_png(out, w, h, px)
     print('%s: %dx%d pixfmt=%02x -> %s' % (hex(off), w, h, pixfmt, out))
 
 

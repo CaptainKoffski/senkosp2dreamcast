@@ -1706,6 +1706,41 @@ fails.
    scene clean, ≥6 operator sessions, ≥30-min instrumented soak, all
    checkers PASS, ARENAHW riding along in every leg.
 
+### Fix implementation + first evidence (2026-08-24)
+
+**Encoder** — `scripts/shrink_vq.py` (needs `tools/pyenv`, see tooling.md):
+per texture, decode 1024² through the control-tested
+`decode_pvr_vq.decode()`, 2×2 box downscale (gamma-naive on purpose — the
+same space the PVR filters in; linearize is the knob if the A/B gate
+finds it dark), weighted k-means++ (256 codes, 30 Lloyd iters, fixed
+seed → byte-reproducible), centroids quantized to the target pixel
+format *before* final assignment, indices packed in y-LSB morton.
+**Every produced record is decoded back through the proven decoder and
+gated on PSNR vs the downscaled reference** (floor 26 dB). Measured:
+38.2 / 37.1 / 39.3 dB (RGB565) and 33.8 dB (ARGB4444). Runtime ~10 s
+for all four.
+
+**Patch path** — blobs in `build/texpatch/` (67,600 B replacement PVRT
+records + `manifest.json`; ROM-derived → gitignored, regenerated from
+`senkosp.dat`). `make_gdi.py` splices them into the in-memory cart image
+before writing track04, guarded by md5 of both the source record and the
+blob; `--no-texpatch` produces the unpatched reference build for the A/B
+gate. `senkosp.dat` on disk is never modified.
+
+**Smoke leg `phase5/fix-smoke-1`** (patched DC attract, 555 s,
+481,900 lines): **the killer scene completes, and the arithmetic closes
+to the byte.** ARENAHW peak `alloc=0079dc20` = 7,986,208 B = the Task 7
+DC floor 8,772,640 − the 786,432 saved, with `free=000623e0` =
+402,400 B — exactly the predicted headroom. The peak fires at line
+319,286; the unpatched `soak-1` hung at line 319,549 of the same leg
+shape — same scene, now surviving. `TEXERR code=00000000` on every
+post-boot sample (line-128 boot-garbage sample as in every leg), and the
+`d98` scene-counter values repeat across the log (0x17/0x19/0x22 seen
+twice) — the attract rotation finished a full cycle past the stage-8
+demo and started a second one. First DC build ever to survive the scene.
+Remaining for the gate: A/B visual (task 17), ≥6 operator sessions +
+≥30-min soak + savestate-assisted 1P completion (task 18).
+
 ### Limits / residual risk
 
 - **`STAGE09.PAK` never loaded in the entire 2¼ h leg** (neither did
