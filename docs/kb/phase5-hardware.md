@@ -1798,6 +1798,16 @@ in stills.
   record sizes are unchanged). Verification batch (task 18) runs on the
   bytes the operator freezes (v2, or v1 by re-encoding with the v1
   knobs `UNSHARP=0 EDGE_W=0 ALPHA_W=1`).
+- **v2a regression, operator-caught:** small red indicator lights
+  missing in the ARGB4444 texture's bottom-left corner. Root cause:
+  `ALPHA_W=2.0` skewed both the k-means metric and the edge weight
+  toward alpha, so small *opaque* color features (alpha-flat blocks)
+  lost their codes to gray. **v2b fix:** `ALPHA_W=1.0` (the RGB
+  dilation is kept — it is the real pf2 win) and the edge weight is
+  measured in unscaled space. Corner proof
+  `captures/phase5/textures/corner-v1-v2b.png` — reds restored; the
+  three RGB565 blobs are byte-identical to v2a. Lesson recorded: a
+  channel-emphasis scale must never feed the block-importance measure.
 
 ### Limits / residual risk
 
