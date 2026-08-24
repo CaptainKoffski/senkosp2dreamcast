@@ -1688,7 +1688,11 @@ fails.
 1. **A/B visual gate is mandatory.** Before hardware: paired emulator
    screenshots of the same STAGE08 scene, patched vs unpatched — the
    operator must be able to clearly see the difference (or its absence)
-   and accept it. Preview so far: sips 1024→512→1024 round trip
+   and accept it. **Operator amendment (2026-08-24): screenshots are not
+   sufficient — the operator plays both builds back to back** (A/B/A
+   allowed). The unpatched side is the **Naomi original** (true reference
+   art; the unpatched DC build cannot display the scene — loading stage 8
+   is exactly what hangs it, so it can't serve as the play reference). Preview so far: sips 1024→512→1024 round trip
    (`captures/phase5/textures/stage08-0b736fe0-shrunk-preview.png` vs
    the unsuffixed original — same 1024² resolution on purpose: downscaled
    then stretched back, simulating what bilinear sampling of the 512²
