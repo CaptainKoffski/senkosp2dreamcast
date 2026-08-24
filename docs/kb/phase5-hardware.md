@@ -1841,6 +1841,35 @@ noise), sqrt-count weighting (frees codes from flat repeats without
 sharpening). Any post-verification art change re-validates cheaply: the
 deterministic smoke + unattended soak, both operator-free.
 
+**Alternative VQ encoders assessed (2026-08-24)** — operator asked
+whether texconv / KOS vqenc / Sega's official tool could beat
+`shrink_vq.py`. Source-level check of the two open ones:
+
+- **KOS `vqenc`** (KallistiOS `utils/vqenc/vqenc.c`): LBG — starts from
+  one code, `split()` doubles the book by perturbing high-error entries,
+  Lloyd-style `place()`/`clean_codebook()` refinement, 8 rounds (3× in
+  `-hq` mode). Plain Euclidean ARGB distance, no weighting, no dither.
+- **texconv** (tvspelsfreak/texconv `vqtools.h`): same LBG splitting
+  (`splitCode()` perturbs by 0.01 toward the max-distance vector), three
+  `place()` refinement passes, RLE-deduped count weighting,
+  `findClosest()` Euclidean assignment. No dither, no perceptual metric.
+- **Sega Katana tool**: copyrighted SDK, no legitimate source access —
+  unverifiable, and it optimizes the same MSE objective regardless.
+
+All three solve the identical problem — 256 codes × 2×2 texels ×
+16-bit — with the same algorithm family (LBG/Lloyd) and the same
+Euclidean objective as our weighted k-means. `shrink_vq.py` runs *more*
+refinement (k-means++ init + ≤30 Lloyd iters vs 8 LBG rounds) and has
+one edge neither tool has: final assignment against the
+*quantized-as-stored* codebook (`finish()`, "assign against what will
+actually be stored"), where both tools assign against float centroids
+and quantize afterward. **Conclusion: switching tools cannot help; the
+ceiling is the format, not the encoder.** The only thing a tool could
+add is error-diffusion dithering — rejected here, it manufactures
+exactly the pixel noise the v2 verdict threw out. The quality levers
+remain input-side (bolder source edits than the ~2-4/255 VQ noise
+floor) and allocation policy (the recorded knobs).
+
 ### Limits / residual risk
 
 - **`STAGE09.PAK` never loaded in the entire 2¼ h leg** (neither did
