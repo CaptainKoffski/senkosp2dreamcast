@@ -2177,3 +2177,59 @@ call immediately overwrites that same record with the red-screen version
 above, so an operator watching the TV only ever sees `code=4`; the `0x6x`
 value is reachable only via a live RAM watch faster than the overwrite, not
 via the death screen itself.
+
+### PACKTEX post-match constraint (2026-08-25 — legs ernula-lili, modesel-probe)
+
+**Second texture loader characterized.** The binary carries a packed
+(non-PVRT) texture path — strings at dat `0x168ba0`, adjacent to
+`TEXTURE LOAD ERROR !`: `PACKTEX MALLOC FAILED %s`, `PACKTEX DECODE
+ERROR`, `PACKTEX LOAD ERROR`, `LOADPACKSTEX LIST MALLOC FAILED %s`.
+`MODESEL.PAK` (87,920 B) contains **zero** PVRT records — all its art
+goes through this loader. It shares the instrumented error handler:
+the probe fired `code=00000006` (clean samples are 0) and the
+auto-savestate hook captured the failure state (TEXERRSAVE slot 0).
+MODESEL.PAK is the mode-select screen (beginner/score selector —
+operator-identified on sight); the game returns there after **every**
+match, loading it while the match's textures are still resident.
+
+**Observed failure** (`captures/ernula-lili.log`): P01C + P07E stage-8
+match, peak 8,282,464 / free 106,144 — match completed fine, then
+MODESEL loaded → `PACKTEX LOAD ERROR`, frozen error screen (T1-class).
+Note P01C resident 118,176 vs census 217,216: per-character residency
+is NOT census; the linear demand model is a rough estimator only
+(±~100 KB observed), direct measurement rules.
+
+**Demand measured** (`captures/modesel-probe.log`): Fabian mirror
+(P04E+P04A) stage-8 match peak 7,702,112 / free 686,496; MODESEL
+transition set a new max 8,064,608 → **D = 362,496 B** net on top of
+the match peak; survived clean. Caveat: D possibly winner/content
+dependent; one measurement.
+
+**Binding constraint: stage match peak + 362,496 ≤ 8,388,608**, i.e.
+match-peak budget 8,026,112. Measured stage-8 match peaks (shrink-2
+build) vs that budget: Fabian mirror 7,702,112 PASS (measured
+end-to-end); Ernula mirror 8,180,736 over by 154,624; Changpo-C +
+Ernula 8,282,464 over by 256,352 (= the observed failure);
+Sakurako + Ernula 8,372,576 over by 346,464.
+
+**Config re-pricing** (savings vs the shrink-2 measurements: third
+1024² −196,608; fourth 1024² −196,608; each 512²→256² −49,152 —
+STAGE08 carries 32× 512² VQs, same explicit-offset TXTR chunk, same
+in-place method):
+- shrink-3: worst measured pair still ~149,856 over → **fails
+  post-match**. The former shrink-3 bar is obsolete.
+- shrink-4: worst measured free 46,752 → fits, but thinner than the
+  observed residency variance.
+- Composable options, art cost vs margin (operator's call):
+  shrink-3 + 7×512² ≈ 194 KB margin (0b777810 stays full);
+  10×512² alone ≈ 145 KB margin (both 1024² heroes stay full);
+  shrink-4 + 2×512² ≈ 145 KB margin.
+
+**Open risk — the constraint is stage-agnostic.** MODESEL follows
+every match. STAGE09's census (2,807,808, max texture 512², no 1024²
+lever) is only 79,872 lighter than shrink-2-patched STAGE08 —
+extrapolation says heavy-pair stage-9 matches may also overflow
+post-match on ANY config that touches only STAGE08. Needs a direct
+probe (Sakurako vs Ernula on stage 9, played through mode-select)
+before any ship ruling. The shrink-2 ruling (Amendment 2) is dead;
+no ship config is ruled until the stage-9 probe reports.
