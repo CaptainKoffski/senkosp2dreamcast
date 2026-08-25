@@ -2225,11 +2225,17 @@ in-place method):
   10×512² alone ≈ 145 KB margin (both 1024² heroes stay full);
   shrink-4 + 2×512² ≈ 145 KB margin.
 
-**Open risk — the constraint is stage-agnostic.** MODESEL follows
-every match. STAGE09's census (2,807,808, max texture 512², no 1024²
-lever) is only 79,872 lighter than shrink-2-patched STAGE08 —
-extrapolation says heavy-pair stage-9 matches may also overflow
-post-match on ANY config that touches only STAGE08. Needs a direct
-probe (Sakurako vs Ernula on stage 9, played through mode-select)
-before any ship ruling. The shrink-2 ruling (Amendment 2) is dead;
-no ship config is ruled until the stage-9 probe reports.
+**Stage-9 disposition (same evening).** MODESEL follows every match,
+and STAGE09 (census 2,807,808, no 1024² lever) is only 79,872 lighter
+than shrink-2-patched STAGE08 — but STAGE09 is **not VS-selectable**:
+load attribution across all five DC legs (ab-b, ernula-s2, attract-s2,
+ernula-lili, modesel-probe — VS matches on STAGE01/02/03/04/08,
+attract demos on 01/03/04/08) shows STAGE09 loaded zero times; it is
+1P-campaign content, covered by the planned savestate-assisted
+campaign-completion leg (Task 18). If it overflows there, the same
+in-place 512²→256² lever applies to STAGE09.PAK (47 textures). A
+follow-up probe (Sakurako+Ernula on STAGE03 through mode-select, same
+session) set no new maximum — heavy pair + light stage + MODESEL fits.
+The shrink-2 ruling (Amendment 2) is dead; the VS-side ship config is
+decidable now from the stage-8 numbers above, with the campaign leg as
+remaining coverage.
