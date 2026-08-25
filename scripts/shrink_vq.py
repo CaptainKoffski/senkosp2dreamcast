@@ -68,6 +68,8 @@ TEXELS = ((0, 0), (0, 1), (1, 0), (1, 1))
 # codebook training toward the marked regions (MASK_W); it composes with
 # an edit PNG or with the plain downscale. Pixels are never touched —
 # only code allocation shifts, so a mask cannot introduce noise.
+# A <pvrt-off>-params.json ({"edge_w": .., "mask_w": ..}) overrides the
+# encoder knobs per texture — written by scripts/vq_tuner.py's Save.
 # ROM-derived art -> the directory stays under gitignored captures/.
 EDIT_DIR = REPO / "captures/phase5/textures/edit"
 
@@ -205,7 +207,12 @@ def encode_one(rom, off, pixfmt, rng):
     out_pf = OUT_PF.get(off, pixfmt)
     fmt_note = "" if out_pf == pixfmt else "->pf%02x" % out_pf
 
-    # optional importance mask: per-2x2-block training weight 1+MASK_W*luma
+    # per-texture knob overrides saved by scripts/vq_tuner.py (Save button)
+    pjson = EDIT_DIR / ("%08x-params.json" % off)
+    params = json.loads(pjson.read_text()) if pjson.exists() else {}
+    param_note = "+params" if params else ""
+
+    # optional importance mask: per-2x2-block training weight 1+mask_w*luma
     mask = EDIT_DIR / ("%08x-mask.png" % off)
     blk_w = None
     mask_note = ""
@@ -213,7 +220,8 @@ def encode_one(rom, off, pixfmt, rng):
         mw, mh, mimg = load_png_rgba(mask)
         assert (mw, mh) == (DST, DST), "%s: must be %dx%d" % (mask, DST, DST)
         m = mimg[..., :3].mean(-1) / 255.0
-        blk_w = 1.0 + MASK_W * m.reshape(DST // 2, 2, DST // 2, 2).mean((1, 3)).ravel()
+        blk_w = 1.0 + params.get("mask_w", MASK_W) \
+            * m.reshape(DST // 2, 2, DST // 2, 2).mean((1, 3)).ravel()
         mask_note = "+mask"
 
     edit = EDIT_DIR / ("%08x.png" % off)
@@ -221,8 +229,8 @@ def encode_one(rom, off, pixfmt, rng):
         # art override: VQ-encode the edited/AI-processed image as-is
         ew, eh, ref = load_png_rgba(edit)
         assert (ew, eh) == (DST, DST), "%s: must be %dx%d" % (edit, DST, DST)
-        src_note = "edit/" + edit.name + mask_note + fmt_note
-        return finish(ref, out_pf, rng, blk_w) + (src_note,)
+        src_note = "edit/" + edit.name + mask_note + param_note + fmt_note
+        return finish(ref, out_pf, rng, blk_w, params.get("edge_w")) + (src_note,)
 
     # source decode through the control-tested decoder
     w, h, pf, rgba = dec.decode(io.BytesIO(rom), off)
@@ -251,10 +259,11 @@ def encode_one(rom, off, pixfmt, rng):
     if UNSHARP:
         ref = np.clip(ref + UNSHARP * (ref - box3(ref)), 0.0, 255.0)
 
-    return finish(ref, out_pf, rng, blk_w) + ("box-downscale" + mask_note + fmt_note,)
+    return finish(ref, out_pf, rng, blk_w, params.get("edge_w")) \
+        + ("box-downscale" + mask_note + param_note + fmt_note,)
 
 
-def finish(ref, pixfmt, rng, blk_w=None):
+def finish(ref, pixfmt, rng, blk_w=None, edge_w=None):
     """VQ-encode a prepared 512x512 float RGBA target into a PVRT record."""
     # 2x2 blocks as 16-vectors in decoder texel order (dx-major, dy fastest).
     # Training runs in a per-channel scaled space (alpha boosted for pf2);
@@ -273,7 +282,8 @@ def finish(ref, pixfmt, rng, blk_w=None):
         base = counts
     else:   # mask: sum per-block importance instead of a flat count per block
         base = np.bincount(inv, weights=blk_w, minlength=len(uniq))
-    wgt = base * (1.0 + EDGE_W * edge / max(float(edge.max()), 1e-9))
+    ew = EDGE_W if edge_w is None else float(edge_w)
+    wgt = base * (1.0 + ew * edge / max(float(edge.max()), 1e-9))
     uniq = uniq * scale
     cent = kmeans(uniq, wgt, 256, rng)
 
@@ -309,9 +319,11 @@ def main():
     prevdir = REPO / "captures/phase5/textures"
     outdir.mkdir(parents=True, exist_ok=True)
     prevdir.mkdir(parents=True, exist_ok=True)
-    rng = np.random.default_rng(0x53454e4b)   # fixed seed: reproducible bytes
     manifest = []
     for off, pixfmt in TARGETS:
+        # per-texture seed: reproducible AND independent of target-list order,
+        # so a vq_tuner.py preview byte-matches the build for every texture
+        rng = np.random.default_rng(0x53454e4b ^ off)
         new, out_rgba, psnr, src_note = encode_one(rom, off, pixfmt, rng)
         blob = outdir / ("%08x.bin" % off)
         blob.write_bytes(new)
