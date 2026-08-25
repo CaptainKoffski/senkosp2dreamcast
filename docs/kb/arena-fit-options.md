@@ -185,6 +185,60 @@ savestate block-list post-mortem or a probe), converting it to VQ
 would cut ~456 KB off *every* match peak, dwarfing every other
 lever. Worth one investigation before final config choice.
 
+### E. Patch the game: release match textures before the menu load
+
+*(Added 2026-08-26 on the operator's question. The first code patch
+in the menu — A–D touch only data; E edits game logic.)*
+
+**Why the game holds the memory:** at the post-match transition the
+arena gained exactly +4 blocks and freed none — the game loads the
+next scene's textures *before* releasing the old scene's. Frees do
+happen (across attract rotations the arena returns to baseline), just
+after the next load, not before. On Naomi's 16 MB this is a free
+seamless-transition trick; on 8 MB it is the binding constraint.
+A plausible precise cause: the free-old-scene step may live in the
+**TXTR loader's** preamble (free-then-load) and be missing from the
+**PACKTEX loader** — matches (TXTR) never crash, menus (PACKTEX) do.
+Ghidra can confirm by comparing the two loaders' entry paths.
+
+**The change:** reorder the game's own teardown, don't write a new
+free. Anchors are good: the `MODESEL.PAK` filename-string xref finds
+the post-match load call site; the allocator addresses are already
+known (the ARENAHW instrumentation hooks them); and the fork can log
+the caller PC at the moment arena free-space jumps, locating the
+release routine empirically in one leg. Patch = call the game's own
+scene-release before the PACKTEX load (move/nop the original call).
+Code-injection toolchain already exists (the Cleopatra shim). If the
+missing-free-in-PACKTEX theory confirms, the patch is one mirrored
+call.
+
+**Effect on the constraint:** removes the +362,496 term entirely —
+match-peak budget returns to 8,388,608, and at *every*
+menu-after-scene transition (TUTO, ranking, STGSEL — not just
+MODESEL), fixing the class of bug rather than the instance. Pure
+shrink-2 still fails (worst measured 8,372,576 → 16 KB margin, inside
+the ±100 KB residency variance), but e.g. **shrink-2 + E + 3×512²
+→ margin 163,488** with both heroes full-size and no menu art touched.
+
+**Risks, ranked:**
+
+1. VRAM side is benign: "freeing" is allocator bookkeeping — texel
+   data stays in VRAM until overwritten, so the old scene keeps
+   rendering; worst case is transient artifacts on the transition
+   frames while the menu's 362 KB lands somewhere in 8 MB.
+2. CPU side is the real risk: if the teardown also destroys
+   structures the result-screen code still reads (texlists, PAK RAM
+   buffers), early teardown crashes. Only reading the code answers
+   this.
+3. Shared-path: if the reorder lands in a transition routine common
+   to all scene changes, ordering changes everywhere — mostly a
+   feature (headroom at every transition), but any transition that
+   legitimately renders old art during a load gets artifacts.
+
+**Effort:** Ghidra work of the same scale as D's LZ reverse (days,
+with good anchors). The same session answers the STGSEL residency
+question and the two-loader theory for free.
+
 ## 5. Recommendation
 
 Two paths depending on appetite for the PKTX work:
@@ -195,6 +249,10 @@ Two paths depending on appetite for the PKTX work:
   / savestate post-mortem), then Option D as **shrink-2 + D +
   5×512²** (~151 KB margin, both hero textures untouched) — or
   better if the STGSEL lead pays off.
+- **Best engineering:** one Ghidra recon session prices D, E, and the
+  STGSEL lead together (same anchors, same code region). If E's
+  two-loader theory confirms, **shrink-2 + E + 3×512²** (~163 KB
+  margin) beats every data-only config on art at comparable margin.
 
 Either way the panel-selection and any VQ menu art go through the
 existing vq_tuner preview flow, and the verification suite in §4
