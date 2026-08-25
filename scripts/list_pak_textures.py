@@ -5,7 +5,11 @@ ISO9660 file of the flat cart image, or with no NAME list all root files.
 Mapping (docs/kb/phase5-hardware.md §Fix scoping): PVD at .dat 0x808000,
 dat_off = (LBA - 40904) * 2048. Texture rows print the absolute dat offset
 of each PVRT header (feed it to scripts/decode_pvr_vq.py), dimensions,
-pixel format, datatype, and the KAMUI2 VRAM size for VQ (2048 + w*h/4).
+pixel format, datatype, and the VRAM size = PVRT datalen - 8 (the
+allocation the game computes: texobj+0x18 == datalen - 8, verified for
+the 1024x1024 VQ case in docs/kb/phase5-hardware.md §Step 8; for plain
+VQ this equals the KAMUI2 formula 2048 + w*h/4, and it prices VQ+mipmap
+(dt=04) records correctly where the old raw-16bpp guess ran ~6x high).
 """
 import struct, sys
 
@@ -58,7 +62,7 @@ while True:
         and w in (8, 16, 32, 64, 128, 256, 512, 1024) \
         and h in (8, 16, 32, 64, 128, 256, 512, 1024)
     if sane:
-        vram = 2048 + w * h // 4 if dt == 3 else w * h * 2
+        vram = struct.unpack_from("<I", blob, j + 4)[0] - 8
         print("  +0x%06x  abs 0x%08x  %4dx%-4d pf=%02x dt=%02x  ~%d B" %
               (j, o0 + j, w, h, pf, dt, vram))
     j += 4
