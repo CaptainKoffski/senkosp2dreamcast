@@ -125,7 +125,10 @@ def run_encode(p):
     shr.KMEANS_ITERS = 30 if p.get("full") else 10
     rng = np.random.default_rng(0x53454e4b ^ off)   # matches shrink_vq main()
     t0 = time.time()
-    rec, out_rgba, psnr = shr.finish(ref, PIXFMT[off], rng, blk_w, float(p["edge_w"]))
+    # ARGB1555 override: equal 5/5/5 steps keep neutral grays neutral (565's
+    # finer green step tints bright grays); loader precedent = STAGE10's VQ-1555
+    out_pf = 0x00 if p.get("pf1555") else PIXFMT[off]
+    rec, out_rgba, psnr = shr.finish(ref, out_pf, rng, blk_w, float(p["edge_w"]))
     out = np.frombuffer(out_rgba, np.uint8).reshape(512, 512, 4).astype(np.float32)
     return rec, ref, out, psnr, int((time.time() - t0) * 1000), mask.exists()
 
@@ -133,7 +136,8 @@ def run_encode(p):
 def api_encode(p):
     rec, ref, out, psnr, ms, has_mask = run_encode(p)
     return {"ref": data_uri(ref), "out": data_uri(out), "psnr": float(psnr),
-            "ms": ms, "mask": has_mask, "full": bool(p.get("full"))}
+            "ms": ms, "mask": has_mask, "full": bool(p.get("full")),
+            "pf": "1555" if p.get("pf1555") else "native"}
 
 
 def api_save(p):
@@ -146,10 +150,12 @@ def api_save(p):
     if edit.exists():
         (shr.EDIT_DIR / ("%08x-prev.png" % off)).write_bytes(edit.read_bytes())
     edit.write_bytes(png_bytes(ref))
-    (shr.EDIT_DIR / ("%08x-params.json" % off)).write_text(json.dumps(
-        {"sharpen": float(p["sharpen"]), "radius": int(p["radius"]),
+    d = {"sharpen": float(p["sharpen"]), "radius": int(p["radius"]),
          "edge_w": float(p["edge_w"]), "mask_w": float(p["mask_w"]),
-         "regions": p.get("regions") or []}, indent=1))
+         "regions": p.get("regions") or []}
+    if p.get("pf1555"):
+        d["out_pf"] = 0x00
+    (shr.EDIT_DIR / ("%08x-params.json" % off)).write_text(json.dumps(d, indent=1))
     return {"msg": "saved %08x.png + %08x-params.json (PSNR %.1f dB)%s"
                    % (off, off, psnr,
                       "" if PIXFMT[off] != 0x02 else " — NOTE: 0b777810 ships full-size; build ignores this")}
@@ -178,6 +184,7 @@ img{user-select:none;-webkit-user-drag:none}
  <label>region + <input id=rsharp type=range min=0 max=4 step=0.05 value=1><span id=rsharpv>1</span></label>
  <button id=delr>Del region</button>
  <button id=clearr>Clear</button>
+ <label><input id=pf1555 type=checkbox>ARGB1555</label>
  <label><input id=full type=checkbox>full quality</label>
  <button id=enc>Encode</button>
  <button id=save>Save</button>
@@ -199,7 +206,7 @@ TEX.forEach(t => $('tex').add(new Option(t.label, t.off)));
 });
 function params(){ return {off:$('tex').value, sharpen:+$('sharpen').value,
   radius:+$('radius').value, edge_w:+$('edge_w').value, mask_w:+$('mask_w').value,
-  regions:regions, full:$('full').checked}; }
+  regions:regions, pf1555:$('pf1555').checked, full:$('full').checked}; }
 async function call(url){
   $('status').textContent = 'encoding…';
   $('enc').disabled = $('save').disabled = true;
@@ -215,7 +222,7 @@ async function encode(){
   const j = await call('/api/encode'); if(!j) return;
   $('ref').src = j.ref; $('out').src = j.out;
   $('status').textContent = 'PSNR ' + j.psnr.toFixed(1) + ' dB · ' + j.ms
-    + ' ms · mask ' + (j.mask ? 'found' : 'none') + ' · '
+    + ' ms · ' + j.pf + ' · mask ' + (j.mask ? 'found' : 'none') + ' · '
     + (j.full ? 'full (30 iters)' : 'fast (10 iters)');
 }
 $('enc').onclick = encode;
@@ -266,6 +273,7 @@ async function loadState(){
   regions = j.regions || []; sel = -1;
   for(const k of ['sharpen','radius','edge_w','mask_w'])
     if(k in (j.params || {})){ $(k).value = j.params[k]; $(k+'v').textContent = j.params[k]; }
+  $('pf1555').checked = !!j.pf1555;
   render();
 }
 $('tex').onchange = () => loadState().then(encode);
@@ -319,7 +327,8 @@ class Handler(BaseHTTPRequestHandler):
             p = json.loads(f.read_text()) if f.exists() else {}
             self._send(json.dumps({
                 "params": {k: p[k] for k in ("sharpen", "radius", "edge_w", "mask_w") if k in p},
-                "regions": p.get("regions", [])}).encode(), "application/json")
+                "regions": p.get("regions", []),
+                "pf1555": p.get("out_pf") == 0x00}).encode(), "application/json")
         else:
             self.send_error(404)
 

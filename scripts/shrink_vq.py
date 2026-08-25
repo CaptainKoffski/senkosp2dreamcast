@@ -204,13 +204,13 @@ def encode_one(rom, off, pixfmt, rng):
     assert hdr[:4] == b"PVRT" and hdr[8] == pixfmt and hdr[9] == 0x03, hdr.hex()
     assert struct.unpack_from("<HH", hdr, 12) == (SRC, SRC), hdr.hex()
     assert struct.unpack_from("<I", hdr, 4)[0] == 8 + 2048 + (SRC // 2) ** 2
-    out_pf = OUT_PF.get(off, pixfmt)
-    fmt_note = "" if out_pf == pixfmt else "->pf%02x" % out_pf
-
     # per-texture knob overrides saved by scripts/vq_tuner.py (Save button)
     pjson = EDIT_DIR / ("%08x-params.json" % off)
     params = json.loads(pjson.read_text()) if pjson.exists() else {}
     param_note = "+params" if params else ""
+
+    out_pf = params.get("out_pf", OUT_PF.get(off, pixfmt))
+    fmt_note = "" if out_pf == pixfmt else "->pf%02x" % out_pf
 
     # optional importance mask: per-2x2-block training weight 1+mask_w*luma
     mask = EDIT_DIR / ("%08x-mask.png" % off)
