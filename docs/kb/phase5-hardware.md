@@ -1683,6 +1683,29 @@ non-square VQs (scan of all PAKs: 1,167 square, 0 non-square), so its
 loader is unproven on them — kept as fallback only if the 512×512 A/B
 fails.
 
+**Amendment (2026-08-25) — operator re-ruling: shrink three, 0b777810
+ships full-size.** After the art-quality campaign on 0b777810 (masks,
+sharpening rounds, ARGB1555/565/CLUT format ladder — §Final freeze
+art-override), the operator ruled that this texture — the most
+on-screen-visible of the four and the only one with semi-transparent
+elements — reverts to the **original 1024×1024 ARGB4444 record,
+untouched** (best possible quality: zero re-encode loss), while the other
+three stay 512×512. Arithmetic on the measured killer scene:
+8,772,640 − 3 × 196,608 = **8,182,816 B predicted peak, 205,792 B
+headroom** — under the earlier ≥512 KB target, accepted deliberately
+because (a) the added 196,608 B lands entirely on the stage-8 scene
+class, the best-measured scene in the project (fix prediction previously
+closed to the byte), and (b) unmeasured-scene risk (STAGE09/P09/P10,
+ending) is unchanged: those scenes do not reference the STAGE08 atlas.
+This supersedes the uniform-softening argument above (operator accepts
+mixed sharpness given 0b777810's visibility) and moots the ARGB1555
+re-encode of 0b777810 for shipping (the format findings stand as
+knowledge). Verification bar for the next stage-8 leg: ARENAHW peak
+8,182,816 / free 205,792 byte-exact, TEXERR clean. "Shrink only two" was
+re-examined and vetoed: 9,184 B headroom is smaller than one 64×64
+16-bit texture, against unmeasured character-pair variance, with the T1
+hard hang as the failure mode.
+
 **Binding verification requirements (operator-set):**
 
 1. **A/B visual gate is mandatory.** Before hardware: paired emulator

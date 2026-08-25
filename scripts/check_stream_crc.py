@@ -14,7 +14,7 @@ Ground truth:
                      [loader+padding][senkosp.dat], so no separate cart-FAD
                      split is needed here.
 
-Texpatch caveat (2026-08-24): default make_gdi.py builds splice the four
+Texpatch caveat (2026-08-24): default make_gdi.py builds splice the
 shrink_vq.py records into track04, so its cart region is NOT byte-identical
 to senkosp.dat there. GD checks are unaffected (track04 is the on-disc
 truth). SHIMCRC ranges overlapping those records WOULD mismatch a pristine

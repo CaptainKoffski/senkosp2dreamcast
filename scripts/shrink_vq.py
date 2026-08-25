@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""shrink_vq.py [senkosp.dat] — re-encode the four STAGE08.PAK 1024x1024 VQ
-textures at 512x512 and write patch blobs for make_gdi.py to splice into
-track04 (the option-2 VRAM fix, docs/kb/phase5-hardware.md §Fix decision;
-saves 4 x 196,608 B of texture arena).
+"""shrink_vq.py [senkosp.dat] — re-encode three of the four STAGE08.PAK
+1024x1024 VQ textures at 512x512 and write patch blobs for make_gdi.py to
+splice into track04 (the option-2 VRAM fix, docs/kb/phase5-hardware.md §Fix
+decision; saves 3 x 196,608 B of texture arena). 0b777810 ships at full size
+(operator amendment 2026-08-25, §Fix decision — predicted stage-8 peak
+8,182,816 B, headroom 205,792 B).
 
 Outputs (ROM-derived, gitignored):
   build/texpatch/<pvrt-off>.bin   full replacement PVRT record (67,600 B)
@@ -24,10 +26,16 @@ spec = importlib.util.spec_from_file_location("dec", REPO / "scripts/decode_pvr_
 dec = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dec)
 
-# The four offenders: PVRT header offsets in senkosp.dat + expected pixfmt
+# The shrink targets: PVRT header offsets in senkosp.dat + expected pixfmt
 # (docs/kb/phase5-hardware.md §Fix scoping; GBIX headers precede, untouched).
-TARGETS = [(0x0b6b5fb0, 0x01), (0x0b6f67d0, 0x01),
-           (0x0b736ff0, 0x01), (0x0b777810, 0x02)]
+# The fourth offender, 0b777810 (pf02), ships full-size per the 2026-08-25
+# amendment and is no longer a target.
+TARGETS = [(0x0b6b5fb0, 0x01), (0x0b6f67d0, 0x01), (0x0b736ff0, 0x01)]
+# Output-format override, {pvrt_off: out_pixfmt}: re-encode in a different
+# 16-bit texel format, same record size. Path proven by the 0b777810
+# pf02->pf00 (ARGB1555) experiment; loader precedent for VQ-1555 is
+# STAGE10.PAK (PVRT 0x0bfe6394 / 0x0bfe9c18).
+OUT_PF = {}
 SRC = 1024
 DST = 512
 OLD_RECORD = 16 + 2048 + (SRC // 2) ** 2   # 264,208
@@ -136,6 +144,9 @@ def pack_texels(v, pixfmt):
     """v: (..., 4) float RGBA 0..255 -> u16, inverse of decode()'s UNPACK."""
     r, g, b, a = (np.clip(np.round(v[..., i]), 0, 255).astype(np.uint32)
                   for i in range(4))
+    if pixfmt == 0x00:          # ARGB1555, alpha thresholded at 128
+        return (((a >= 128).astype(np.uint32) << 15)
+                | (r >> 3 << 10) | (g >> 3 << 5) | (b >> 3)).astype('<u2')
     if pixfmt == 0x01:          # RGB565
         return ((r >> 3 << 11) | (g >> 2 << 5) | (b >> 3)).astype('<u2')
     if pixfmt == 0x02:          # ARGB4444, nibble*17 on decode
@@ -147,6 +158,10 @@ def pack_texels(v, pixfmt):
 def unpack_texels(u, pixfmt):
     """u16 -> (..., 4) float RGBA, exactly decode()'s UNPACK arithmetic."""
     u = u.astype(np.uint32)
+    if pixfmt == 0x00:
+        return np.stack([(u >> 10 << 3) & 0xf8, (u >> 5 << 3) & 0xf8,
+                         (u << 3) & 0xf8, (u >> 15) * 255],
+                        -1).astype(np.float32)
     if pixfmt == 0x01:
         return np.stack([(u >> 11 << 3) & 0xf8, (u >> 5 << 2) & 0xfc,
                          (u << 3) & 0xf8, np.full_like(u, 255)],
@@ -187,6 +202,8 @@ def encode_one(rom, off, pixfmt, rng):
     assert hdr[:4] == b"PVRT" and hdr[8] == pixfmt and hdr[9] == 0x03, hdr.hex()
     assert struct.unpack_from("<HH", hdr, 12) == (SRC, SRC), hdr.hex()
     assert struct.unpack_from("<I", hdr, 4)[0] == 8 + 2048 + (SRC // 2) ** 2
+    out_pf = OUT_PF.get(off, pixfmt)
+    fmt_note = "" if out_pf == pixfmt else "->pf%02x" % out_pf
 
     # optional importance mask: per-2x2-block training weight 1+MASK_W*luma
     mask = EDIT_DIR / ("%08x-mask.png" % off)
@@ -204,8 +221,8 @@ def encode_one(rom, off, pixfmt, rng):
         # art override: VQ-encode the edited/AI-processed image as-is
         ew, eh, ref = load_png_rgba(edit)
         assert (ew, eh) == (DST, DST), "%s: must be %dx%d" % (edit, DST, DST)
-        src_note = "edit/" + edit.name + mask_note
-        return finish(ref, pixfmt, rng, blk_w) + (src_note,)
+        src_note = "edit/" + edit.name + mask_note + fmt_note
+        return finish(ref, out_pf, rng, blk_w) + (src_note,)
 
     # source decode through the control-tested decoder
     w, h, pf, rgba = dec.decode(io.BytesIO(rom), off)
@@ -234,7 +251,7 @@ def encode_one(rom, off, pixfmt, rng):
     if UNSHARP:
         ref = np.clip(ref + UNSHARP * (ref - box3(ref)), 0.0, 255.0)
 
-    return finish(ref, pixfmt, rng, blk_w) + ("box-downscale" + mask_note,)
+    return finish(ref, out_pf, rng, blk_w) + ("box-downscale" + mask_note + fmt_note,)
 
 
 def finish(ref, pixfmt, rng, blk_w=None):
