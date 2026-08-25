@@ -1717,19 +1717,44 @@ mirror match could exceed shrink-2's headroom. Measured instead
 loaded, then STAGE08.PAK) peaked at ARENAHW alloc 8,180,736 / free
 207,872 — set at match load, never exceeded across the remaining ~355k
 log lines of the fight (reconfirming load-time-only texture
-allocation); TEXERR 9/9 clean + the known boot artifact. That peak is
-191,840 B *below* the leg-B attract-demo peak, so character-pair
-variance is closed empirically and the binding scene for shrink-2 is
-the **attract stage-8 demo** (fixed Lili (P05B) + Cuilan (P03F) pair,
-deterministic content): 8,372,576 / free 16,032, measured in leg B
-(`captures/ab-b-shrink2.log`). Operator confirmed shrink-2 as the ship
-config with that cliff surfaced — rationale: two untouched originals
-(0b777810 decals + 0b6f67d0) beat re-encoded art, and the one
-16,032-B-margin scene is deterministic and measured-survived. This
-supersedes the shrink-three amendment above. Verification bar for the
-attract-demo check on this build (record sizes identical to leg B, so
-the arena arithmetic must reproduce): ARENAHW peak 8,372,576 / free
-16,032 byte-exact through the stage-8 demo, ≥2 passes, TEXERR clean.
+allocation); TEXERR 9/9 clean + the known boot artifact.
+
+> **Correction (2026-08-25, same evening) — the attract-demo check leg
+> (`captures/attract-s2.log`) overturned two claims in this amendment
+> as written.** (1) Leg B's 8,372,576 peak was NOT the attract demo:
+> load attribution shows `STGSEL.PAK` then P06E + P07E + STAGE08 — it
+> was the operator's own **Sakurako vs Ernula 2P match**. (2) The
+> attract rotation is **randomized**, not fixed: each cycle plays a
+> fixed Changpo-vs-Mika demo plus a second demo with random pair and
+> random stage (observed across 5 cycles: P06B+P07B on STAGE08,
+> P06D+P05E and P01F+P02C on STAGE03, P04F+P04E mirror on STAGE04,
+> P04C+P05B on STAGE01 …). The attract-s2 leg's stage-8 demo
+> (Sakurako P06B + Ernula P07B) peaked at **alloc 8,379,424 / free
+> 9,184** — worse than the stated bar — and survived, TEXERR clean.
+>
+> **Byte-exact demand model (DC, shrink-2 build).** Three direct
+> measurements fit `peak = 7,854,880 (stage-8 scene base, identical
+> for attract demo and 2P match) + Σ census(character variant)`,
+> census = Σ(PVRT datalen−8) per PAK: leg-B match 7,854,880 + 208,288
+> (P06E) + 309,408 (P07E) = 8,372,576 exact; attract demo 7,854,880 +
+> 215,136 (P06B) + 309,408 (P07B) = 8,379,424 exact; Ernula mirror
+> 8,180,736 → P07A∪P07E resident 325,856 ≈ one set + 16,448 (variant
+> PAKs share nearly all textures, so mirrors are cheap — the census
+> table lives in game.md). Model residual ≤ ~16 KB. Predicted worst
+> distinct pair **Ernula (309,408) + Lili (226,688) on stage 8 =
+> 8,390,976 — 2,368 B OVER the 8,388,608 arena**, within model
+> residual: shrink-2's fate on the worst pair is genuinely
+> undecidable by model and needs a direct measurement (Ernula vs Lili,
+> stage 8, this build). Second-worst (P01C–F + P07 = 8,381,504, free
+> 7,104) fits. The attract rolls random pairs, so a worst-pair stage-8
+> demo occurs unattended sooner or later — if it overflows, that is a
+> T1 hard hang in attract mode. The shrink-2 ship ruling is therefore
+> **suspended pending the Ernula-vs-Lili measurement**; shrink-3's
+> worst-pair prediction under the same model is 8,194,368 / free
+> 194,240. The older derived "killer demand 8,772,640" and the
+> shrink-3 bar 8,182,816 derived from it were pair-naive and are
+> superseded by this model; the FB-derivation discrepancy (~124 KB) is
+> noted, unexplained, and moot — direct DC measurement outranks it.
 
 **Binding verification requirements (operator-set):**
 
