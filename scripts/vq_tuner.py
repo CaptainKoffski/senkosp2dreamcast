@@ -198,7 +198,7 @@ PAGE = """<!doctype html><meta charset="utf-8"><title>vq tuner</title>
 body{font:13px system-ui;margin:0;background:#222;color:#ddd}
 #bar{padding:8px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#333;position:sticky;top:0;z-index:1}
 label{display:flex;gap:4px;align-items:center;white-space:nowrap}
-.col{width:50%}.pane{height:calc(100vh - 76px);overflow:auto}
+.col{flex:1;min-width:0}.pane{height:calc(100vh - 76px);overflow:auto}
 img{image-rendering:pixelated;display:block}
 .wrap{display:flex}.cap{padding:3px 8px;color:#8bc;font-size:12px}
 button{padding:4px 12px}#status{color:#cd8}
@@ -228,7 +228,9 @@ img{user-select:none;-webkit-user-drag:none}
  <span id=status></span>
 </div>
 <div class=wrap>
- <div class=col><div class=cap>prepared source — drag a rectangle for region-extra sharpen; this is what Save writes</div>
+ <div class=col><div class=cap>original (downscaled, untouched)</div>
+  <div class=pane id=p0><img id=orig></div></div>
+ <div class=col><div class=cap>prepared source — drag rect = region sharpen; Save writes this</div>
   <div class=pane id=p1><div id=refwrap style="position:relative"><img id=ref></div></div></div>
  <div class=col><div class=cap>VQ round trip — this is what ships</div>
   <div class=pane id=p2><img id=out></div></div>
@@ -315,7 +317,7 @@ async function loadState(){
   $('pf1555').checked = !!j.pf1555;
   render();
 }
-$('tex').onchange = () => loadState().then(encode);
+$('tex').onchange = () => { setOrig(); loadState().then(encode); };
 $('save').onclick = async () => {
   if(!confirm('Overwrite edit/' + $('tex').value
       + '.png (existing backed up to -prev) + params.json?')) return;
@@ -324,16 +326,20 @@ $('save').onclick = async () => {
 };
 $('zoom').onchange = () => {
   const z = 512 * +$('zoom').value + 'px';
-  $('ref').style.width = z; $('out').style.width = z;
+  $('orig').style.width = z; $('ref').style.width = z; $('out').style.width = z;
   render();
 };
 $('zoom').onchange();
 let lock = false;
-[['p1','p2'],['p2','p1']].forEach(([a,b]) => $(a).onscroll = () => {
+const PANES = ['p0','p1','p2'];
+PANES.forEach(a => $(a).onscroll = () => {
   if(lock) return; lock = true;
-  $(b).scrollLeft = $(a).scrollLeft; $(b).scrollTop = $(a).scrollTop;
+  PANES.filter(b => b !== a).forEach(b => {
+    $(b).scrollLeft = $(a).scrollLeft; $(b).scrollTop = $(a).scrollTop; });
   lock = false;
 });
+function setOrig(){ $('orig').src = '/api/orig?off=' + $('tex').value; }
+setOrig();
 loadState().then(encode);
 </script>"""
 
@@ -360,6 +366,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._send(page().encode(), "text/html; charset=utf-8")
+        elif self.path.startswith("/api/orig?off="):
+            off = int(self.path.rsplit("=", 1)[1], 16)
+            with LOCK:
+                self._send(png_bytes(source(off)), "image/png")
         elif self.path.startswith("/api/state?off="):
             off = self.path.rsplit("=", 1)[1]
             f = shr.EDIT_DIR / ("%s-params.json" % off)
