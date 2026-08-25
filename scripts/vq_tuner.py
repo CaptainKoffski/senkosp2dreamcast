@@ -89,6 +89,34 @@ def amount_map(p):
     return amt
 
 
+def color_adjust(ref, p):
+    """Per-channel gain, optionally scoped to bright pixels (luma >= gain_lo
+    with a 40-step linear knee) — the anti-green-cast knob."""
+    g = np.float32([float(p.get("gain_r", 1)), float(p.get("gain_g", 1)),
+                    float(p.get("gain_b", 1))])
+    if (g == 1).all():
+        return ref
+    rgb = ref[..., :3]
+    lo = float(p.get("gain_lo", 0))
+    if lo > 0:
+        luma = rgb @ np.float32([0.299, 0.587, 0.114])
+        w = np.clip((luma - lo + 20.0) / 40.0, 0.0, 1.0)[..., None]
+    else:
+        w = 1.0
+    out = ref.copy()
+    out[..., :3] = np.clip(rgb * (1.0 + w * (g - 1.0)), 0.0, 255.0)
+    return out
+
+
+def bright_cast(img):
+    """Mean G - (R+B)/2 over bright pixels (luma > 180): the green-cast needle."""
+    rgb = img[..., :3]
+    sel = (rgb @ np.float32([0.299, 0.587, 0.114])) > 180
+    if not sel.any():
+        return 0.0
+    return float((rgb[..., 1] - (rgb[..., 0] + rgb[..., 2]) / 2)[sel].mean())
+
+
 def png_bytes(img):
     """float RGBA (h, w, 4) -> PNG bytes (8-bit RGBA, filter 0)."""
     raw = img.astype(np.uint8)
@@ -114,7 +142,8 @@ def run_encode(p):
     ref is rounded to whole uint8 values so the preview equals what a saved
     edit PNG reproduces at build time, byte for byte."""
     off = int(p["off"], 16)
-    ref = np.rint(sharpen(source(off), amount_map(p), int(p["radius"])))
+    ref = color_adjust(source(off), p)
+    ref = np.rint(sharpen(ref, amount_map(p), int(p["radius"])))
     mask = shr.EDIT_DIR / ("%08x-mask.png" % off)
     blk_w = None
     if mask.exists() and float(p["mask_w"]) > 0:
@@ -137,7 +166,8 @@ def api_encode(p):
     rec, ref, out, psnr, ms, has_mask = run_encode(p)
     return {"ref": data_uri(ref), "out": data_uri(out), "psnr": float(psnr),
             "ms": ms, "mask": has_mask, "full": bool(p.get("full")),
-            "pf": "1555" if p.get("pf1555") else "native"}
+            "pf": "1555" if p.get("pf1555") else "native",
+            "cast_ref": round(bright_cast(ref), 2), "cast_out": round(bright_cast(out), 2)}
 
 
 def api_save(p):
@@ -152,6 +182,8 @@ def api_save(p):
     edit.write_bytes(png_bytes(ref))
     d = {"sharpen": float(p["sharpen"]), "radius": int(p["radius"]),
          "edge_w": float(p["edge_w"]), "mask_w": float(p["mask_w"]),
+         "gain_r": float(p.get("gain_r", 1)), "gain_g": float(p.get("gain_g", 1)),
+         "gain_b": float(p.get("gain_b", 1)), "gain_lo": float(p.get("gain_lo", 0)),
          "regions": p.get("regions") or []}
     if p.get("pf1555"):
         d["out_pf"] = 0x00
@@ -181,6 +213,10 @@ img{user-select:none;-webkit-user-drag:none}
  <label>radius <input id=radius type=range min=1 max=3 step=1 value=1><span id=radiusv>1</span></label>
  <label>edge_w <input id=edge_w type=range min=0 max=4 step=0.1 value=0><span id=edge_wv>0</span></label>
  <label>mask_w <input id=mask_w type=range min=0 max=8 step=0.5 value=4><span id=mask_wv>4</span></label>
+ <label>R× <input id=gain_r type=range min=0.85 max=1.15 step=0.005 value=1><span id=gain_rv>1</span></label>
+ <label>G× <input id=gain_g type=range min=0.85 max=1.15 step=0.005 value=1><span id=gain_gv>1</span></label>
+ <label>B× <input id=gain_b type=range min=0.85 max=1.15 step=0.005 value=1><span id=gain_bv>1</span></label>
+ <label>luma≥ <input id=gain_lo type=range min=0 max=220 step=10 value=0><span id=gain_lov>0</span></label>
  <label>region + <input id=rsharp type=range min=0 max=4 step=0.05 value=1><span id=rsharpv>1</span></label>
  <button id=delr>Del region</button>
  <button id=clearr>Clear</button>
@@ -201,11 +237,13 @@ img{user-select:none;-webkit-user-drag:none}
 const TEX = __TEXTURES__;
 const $ = id => document.getElementById(id);
 TEX.forEach(t => $('tex').add(new Option(t.label, t.off)));
-['sharpen','radius','edge_w','mask_w'].forEach(k => {
+['sharpen','radius','edge_w','mask_w','gain_r','gain_g','gain_b','gain_lo'].forEach(k => {
   $(k).oninput = () => $(k+'v').textContent = $(k).value;
 });
 function params(){ return {off:$('tex').value, sharpen:+$('sharpen').value,
   radius:+$('radius').value, edge_w:+$('edge_w').value, mask_w:+$('mask_w').value,
+  gain_r:+$('gain_r').value, gain_g:+$('gain_g').value, gain_b:+$('gain_b').value,
+  gain_lo:+$('gain_lo').value,
   regions:regions, pf1555:$('pf1555').checked, full:$('full').checked}; }
 async function call(url){
   $('status').textContent = 'encoding…';
@@ -222,7 +260,8 @@ async function encode(){
   const j = await call('/api/encode'); if(!j) return;
   $('ref').src = j.ref; $('out').src = j.out;
   $('status').textContent = 'PSNR ' + j.psnr.toFixed(1) + ' dB · ' + j.ms
-    + ' ms · ' + j.pf + ' · mask ' + (j.mask ? 'found' : 'none') + ' · '
+    + ' ms · ' + j.pf + ' · cast ' + j.cast_ref.toFixed(1) + '→' + j.cast_out.toFixed(1)
+    + ' · mask ' + (j.mask ? 'found' : 'none') + ' · '
     + (j.full ? 'full (30 iters)' : 'fast (10 iters)');
 }
 $('enc').onclick = encode;
@@ -271,7 +310,7 @@ $('clearr').onclick = () => { regions = []; sel = -1; render(); };
 async function loadState(){
   const j = await (await fetch('/api/state?off=' + $('tex').value)).json();
   regions = j.regions || []; sel = -1;
-  for(const k of ['sharpen','radius','edge_w','mask_w'])
+  for(const k of ['sharpen','radius','edge_w','mask_w','gain_r','gain_g','gain_b','gain_lo'])
     if(k in (j.params || {})){ $(k).value = j.params[k]; $(k+'v').textContent = j.params[k]; }
   $('pf1555').checked = !!j.pf1555;
   render();
@@ -326,7 +365,8 @@ class Handler(BaseHTTPRequestHandler):
             f = shr.EDIT_DIR / ("%s-params.json" % off)
             p = json.loads(f.read_text()) if f.exists() else {}
             self._send(json.dumps({
-                "params": {k: p[k] for k in ("sharpen", "radius", "edge_w", "mask_w") if k in p},
+                "params": {k: p[k] for k in ("sharpen", "radius", "edge_w", "mask_w",
+                                             "gain_r", "gain_g", "gain_b", "gain_lo") if k in p},
                 "regions": p.get("regions", []),
                 "pf1555": p.get("out_pf") == 0x00}).encode(), "application/json")
         else:
