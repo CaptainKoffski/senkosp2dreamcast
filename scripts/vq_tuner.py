@@ -4,7 +4,9 @@
 Serves http://localhost:8765 — pick a STAGE08 shrink target, tweak the
 sharpening (luma-only, applied to the in-tool 2x2 box downscale of the
 ORIGINAL 1024x1024 record: no third-party resampler, no new colors) and the
-encoder knobs (edge_w / mask_w), press Encode, and compare the prepared
+encoder knobs (edge_w / mask_w), drag rectangles on the left panel for
+region-scoped EXTRA sharpening (per-region amount, ~3 px feather so region
+borders don't seam), press Encode, and compare the prepared
 source against the true VQ round trip (the build encoder + the
 control-tested decoder). Per-texture rng seeds make the preview
 byte-identical to what shrink_vq.py ships.
@@ -54,18 +56,37 @@ def source(off):
     return SOURCES[off]
 
 
-def sharpen(ref, amount, radius):
+def sharpen(ref, amt, radius):
     """Luma-only unsharp (the v2 per-channel version made chroma noise):
-    the luma detail delta is added equally to R, G and B."""
-    if amount <= 0:
+    the luma detail delta is added equally to R, G and B. amt is a
+    (512, 512) per-pixel amount map (global slider + feathered regions)."""
+    if amt.max() <= 0:
         return ref
     luma = (ref[..., :3] @ np.float32([0.299, 0.587, 0.114]))[..., None]
     blur = luma
     for _ in range(max(1, int(radius))):
         blur = shr.box3(blur)
     out = ref.copy()
-    out[..., :3] = np.clip(ref[..., :3] + amount * (luma - blur), 0.0, 255.0)
+    out[..., :3] = np.clip(ref[..., :3] + amt[..., None] * (luma - blur), 0.0, 255.0)
     return out
+
+
+def amount_map(p):
+    """Global sharpen everywhere + per-region extra (max on overlap),
+    feathered ~3 px so the sharpened/unsharpened border can't seam."""
+    amt = np.full((shr.DST, shr.DST), float(p["sharpen"]), np.float32)
+    extra = np.zeros((shr.DST, shr.DST), np.float32)
+    for r in p.get("regions") or []:
+        x0, y0 = max(0, int(r["x0"])), max(0, int(r["y0"]))
+        x1, y1 = min(shr.DST, int(r["x1"])), min(shr.DST, int(r["y1"]))
+        if x1 > x0 and y1 > y0:
+            extra[y0:y1, x0:x1] = np.maximum(extra[y0:y1, x0:x1], float(r["extra"]))
+    if extra.any():
+        e = extra[..., None]
+        for _ in range(3):
+            e = shr.box3(e)
+        amt += e[..., 0]
+    return amt
 
 
 def png_bytes(img):
@@ -93,7 +114,7 @@ def run_encode(p):
     ref is rounded to whole uint8 values so the preview equals what a saved
     edit PNG reproduces at build time, byte for byte."""
     off = int(p["off"], 16)
-    ref = np.rint(sharpen(source(off), float(p["sharpen"]), int(p["radius"])))
+    ref = np.rint(sharpen(source(off), amount_map(p), int(p["radius"])))
     mask = shr.EDIT_DIR / ("%08x-mask.png" % off)
     blk_w = None
     if mask.exists() and float(p["mask_w"]) > 0:
@@ -127,7 +148,8 @@ def api_save(p):
     edit.write_bytes(png_bytes(ref))
     (shr.EDIT_DIR / ("%08x-params.json" % off)).write_text(json.dumps(
         {"sharpen": float(p["sharpen"]), "radius": int(p["radius"]),
-         "edge_w": float(p["edge_w"]), "mask_w": float(p["mask_w"])}, indent=1))
+         "edge_w": float(p["edge_w"]), "mask_w": float(p["mask_w"]),
+         "regions": p.get("regions") or []}, indent=1))
     return {"msg": "saved %08x.png + %08x-params.json (PSNR %.1f dB)%s"
                    % (off, off, psnr,
                       "" if PIXFMT[off] != 0x02 else " — NOTE: 0b777810 ships full-size; build ignores this")}
@@ -142,6 +164,10 @@ label{display:flex;gap:4px;align-items:center;white-space:nowrap}
 img{image-rendering:pixelated;display:block}
 .wrap{display:flex}.cap{padding:3px 8px;color:#8bc;font-size:12px}
 button{padding:4px 12px}#status{color:#cd8}
+img{user-select:none;-webkit-user-drag:none}
+.rgn{position:absolute;border:1px solid #fc4;background:rgba(255,200,60,.12);
+     color:#fc4;font-size:10px;cursor:pointer;overflow:hidden}
+.rgn.sel{border-color:#4cf;color:#4cf;background:rgba(80,200,255,.15)}
 </style>
 <div id=bar>
  <select id=tex></select>
@@ -149,6 +175,9 @@ button{padding:4px 12px}#status{color:#cd8}
  <label>radius <input id=radius type=range min=1 max=3 step=1 value=1><span id=radiusv>1</span></label>
  <label>edge_w <input id=edge_w type=range min=0 max=4 step=0.1 value=0><span id=edge_wv>0</span></label>
  <label>mask_w <input id=mask_w type=range min=0 max=8 step=0.5 value=4><span id=mask_wv>4</span></label>
+ <label>region + <input id=rsharp type=range min=0 max=4 step=0.05 value=1><span id=rsharpv>1</span></label>
+ <button id=delr>Del region</button>
+ <button id=clearr>Clear</button>
  <label><input id=full type=checkbox>full quality</label>
  <button id=enc>Encode</button>
  <button id=save>Save</button>
@@ -156,8 +185,8 @@ button{padding:4px 12px}#status{color:#cd8}
  <span id=status></span>
 </div>
 <div class=wrap>
- <div class=col><div class=cap>prepared source (downscale + sharpen) — this is what Save writes</div>
-  <div class=pane id=p1><img id=ref></div></div>
+ <div class=col><div class=cap>prepared source — drag a rectangle for region-extra sharpen; this is what Save writes</div>
+  <div class=pane id=p1><div id=refwrap style="position:relative"><img id=ref></div></div></div>
  <div class=col><div class=cap>VQ round trip — this is what ships</div>
   <div class=pane id=p2><img id=out></div></div>
 </div>
@@ -170,7 +199,7 @@ TEX.forEach(t => $('tex').add(new Option(t.label, t.off)));
 });
 function params(){ return {off:$('tex').value, sharpen:+$('sharpen').value,
   radius:+$('radius').value, edge_w:+$('edge_w').value, mask_w:+$('mask_w').value,
-  full:$('full').checked}; }
+  regions:regions, full:$('full').checked}; }
 async function call(url){
   $('status').textContent = 'encoding…';
   $('enc').disabled = $('save').disabled = true;
@@ -190,7 +219,56 @@ async function encode(){
     + (j.full ? 'full (30 iters)' : 'fast (10 iters)');
 }
 $('enc').onclick = encode;
-$('tex').onchange = encode;
+
+// ---- region-scoped extra sharpening ----------------------------------
+let regions = [], sel = -1, drag = null;
+function pxToTex(e){
+  const r = $('ref').getBoundingClientRect(), z = +$('zoom').value;
+  return [Math.max(0, Math.min(511, Math.round((e.clientX - r.left)/z))),
+          Math.max(0, Math.min(511, Math.round((e.clientY - r.top)/z)))];
+}
+function norm(d){ return {x0:Math.min(d.x0,d.x1), y0:Math.min(d.y0,d.y1),
+                          x1:Math.max(d.x0,d.x1), y1:Math.max(d.y0,d.y1)}; }
+function render(){
+  document.querySelectorAll('.rgn').forEach(el => el.remove());
+  const z = +$('zoom').value;
+  const list = drag ? regions.concat([{...norm(drag), extra:+$('rsharp').value}]) : regions;
+  list.forEach((r, i) => {
+    const d = document.createElement('div');
+    d.className = 'rgn' + (i === sel ? ' sel' : '');
+    d.style.cssText = 'left:' + r.x0*z + 'px;top:' + r.y0*z + 'px;width:'
+      + (r.x1-r.x0)*z + 'px;height:' + (r.y1-r.y0)*z + 'px';
+    d.textContent = '+' + r.extra;
+    d.onmousedown = e => { e.stopPropagation(); e.preventDefault();
+      sel = i; $('rsharp').value = r.extra; $('rsharpv').textContent = r.extra; render(); };
+    $('refwrap').appendChild(d);
+  });
+}
+$('ref').onmousedown = e => { e.preventDefault(); const [x,y] = pxToTex(e);
+  drag = {x0:x, y0:y, x1:x, y1:y}; };
+window.onmousemove = e => { if(!drag) return;
+  const [x,y] = pxToTex(e); drag.x1 = x; drag.y1 = y; render(); };
+window.onmouseup = () => {
+  if(!drag) return;
+  const r = norm(drag); drag = null;
+  if(r.x1 - r.x0 >= 4 && r.y1 - r.y0 >= 4){
+    regions.push({...r, extra:+$('rsharp').value}); sel = regions.length - 1;
+  }
+  render();
+};
+$('rsharp').oninput = () => { $('rsharpv').textContent = $('rsharp').value;
+  if(sel >= 0){ regions[sel].extra = +$('rsharp').value; render(); } };
+$('delr').onclick = () => { if(sel >= 0){ regions.splice(sel, 1); sel = -1; render(); } };
+$('clearr').onclick = () => { regions = []; sel = -1; render(); };
+
+async function loadState(){
+  const j = await (await fetch('/api/state?off=' + $('tex').value)).json();
+  regions = j.regions || []; sel = -1;
+  for(const k of ['sharpen','radius','edge_w','mask_w'])
+    if(k in (j.params || {})){ $(k).value = j.params[k]; $(k+'v').textContent = j.params[k]; }
+  render();
+}
+$('tex').onchange = () => loadState().then(encode);
 $('save').onclick = async () => {
   if(!confirm('Overwrite edit/' + $('tex').value
       + '.png (existing backed up to -prev) + params.json?')) return;
@@ -200,6 +278,7 @@ $('save').onclick = async () => {
 $('zoom').onchange = () => {
   const z = 512 * +$('zoom').value + 'px';
   $('ref').style.width = z; $('out').style.width = z;
+  render();
 };
 $('zoom').onchange();
 let lock = false;
@@ -208,7 +287,7 @@ let lock = false;
   $(b).scrollLeft = $(a).scrollLeft; $(b).scrollTop = $(a).scrollTop;
   lock = false;
 });
-encode();
+loadState().then(encode);
 </script>"""
 
 
@@ -234,6 +313,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._send(page().encode(), "text/html; charset=utf-8")
+        elif self.path.startswith("/api/state?off="):
+            off = self.path.rsplit("=", 1)[1]
+            f = shr.EDIT_DIR / ("%s-params.json" % off)
+            p = json.loads(f.read_text()) if f.exists() else {}
+            self._send(json.dumps({
+                "params": {k: p[k] for k in ("sharpen", "radius", "edge_w", "mask_w") if k in p},
+                "regions": p.get("regions", [])}).encode(), "application/json")
         else:
             self.send_error(404)
 
