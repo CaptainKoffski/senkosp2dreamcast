@@ -1706,6 +1706,31 @@ re-examined and vetoed: 9,184 B headroom is smaller than one 64×64
 16-bit texture, against unmeasured character-pair variance, with the T1
 hard hang as the failure mode.
 
+**Amendment 2 (2026-08-25) — operator re-ruling after the Ernula-mirror
+stress leg: shrink two, ship config.** The character-PAK census
+(game.md §Character ↔ PAK mapping) flagged Ernula (P07, 309,408 B) as
+the heaviest texture set, and an upper-bound argument said an Ernula
+mirror match could exceed shrink-2's headroom. Measured instead
+(`captures/ernula-s2.log`, build track04 `0bd49391`, shrink-2 config:
+0b6b5fb0 + 0b736ff0 re-encoded 512² from the operator's tuned edits,
+0b6f67d0 + 0b777810 original 1024²): Ernula vs Ernula (P07A + P07E
+loaded, then STAGE08.PAK) peaked at ARENAHW alloc 8,180,736 / free
+207,872 — set at match load, never exceeded across the remaining ~355k
+log lines of the fight (reconfirming load-time-only texture
+allocation); TEXERR 9/9 clean + the known boot artifact. That peak is
+191,840 B *below* the leg-B attract-demo peak, so character-pair
+variance is closed empirically and the binding scene for shrink-2 is
+the **attract stage-8 demo** (fixed Lili (P05B) + Cuilan (P03F) pair,
+deterministic content): 8,372,576 / free 16,032, measured in leg B
+(`captures/ab-b-shrink2.log`). Operator confirmed shrink-2 as the ship
+config with that cliff surfaced — rationale: two untouched originals
+(0b777810 decals + 0b6f67d0) beat re-encoded art, and the one
+16,032-B-margin scene is deterministic and measured-survived. This
+supersedes the shrink-three amendment above. Verification bar for the
+attract-demo check on this build (record sizes identical to leg B, so
+the arena arithmetic must reproduce): ARENAHW peak 8,372,576 / free
+16,032 byte-exact through the stage-8 demo, ≥2 passes, TEXERR clean.
+
 **Binding verification requirements (operator-set):**
 
 1. **A/B visual gate is mandatory.** Before hardware: paired emulator
