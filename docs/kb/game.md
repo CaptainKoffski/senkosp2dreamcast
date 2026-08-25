@@ -47,3 +47,45 @@ Identity facts sourced from `../naomi2dreamcast/assessments/senkosp.md`
 ```
 
 Matches assessment guts: base `0x8c020000`, entry `0x8c021000` ✓
+
+## Character ↔ PAK mapping and texture budgets (2026-08-25)
+
+Each playable character owns six PAKs (`PnnA`–`PnnF`, color/loadout
+variants with near-identical texture inventories); bosses are single
+PAKs. Mapping identified by the operator from decoded texture contact
+sheets (`captures/phase5/textures/chars/`, gitignored — ROM-derived;
+scratchpad `charsheets.py`, VQ-mipmap top-level decode). VRAM = sum of
+`PVRT datalen − 8` over the A-variant PAK (the allocation the game
+computes: `texobj+0x18 == datalen − 8`, phase5-hardware.md §Step 8).
+
+| PAK | Character | Tex | VRAM (B) | Livery on sheet |
+|---|---|---|---|---|
+| P01 | B. Changpo | 12 | 184,448 | pink/lavender |
+| P02 | Mika Mikli | 9 | 129,120 | navy/white, "VENTUNO" |
+| P03 | Cuilan | 10 | 173,504 | teal/cream, foil panels |
+| P04 | Fabian | 8 | 109,312 | red/black, cyan accents |
+| P05 | Lili Levinas | 6 | 226,688 | violet, green-glow strips |
+| P06 | S. Sakurako | 9 | 180,992 | gray urban-camo |
+| P07 | Ernula | 15 | 309,408 | yellow/tan, white rabbits |
+| P08 | Karel Werfel | 7 | 150,944 | khaki/green, "AZUREUS POW" |
+| P09 | boss | 8 | 267,616 | industrial battleship; only character PAK with 512² textures |
+| P10/P11 | boss (level-8 = P11 + STAGE10) | 4 | 51,904 | **byte-identical PAKs** |
+
+Notes established alongside (all measured from `senkosp.dat`):
+
+- Character textures are **VQ + mipmap** (`dt=04`): mip chain stored
+  smallest-first immediately after the 2048 B codebook; the full-res
+  index plane starts at `(w·h/4 − 1)/3 + 1` bytes into the index
+  stream; every sampled record carries 10 trailing pad bytes (offset
+  fixed empirically by a smoothness-scan after the end-anchored guess
+  decoded to speckle). The 1024² arena offenders are plain VQ (`dt=03`);
+  no character texture exceeds 256² except P09's three 512².
+- `scripts/list_pak_textures.py` priced `dt=04` as raw 16bpp (~6× high)
+  until commit 55b6cf5; the stage-PAK census in phase5-hardware.md used
+  only formats where the old and new pricing agree — re-verified
+  unchanged.
+- Worst-case 2P texture pair is therefore **Ernula vs Ernula** (P07
+  mirror, ≈618,816 B if fully resident) — the right character pick for
+  stage-8 worst-case verification legs (Task 18); lightest is Fabian
+  vs Fabian (≈218,624 B). Pair spread ≈400 KB, small next to the
+  STAGE08 atlas the fix targets.
