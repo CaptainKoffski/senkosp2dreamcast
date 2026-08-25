@@ -85,7 +85,15 @@ Notes established alongside (all measured from `senkosp.dat`):
   only formats where the old and new pricing agree — re-verified
   unchanged.
 - Worst-case 2P texture pair is therefore **Ernula vs Ernula** (P07
-  mirror, ≈618,816 B if fully resident) — the right character pick for
-  stage-8 worst-case verification legs (Task 18); lightest is Fabian
-  vs Fabian (≈218,624 B). Pair spread ≈400 KB, small next to the
-  STAGE08 atlas the fix targets.
+  mirror, ≈618,816 B if fully resident); lightest is Fabian vs Fabian
+  (≈218,624 B). Cartlog attribution (`captures/phase5/arenahw-op1.log`,
+  CARTDMA src → ISO extents) shows the character pairs behind the
+  measured ARENAHW maxima: attract stage-8 demo = **Lili (P05B) +
+  Cuilan (P03F)** (sum 400,192); the all-time-peak 2P stage-8 match =
+  **Changpo (P01E) + Fabian (P04E)** (sum 293,760 — near the lightest
+  possible). Upper-bound consequence: an Ernula mirror could add up to
+  618,816 − 293,760 = **325,056 B over the measured match peak — more
+  than the shrink-3 headroom of 205,792 B** (though within shrink-4's
+  402,400 B). Whether full residency actually occurs is exactly what
+  the Task 18 Ernula-mirror stage-8 stress leg must measure; it is the
+  deciding test between shrink-3 and falling back to shrink-4.
