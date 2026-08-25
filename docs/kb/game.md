@@ -84,6 +84,14 @@ Notes established alongside (all measured from `senkosp.dat`):
   until commit 55b6cf5; the stage-PAK census in phase5-hardware.md used
   only formats where the old and new pricing agree — re-verified
   unchanged.
+- **Census caveat (2026-08-26):** the table above counts only TXTR-chunk
+  records. Every character PAK also carries a **PKTX chunk of raw-16bpp
+  cut-in portrait art** — one 512² sheet (524,288 B) plus one 256²
+  (131,072 B) for P01–P06/P08 = 655,360 B, and 512² + 3× 256² for P07 =
+  917,504 B — **resident through the whole match** (savestate-proven,
+  phase5-hardware.md §TEXERRSAVE post-mortem). Real per-character match
+  residency ≈ table value + PKTX total; the portrait raws are the fix
+  target of arena-fit option F.
 - Worst-case 2P texture pair is therefore **Ernula vs Ernula** (P07
   mirror, ≈618,816 B if fully resident); lightest is Fabian vs Fabian
   (≈218,624 B). Cartlog attribution (`captures/phase5/arenahw-op1.log`,

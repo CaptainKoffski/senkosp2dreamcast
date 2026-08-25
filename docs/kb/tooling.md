@@ -289,7 +289,22 @@ Committed scripts (`scripts/ghidra/`, all headlessly re-runnable):
 (BIOS-range flow refs + pool constants), `DumpEntryChain` (entry walk + SP
 writes), `ScanPlacementConstants` (corridor/VRAM placement constants),
 `Decomp`, `DisasmRange` (`… force` force-disassembles an undefined span),
-`DisasmEntry`, `FindRefsTo`, `WhichFunc`, `ListPoolWords`, `ExportToXML`.
+`DisasmEntry`, `FindRefsTo`, `WhichFunc`, `ListPoolWords`, `ExportToXML`,
+`CallTree` (recursive caller tree following direct and pool-word computed
+calls; added 2026-08-26 for the arena free-path recon; DB mutation note:
+the 2026-08-26 recon also force-disassembled the scene-code windows
+`0x8c1592xx–0x8c159axx`, `0x8c0b5b90–e8`, `0x8c087270–0x8c087830` — same
+monotonic-additions caveat as the Task 4 spans).
+
+**Savestate post-mortem (2026-08-26):** `scripts/texerrsave_postmortem.py`
+— pure-python (stdlib) offline attribution of every VRAM texture-arena
+block in a TEXERRSAVE Flycast savestate to its source texture on the
+disc (RZIP-container decompress, RAM/VRAM location by content anchoring,
+arena list walk, byte-exact match against all TXTR records + all
+LZSS-decompressed PKTX entries). Run:
+`tools/pyenv/bin/python3 scripts/texerrsave_postmortem.py [state] [dat]`.
+No installs needed; the LZSS decoder semantics are documented in
+`phase5-hardware.md` §Ghidra + savestate recon.
 
 **DB mutation caveat, stated because it affects reproducibility:** the
 `senkosp3` DB carries the *force-disassembly* additions Task 4 made

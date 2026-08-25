@@ -2239,3 +2239,123 @@ session) set no new maximum — heavy pair + light stage + MODESEL fits.
 The shrink-2 ruling (Amendment 2) is dead; the VS-side ship config is
 decidable now from the stage-8 numbers above, with the campaign leg as
 remaining coverage.
+
+## Ghidra + savestate recon (2026-08-26, operator-directed: "run the recon for D, E, and STGSEL")
+
+Static session on the `senkosp3` DB (`scripts/ghidra/run.sh`; new committed
+script `CallTree.java`) plus an offline post-mortem of the TEXERRSAVE
+savestate. No emulator runs. Three questions, three answers.
+
+### 1. The PKTX compressor is stock Okumura LZSS — cracked and validated
+
+The PKTX entry decoder is `FUN_8c0b6980` (pool `0x8c0b64b0` in the
+dispatcher's PKTX branch; `Decomp.java 0x8c0b6980`): 4096-byte ring buffer
+zero-initialized, write pointer starts at 0xFEE; flag bytes LSB-first,
+bit=1 literal, bit=0 match; match = 2 bytes, ring position
+`b1 | (b2&0xF0)<<4`, length `(b2&0xF)+3`; returns success when the source
+is consumed, error when the output would overrun. Called as
+`decode(src=entry+8, csize, dst, dsize)`; the entry header is simply
+`u32 decompressed size, u32 compressed size` (the earlier "0x20 byte" was
+the low byte of the size — every record ends in 0x20 because of the 32 B
+GBIX+PVRT headers).
+
+Validation: a python re-implementation decompressed **every PKTX chunk on
+the disc** (all root PAKs) into well-formed GBIX+PVRT records;
+MODESEL.PAK's four entries sum to the measured D = 362,496 to the byte
+(`scratchpad/lzss_pktx.py`, logic now embedded in
+`scripts/texerrsave_postmortem.py`). Authoring streams is trivial: an
+all-literal stream (flag 0xFF + 8 literals, 9/8 of payload) is always
+decodable, and VQ payloads are ~8× smaller than the raw entries they
+replace, so repacked entries always fit the original chunk extents — the
+offset table need not move (slack after each entry is dead bytes).
+
+**Census correction that falls out:** every character PAK carries a PKTX
+chunk the TXTR-only census never saw — P01–P06/P08: 655,360 B
+(one 512² raw 16bpp sheet + one 256² raw), P07: 917,504 B (512² + 3× 256²
+raw). These are the select/VS cut-in portrait sheets.
+
+### 2. The free path and the post-match mechanism (option E's question)
+
+Bottom-up from the allocator (all decompiled via `Decomp.java`):
+
+- `FUN_8c03749c` = **arena free with coalescing** (unlink from alloc list
+  at cfg+0x24 via `FUN_8c03c870`, merge adjacent free blocks, insert into
+  free list at cfg+0x2c via `FUN_8c03c830`); single public wrapper
+  `FUN_8c037440`. `FUN_8c03c46e` and `FUN_8c03c59e` are two allocator
+  variants (plain first-fit and alignment-aware); `FUN_8c035144` is the
+  sub-page allocator (block type 0x15); `FUN_8c02eb20` is texture-buffer
+  allocation, not free.
+- Texture-list free lives beside texture-list load: `FUN_8c070e6c` /
+  `FUN_8c070ef8` next to `FUN_8c070ebc`. The **PAK unloader is
+  `FUN_8c0b5cf4(resource_array, type_mask)`** (right after the by-name
+  loader `FUN_8c0b5be8`): bit 0 frees each texture list entry via
+  `0x8c070ef8` (VRAM textures freed) then the list via heap-free
+  `0x8c06e10c`.
+- **Scene structure: coroutine tasks.** The mode-select scene is one large
+  non-functionized code region (`0x8c1592xx–0x8c1599ee`,
+  `DisasmRange … force`): it loads `MODESEL.PAK` by name at entry (pool
+  `0x8c159308` → string `0x8c1918ec`, loader ptr `0x8c15930c` →
+  `FUN_8c0b5be8`), runs its per-frame loop, and at its own exit tail calls
+  `FUN_8c0b5cf4(&resources, 9)` + buffer free (`jsr` at `0x8c1599c2`,
+  pools `0x8c159a20/24`). STGSEL's scene (`0x8c15adxx`, string
+  `0x8c191a28`) has the same shape. Every scene frees its own PAKs at its
+  own task exit — so the post-match overlap is the mode-select task
+  starting (and loading) before the match task has run its teardown tail.
+  A queued command manager (`0x8c087780` jump-table dispatcher, cmds
+  0x0b–0x12: `FUN_8c087484` load-slot / `FUN_8c08750c` free-slot) also
+  services PAK slots; loads resolve through the PAK-name table at
+  `0x8c18880c` (0 = COMMON, 1–48 = P01A–P08F, 49–51 = P09–P11,
+  52–61 = STAGE01–10, 62 = PLSEL, 63 = TUTO).
+- An E-style patch is therefore a task-ordering change (hoist the match
+  task's teardown above the successor spawn, or delay the menu task's
+  load), not a two-instruction swap. **Priced but not needed** — see the
+  post-mortem below.
+
+### 3. TEXERRSAVE post-mortem — full residency attribution (STGSEL answer)
+
+`scripts/texerrsave_postmortem.py` (offline; no emulator) decompresses the
+crash savestate (`~/Library/Application Support/Flycast/data/disc.state`,
+2026-08-25 22:22, the ernula-lili PACKTEX failure), locates guest RAM by
+boot-code signature and guest VRAM by anchoring STAGE08's 32 VQ codebooks
+(32/32 anchor at stream +0x2bb765; VRAM is stored 64-bit-view linear),
+walks the arena lists at `0x8c170eb8`, and byte-matches every block
+against every TXTR record and every LZSS-decompressed PKTX entry on the
+disc. Result: alloc 8,282,464 B in 87 blocks + free 106,144 — equal to
+the leg's logged maximum — with **83/87 blocks matched byte-exactly**;
+the four unmatched are the runtime-composed 699,072 B atlas (texobj #7,
+built at boot, in no PAK), the KAMUI2-internal 6,144 B texture, and our
+two shrunk hero re-encodes (absent from the unpatched .dat by
+construction).
+
+Residency at the post-match MODESEL load (Changpo-C vs Ernula-E, STAGE08):
+
+| Owner | Resident content | Bytes |
+|---|---|---|
+| TA/region + FB reservations | flags 0x43 + 0x13 | 1,490,944 |
+| FONT.PAK | 3 textures (1 already VQ) | 53,248 |
+| COMMON.PAK | 14 textures: 5× 256² raw, 1× 256×512 raw rect, 3× 256×128 raw rect, small | 1,155,936 |
+| runtime atlas (no PAK) | 512² raw+mips, texobj #7 | 699,072 |
+| P01C.PAK | TXTR VQ-mips 137,984 + **PKTX raw portraits 655,360** | 793,344 |
+| P07E.PAK | TXTR VQ-mips 174,848 + **PKTX raw portraits 917,504** | 1,092,352 |
+| STAGE08.PAK | 32× 512² VQ + 2 heroes (full) + 2 heroes (shrunk) + small | 2,991,616 |
+| MODESEL.PAK | **zero** — texobj #84 created, its 131,072 alloc failed | 0 |
+
+(The crash detail: MODESEL's first entry needed 131,072 against 106,144
+free — texobj #84 exists with id 0xffffffff and no arena block.)
+
+**Rulings this evidence forces:**
+
+- **STGSEL is NOT resident during matches** (nor PLSLTX, nor PLSEL). The
+  STGSEL lever is dead. Stage-select's own textures are freed by its
+  scene task before the match runs — the per-scene unload works exactly
+  as §2 describes for menus; only the *overlap at the handoff* bites.
+- **The character PKTX portrait sheets ARE resident through the whole
+  match** — 655,360–917,504 B per player of raw 16bpp art. Converting
+  them to VQ (256² raw 131,072→18,432; 512² raw 524,288→67,584) saves
+  **1,363,968 B on the worst measured pair** — data-only, loader-proven
+  (VQ-in-PKTX ships in the game's own PLSLTX), an order of magnitude
+  above every panel-shrink lever. This supersedes options A/B/C/E; the
+  updated decision menu is `arena-fit-options.md` §6 (option F).
+- COMMON's five 256² raw squares are a further −563,200 reserve
+  (rectangles can't VQ — PVR VQ is square-only). The runtime atlas is
+  not patchable by repacking.

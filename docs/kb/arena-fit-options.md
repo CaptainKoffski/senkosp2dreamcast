@@ -239,7 +239,7 @@ the ±100 KB residency variance), but e.g. **shrink-2 + E + 3×512²
 with good anchors). The same session answers the STGSEL residency
 question and the two-loader theory for free.
 
-## 5. Recommendation
+## 5. Recommendation (superseded — see §6)
 
 Two paths depending on appetite for the PKTX work:
 
@@ -253,6 +253,71 @@ Two paths depending on appetite for the PKTX work:
   STGSEL lead together (same anchors, same code region). If E's
   two-loader theory confirms, **shrink-2 + E + 3×512²** (~163 KB
   margin) beats every data-only config on art at comparable margin.
+
+## 6. Recon results (2026-08-26) and the revised menu — option F
+
+The recon ran (evidence: `phase5-hardware.md` §Ghidra + savestate recon;
+tool: `scripts/texerrsave_postmortem.py`, an offline byte-exact
+attribution of every arena block in the crash savestate against the
+disc). Three findings restructure the menu:
+
+1. **The PKTX compressor is stock Okumura LZSS** (4096-byte ring,
+   LSB-first flags, pos `b1|(b2&0xF0)<<4`, len `(b2&0xF)+3`) —
+   re-implemented in python and validated against every PKTX chunk on
+   the disc. Authoring repacked entries is trivial (all-literal streams
+   always decode; VQ payloads are ~8× smaller than the raw entries they
+   replace, so they fit in place with the offset table untouched).
+   Option D's only real cost is gone.
+2. **STGSEL (and PLSLTX, PLSEL) are NOT resident during matches** — the
+   stage-select scene frees its own textures at its task exit. The
+   STGSEL lever is dead. (The two resident 512² raw sheets that
+   suggested it belong to the characters — see next.)
+3. **Every character PAK ships raw 16bpp cut-in portrait art in a PKTX
+   chunk, and it stays resident through the whole match**: one 512² raw
+   (524,288 B) + one to three 256² raw (131,072 B each) per character —
+   655,360 B for P01–P06/P08, 917,504 B for P07 (Ernula). The TXTR-only
+   census never saw these. Savestate-proven for both players
+   (P01C + P07E at the crash).
+
+### Option F — convert the character portrait PKTX raws to VQ
+
+512² raw → 512² VQ saves 456,704; 256² raw → 256² VQ saves 112,640.
+Worst measured pair (Sakurako+Ernula): **−1,363,968 B**. Data-only, the
+same splice class as everything else shipped so far; VQ-inside-PKTX is
+proven by the game's own PLSLTX content. 48 PAK variants patched by one
+script (portrait sheets are shared or per-variant; the repack handles
+each PAK independently).
+
+| Config | Arithmetic (worst measured pair) | Margin |
+|---|---|---|
+| **F-full: portraits + MODESEL→VQ + ALL FOUR 1024² heroes restored to original** | 8,372,576 + 393,216 − 1,363,968 + 110,592 | **876,192** |
+| F-lite: portraits only, keep shrink-2, MODESEL untouched | 8,372,576 − 1,363,968 + 362,496 | 1,017,504 |
+| F-full + COMMON's five 256² raw squares | above − 563,200 | 1,439,392 |
+
+Attract worst demo (8,379,424) enjoys the same portrait savings — the
+demos load the same character PAKs. The post-match MODESEL constraint is
+absorbed by margin alone in every row.
+
+- Art cost: portrait/menu sheets gain VQ artifacts (tuner previews
+  before commit; fallback per sheet = 512²→256² **raw**, still −393,216,
+  zero VQ artifacts, softer image). **No gameplay texture is reduced
+  below original anywhere in F-full** — the operator's tuned 512² heroes
+  are no longer needed.
+- Not convertible: raw rectangles (256×512, 256×128 — PVR VQ is
+  square-only) and the runtime-composed 699 KB atlas. They stay.
+- Campaign flag: END1–END4 PAKs carry 0.26–1.05 MB of PKTX art each; if
+  the campaign-completion leg shows an END-load overlap like MODESEL's,
+  the same converter handles them.
+- Option E (code patch) is documented in the KB for posterity but
+  unnecessary at these margins.
+
+### Recommendation (revised)
+
+**F-full**: repack the 48 character PAKs' PKTX portraits + MODESEL as
+VQ, restore all four 1024² stage textures to the untouched originals,
+leave COMMON as reserve. ~876 KB margin (~10% of the arena), best art of
+any option, one new tool (PKTX repacker with LZSS all-literal writer +
+round-trip control test), then the §4 verification suite.
 
 Either way the panel-selection and any VQ menu art go through the
 existing vq_tuner preview flow, and the verification suite in §4
