@@ -413,10 +413,13 @@ Decoded evidence gathered for the rule
 ### The revised config family (all margins = worst measured point, the Ernula-mirror mode-select transition)
 
 Deltas from the measured F-zero baseline: cockpits back to raw
-+225,280 (mirror; +112,640/side); rings back to raw +450,560 (mirror);
-4 COMMON atlases →VQ −450,560 (global, always resident); one 1024²
-STAGE08 hero shrunk to the A/B-gated tuned 512² −196,608 (stage-8
-scenes — exactly where every ARENAHW all-time max was set).
++225,280 (mirror; +112,640/side); pilots back to raw +913,408 (mirror;
++456,704/side = raw 524,304 − VQ 67,600); rings back to raw +450,560
+(mirror); 4 COMMON atlases →VQ −450,560 (global, always resident);
+each 1024² STAGE08 hero shrunk to A/B-gated 512² −196,608 (stage-8
+scenes — exactly where every ARENAHW all-time max was set; all three
+on-disc records verified 2026-08-26: PVRT dt=0x03 pf01 1024², record
+264,208 → 67,600, so −196,608 each is exact).
 
 | Config | VQ'd sheets | Also shrunk | Transition demand | Margin |
 |---|---|---|---|---|
@@ -426,6 +429,7 @@ scenes — exactly where every ARENAHW all-time max was set).
 | **F-1** | pilots + rings + 4 COMMON atlases | — | 7,822,336 | **566,272** |
 | **F-2** | pilots + rings | 0b6f67d0 → tuned 512² | 8,076,288 | **312,320** |
 | F-1 + shrink-1 | pilots + rings + 4 COMMON atlases | 0b6f67d0 | 7,625,728 | 762,880 (margin-maximizing; likely overkill) |
+| **F-3** (all portraits raw) | rings + 4 COMMON atlases | all three heroes (0b6b5fb0, 0b6f67d0, 0b736ff0) | 8,145,920 | **242,688** |
 
 Common to every F-row: all cockpits raw, MODESEL raw, COMMON SP-logo
 sheet raw, no text sheet anywhere near VQ. F-2 additionally leaves all
@@ -433,12 +437,48 @@ of COMMON raw — the only art delta vs the original disc beyond the
 pilot/ring VQ is the one stage texture already through the operator's
 own tuned-edit visual gate (§Fix decision era).
 
+### Why partial portrait exemption is impossible (asked 2026-08-26)
+
+The operator judged some VQ'd 512² pilot sheets worse than others and
+asked how many could stay raw under F-2. Answer: **zero — and the
+count is all-or-nothing, not a budget of N sheets.** Portrait
+residency is per-match: only the two in-match sheets occupy the arena
+at the transition, so a raw sheet costs nothing globally and
++456,704/side in matches where its character appears. But VS mode
+allows any character to face itself, and the measured mirror delta
+counted the per-character-shared cockpit sheet **twice** — each side
+loads its own copy, no dedup. So exempting even one sheet means its
+own mirror match demands +913,408 over baseline; F-2's 312,320 margin
+covers not even one raw side. No subset of raw portraits is safe under
+F-1/F-2/F-1+shrink-1 — the smallest margin that tolerates raw
+portraits at all is 913,408, at which point **every** portrait can be
+raw (a match never holds more than two).
+
+**F-3** buys that margin with the two remaining 1024² STAGE08 hero
+shrinks (0b6b5fb0, 0b736ff0 — same records already through the Task-17
+A/B visual gate alongside 0b6f67d0): pilots raw + cockpits raw + rings
+VQ + 4 COMMON atlases VQ + shrink-3 = 7,685,120 + 913,408 + 225,280
+− 450,560 − 589,824 + 362,496 = **8,145,920, margin 242,688**. Both
+extra shrinks are load-bearing: without them the row is over by
+150,528. Cost: thinnest viable margin (~2× the variance band vs F-2's
+~3×). Benefit: zero VQ on anything the operator has flagged — every
+pilot cut-in and cockpit ships untouched; VQ touches only effect
+atlases and glow rings (30.0–41.8 dB, no objections).
+
+Alternative kept in reserve: stay on F-2 and re-encode the worst
+sheets harder (P07C 31.5 / P07E 31.6 / P07A 32.2 / P04B 32.7 dB —
+single k-means pass, fixed seed today); costs no VRAM, outcome
+unproven until previewed.
+
 ### Recommendation
 
-**F-2** — smallest touched-art surface that clears the variance band
-(~3× margin over it), reusing only already-approved art changes.
-**F-1** if ~566 KB of cushion is preferred over leaving COMMON
-untouched (its four converted atlases are soft glow sprites, the
-content class VQ is kindest to; previews on disk). Verification suite
-(§4) reruns in full for whichever ships, including the campaign leg
-with the END-PAK overlap check.
+**F-3** if the pilot-sheet VQ quality is a no-go (per the operator's
+2026-08-26 reaction, it likely is) — everything anyone looks at ships
+untouched, at the cost of the thinnest viable margin (242,688, ~2×
+band) and two more stage-texture shrinks that already passed their
+visual gate. **F-2** if the pilot VQ is tolerable after a second look —
+smallest touched-art surface, ~3× band. **F-1** if ~566 KB of cushion
+is preferred over leaving COMMON untouched (its four converted atlases
+are soft glow sprites, the content class VQ is kindest to; previews on
+disk). Verification suite (§4) reruns in full for whichever ships,
+including the campaign leg with the END-PAK overlap check.
