@@ -2487,3 +2487,26 @@ numeric floor), round time vs Human u16@[10] 70→120, vs CPU u16@[14]
 `ec3dba3c79e544843fb7d12be44a8c03`; the shipping F-2 build stays
 `b056f4605662aab04bbff48609f891b6` and is rebuilt (env unset) after the
 leg. Texpatch manifest confirmed 65 records before mastering.
+
+**Leg 3 part 1 — 1P campaign, operator (2026-08-26/27,
+`captures/phase5/f2-campaign.log`, 11,493,401 lines / 387 MB): healthy,
+boss reached, not yet beaten.** Easy-difficulty leg build (md5
+`ec3dba3c…` above). Operator played the campaign as Ernula to the
+level-8 boss and stopped mid-bossfight with a savestate banked after
+form 1 (savestates allowed — coverage leg). Health: TEXERR 17 lines,
+16 clean + line-128 pre-boot junk; ARENAHW peak 7,305,536 (free
+1,083,072, line 1,550,238) — under the VS-leg peak 7,718,528; CRC
+9,217/9,217 drive reads verified, 0 mismatches, 4 lowfad donor-track
+reads excluded by design (coverage FAIL = expected no-shim). Coverage
+(first-sector FAD hits, root-dir walk at LBA 45,020): opponents
+P01C/P02E/P03B/P04F/P05A/P06D/P07F/P08A + STAGE01-03/05-08 + **STAGE10
+and P11 — the boss arena and boss loaded**; MODESEL/COMMON/FONT each
+once. Still unloaded, as expected pre-victory: endings, STAGE09, P09,
+P10. **Correction to the §4 item wording: the disc has only END1.PAK
+and END2.PAK — there is no END3/END4** (root-dir walk, 1001 files); the
+overlap check runs over END1/END2. Part 2 (operator, next session):
+resume from the savestate under a NEW leg name (capture script refuses
+log overwrite), beat the bird, run ending + credits to attract, quit;
+then END overlap + remaining-coverage analysis. The easy leg build
+stays mastered untouched until part 2 completes (the savestate must
+replay against the same disc bytes).
