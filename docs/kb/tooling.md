@@ -1027,3 +1027,20 @@ table above is left as originally recorded (it is Phase 4's own
 gate-closure evidence); treat only the four unaffected files as still-valid
 reproducibility checks, and recapture `track04.iso`'s baseline before
 relying on it again.
+
+### Phase 5: F-zero PKTX repacker (Task 20, 2026-08-26)
+
+`scripts/pktx_vq.py` — no new installs; runs on the existing
+`tools/pyenv` (numpy) and reuses `shrink_vq.py`'s encoder +
+`decode_pvr_vq.py`'s decoder. One command, fully offline:
+
+```
+tools/pyenv/bin/python3 scripts/pktx_vq.py        # ~40 min (58 k-means encodes)
+tools/pyenv/bin/python3 scripts/make_gdi.py       # splices the manifest it wrote
+```
+
+Rewrites `build/texpatch/` WHOLESALE (portrait entries only — the
+F-zero config; re-run `shrink_vq.py` instead to rebuild the old hero
+shrink config). Previews + INDEX.txt land in
+`captures/phase5/textures/portraits-vq/` (gitignored, ROM-derived).
+Build record: `phase5-hardware.md` §F-zero build.

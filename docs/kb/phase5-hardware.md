@@ -2359,3 +2359,42 @@ free — texobj #84 exists with id 0xffffffff and no arena block.)
 - COMMON's five 256² raw squares are a further −563,200 reserve
   (rectangles can't VQ — PVR VQ is square-only). The runtime atlas is
   not patchable by repacking.
+
+## F-zero build (2026-08-26)
+
+Operator config choice: **F-zero** (`arena-fit-options.md` §6 — portraits
+only; all four 1024² stage textures and MODESEL ship as original bytes;
+worst-measured-pair margin 624,288 B). Built entirely offline; no
+emulator run (operator AFK by instruction).
+
+- Tool: `scripts/pktx_vq.py`. Discovers every raw 16bpp square PKTX
+  entry (dt 01/09, 256²/512², pf 0–2) in P01A–P08F + P09–P11, VQ-encodes
+  at the same resolution through `shrink_vq.finish()` (the A/B-gated
+  k-means encoder; PSNR tripwire relaxed 26→20 dB — it guards against
+  encoder garbage, art quality is the operator preview gate), keeps each
+  entry's GBIX verbatim, wraps in an **all-literal LZSS stream**
+  (flag 0xFF + 8 literals — always decodable by `FUN_8c0b6980`; csize =
+  9/8·dsize, still ~7× under each slot), and emits splice blobs +
+  manifest for `make_gdi.py`'s existing texpatch step. The manifest
+  REPLACES the shrink config wholesale — no hero records means the
+  stage textures ship untouched from `senkosp.dat`.
+- Result: **112 entries repacked, 58 unique sheets** (512² pilot
+  cut-ins are per-variant recolors — 48 unique; the 256² cockpit sheet
+  is shared across a character's six variants — 8 unique; the two
+  glow-ring sheets are shared by all P07 variants + P10/P11). PSNR
+  25.4–41.8 dB; lowest is P05's glitter-background cockpit (visible
+  speckle in the sparkle field, figure clean); rings 40.9/41.8 dB — the
+  §6 banding caveat is resolved. 29,130,752 B of VRAM allocations
+  removed disc-wide.
+- Offline controls, all passed: every produced stream decompressed with
+  the python LZSS decoder (itself validated against every PKTX chunk on
+  disc) and byte-compared; every record round-tripped through
+  `decode_pvr_vq.decode()`; manifest applied to an in-memory cart copy
+  and **every PKTX entry of all 51 PAKs re-decompressed clean — 112 VQ,
+  0 raw squares remaining**.
+- Operator previews: `captures/phase5/textures/portraits-vq/`
+  (`<label>-before.png` = decoded original raw, `-after.png` = decoded
+  shipped VQ; INDEX.txt maps labels to PAKs and PSNR).
+- Mastered `build/disc.gdi`; track04.iso md5
+  `42ab245b905fa51ec9b32396918d07b7` (criterion-7 md5 set re-records at
+  the Task 13 re-audit). Emulator verification legs = Task 18.

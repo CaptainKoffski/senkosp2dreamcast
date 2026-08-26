@@ -201,7 +201,8 @@ def apply_texpatch(rom: bytes) -> bytes:
         assert hashlib.md5(bytes(rom[off:off + n])).hexdigest() == e["orig_md5"], \
             f"cart bytes at {off:#x} don't match the manifest's source record"
         rom[off:off + len(blob)] = blob
-    print(f"texpatch: {len(entries)} records spliced (option-2 VRAM fix)")
+    print(f"texpatch: {len(entries)} records spliced (arena-fit config, "
+          f"see build/texpatch/manifest.json)")
     return bytes(rom)
 
 

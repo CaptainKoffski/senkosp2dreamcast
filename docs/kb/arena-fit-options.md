@@ -352,3 +352,18 @@ round-trip control test), then the §4 verification suite.
 Either way the panel-selection and any VQ menu art go through the
 existing vq_tuner preview flow, and the verification suite in §4
 gates the ship ruling.
+
+### Decision: F-zero (operator, 2026-08-26) — BUILT
+
+The operator chose **F-zero** and the build shipped the same day
+(`scripts/pktx_vq.py` + `make_gdi.py`; build record in
+`phase5-hardware.md` §F-zero build). 112 PKTX entries repacked across
+P01A–P08F + P10/P11 (58 unique sheets — the 512² pilot cut-ins are
+**per-variant recolors**, the 256² cockpit sheet is shared across a
+character's six variants, the two ring sheets are shared by all P07
+variants and P10/P11). PSNR 25.4–41.8 dB; the ring caveat above is
+**resolved** — the rings encoded at 40.9/41.8 dB, no banding. Operator
+before/after previews: `captures/phase5/textures/portraits-vq/`
+(INDEX.txt maps sheets to PAKs). No hero shrink records, MODESEL
+untouched. Verification legs (§4 suite, Task 18) pending — no emulator
+run at build time by operator instruction.
