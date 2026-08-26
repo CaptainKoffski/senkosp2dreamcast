@@ -2454,3 +2454,14 @@ are untouched in F-2, so the splash ships bit-identical art. Slow media
 lengthens the black card, never exposes partially-loaded textures (loads
 go PAK→RAM→decompress→VRAM; nothing draws before upload). Splash-leg
 health: TEXERR clean, peak 6,020,128.
+
+**Leg 2 — unattended attract soak (`captures/phase5/f2-soak.log`,
+2,486,771 lines): PASS.** Clean boot (no savestate — deterministic-repro
+compliant), zero input, ended by watcher at 1,808 s (30.1 min) with
+**3 stage-8 demo loads** observed (criterion: ≥30 min AND ≥2; STAGE08.PAK
+first-sector reads at fad=0x84e53). TEXERR: 46 post-boot samples all
+clean (line 128 = known pre-boot junk). ARENAHW peak 7,448,928 (free
+939,680) — attract demos sit under the VS-leg peak as expected. CRC:
+1,739/1,739 drive reads verified, 0 mismatches (coverage FAIL = expected
+no-shim condition). Remaining §4 item: savestate-assisted 1P campaign
+completion with the END1–END4 PKTX overlap check (operator leg).
