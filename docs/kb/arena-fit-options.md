@@ -307,6 +307,7 @@ each PAK independently).
 |---|---|---|
 | **F-full: portraits + MODESEL→VQ + ALL FOUR 1024² heroes restored to original** | 8,372,576 + 393,216 − 1,363,968 + 110,592 | **876,192** |
 | F-lite: portraits only, keep shrink-2, MODESEL untouched | 8,372,576 − 1,363,968 + 362,496 | 1,017,504 |
+| F-zero: portraits only + ALL 1024² heroes restored, MODESEL untouched (only the cut-in raws differ from the original disc) | 8,372,576 + 393,216 − 1,363,968 + 362,496 | 624,288 |
 | F-full + COMMON's five 256² raw squares | above − 563,200 | 1,439,392 |
 
 Attract worst demo (8,379,424) enjoys the same portrait savings — the
