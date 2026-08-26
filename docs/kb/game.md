@@ -91,7 +91,12 @@ Notes established alongside (all measured from `senkosp.dat`):
   917,504 B — **resident through the whole match** (savestate-proven,
   phase5-hardware.md §TEXERRSAVE post-mortem). Real per-character match
   residency ≈ table value + PKTX total; the portrait raws are the fix
-  target of arena-fit option F.
+  target of arena-fit option F. Content identified by decode
+  (2026-08-26, `captures/phase5/textures/portraits/`): 512² = big
+  pilot cut-in on alpha cutout, 256² = cockpit illustration; P07's
+  extra two 256² and P10/P11's only PKTX entries are glow-ring effect
+  sheets; P09 carries no PKTX. Select-screen art is separate and
+  already VQ (PLSEL.PAK, 240 textures).
 - Worst-case 2P texture pair is therefore **Ernula vs Ernula** (P07
   mirror, ≈618,816 B if fully resident); lightest is Fabian vs Fabian
   (≈218,624 B). Cartlog attribution (`captures/phase5/arenahw-op1.log`,

@@ -279,6 +279,21 @@ disc). Three findings restructure the menu:
    census never saw these. Savestate-proven for both players
    (P01C + P07E at the crash).
 
+**What the portraits are (decoded 2026-08-26, operator eyes-on):** all
+22 character-PAK PKTX entries decoded to PNG at
+`captures/phase5/textures/portraits/` (gitignored — ROM-derived;
+scratchpad `portraits.py`, reuses `scripts/decode_pvr_vq.py`
+primitives). Per character: the 512² (ARGB1555, linear) is the **big
+pilot cut-in on an alpha cutout** — in-match flash art; the 256²
+(ARGB4444, twiddled) is a **full-frame cockpit illustration**. P07's
+extra chunk and P10/P11's only PKTX entries are **glow-ring effect
+sheets**, not portraits; P09 has no PKTX at all. These are **not** the
+character-select portraits: the select screen owns a separate 8.3 MB
+PLSEL.PAK with 240 textures of its own — nearly all **already VQ**
+(dt=03/04), the game's own precedent for VQ portrait-class art. So the
+resident raws are in-match cut-in art, loaded by the match scene from
+the character PAK.
+
 ### Option F — convert the character portrait PKTX raws to VQ
 
 512² raw → 512² VQ saves 456,704; 256² raw → 256² VQ saves 112,640.
@@ -308,6 +323,20 @@ absorbed by margin alone in every row.
 - Campaign flag: END1–END4 PAKs carry 0.26–1.05 MB of PKTX art each; if
   the campaign-completion leg shows an END-load overlap like MODESEL's,
   the same converter handles them.
+- Stub-out variant (asked 2026-08-26): the same repacker could replace
+  a portrait entry with a tiny fully-transparent stub texture instead
+  of a VQ re-encode — the loader reads the self-describing record, so
+  a 128 B stub loads cleanly and the cut-in simply never appears.
+  Saves the full raw size (more than VQ) — but since these are
+  in-match cut-ins, not select-screen duplicates, stubbing deletes a
+  visible gameplay moment where VQ only softens it. Kept as a
+  per-sheet fallback (e.g. if a ring sheet bands badly under VQ), not
+  the default.
+- Glow-ring caveat: the P07/P10/P11 256² ring sheets are smooth alpha
+  gradients — the VQ A/B preview gates them like everything else; if
+  they band, excluding P07's two rings costs 2×112,640 per Ernula
+  side (only Ernula pairs affected; F-full worst-case margin stays
+  positive at 876,192 − 450,560 = 425,632).
 - Option E (code patch) is documented in the KB for posterity but
   unnecessary at these margins.
 
