@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""pktx_vq.py [senkosp.dat] — the F-zero arena-fit build
-(docs/kb/arena-fit-options.md §6): re-encode every raw 16bpp square PKTX
-entry in the character PAKs (P01A..P08F, P09-P11) as same-size VQ and
-write splice blobs for make_gdi.py. Nothing else on the disc is touched:
-no hero shrink records (all four 1024² stage textures ship original),
+"""pktx_vq.py [senkosp.dat] — config F-2 (docs/kb/arena-fit-options.md §7,
+operator 2026-08-26): re-encode the 512² pilot cut-ins and the shared
+glow-ring sheets as same-size VQ; the 256² cockpit illustrations stay RAW
+(art-gate rule — VQ'd cockpits rejected). Ring sheets are identified by
+PVRT content md5: any 256² whose content also appears in P10.PAK/P11.PAK
+(the pure ring PAKs) is a ring; the per-character 256² is the cockpit.
 MODESEL untouched. The manifest this writes REPLACES build/texpatch/
-wholesale — run shrink_vq.py instead to rebuild the old shrink config.
+wholesale — run shrink_vq.py AFTER this (it appends its hero-shrink
+record; F-2's one target is 0b736ff0).
 
 Entry format (docs/kb/phase5-hardware.md §Ghidra recon): u32 dsize,
 u32 csize, LZSS stream (FUN_8c0b6980 semantics — Okumura: 4096 ring,
@@ -149,8 +151,24 @@ def main():
         old.unlink()
 
     paks = sorted(n for n in files if PAK_RE.match(n))
+
+    # F-2 ring identification: content md5s of every raw square in the pure
+    # ring PAKs. A 256² elsewhere with a matching md5 is a shared ring copy;
+    # a non-matching 256² is a per-character cockpit and stays raw.
+    ring_keys = set()
+    for pak in ("P10.PAK", "P11.PAK"):
+        base, size = files[pak]
+        blob = data[base:base + size]
+        for e, dsz, csz in walk_pktx(blob):
+            rec = lzss(blob[e + 8:e + 8 + csz], dsz)
+            if rec is None or len(rec) != dsz:
+                continue
+            o = 8 + struct.unpack_from("<I", rec, 4)[0] if rec[:4] == b"GBIX" else 0
+            if rec[o:o + 4] == b"PVRT":
+                ring_keys.add(hashlib.md5(rec[o:]).hexdigest())
+
     manifest, encode_cache, seen_label = [], {}, {}
-    saved = 0
+    saved = cockpits = 0
     for pak in paks:
         base, size = files[pak]
         blob = data[base:base + size]
@@ -171,6 +189,9 @@ def main():
 
         # ---- encode (dedup on PVRT content) ----
             key = hashlib.md5(rec[o:]).hexdigest()
+            if w == 256 and key not in ring_keys:
+                cockpits += 1            # cockpit sheet — stays raw (F-2)
+                continue
             if key not in encode_cache:
                 ref = raw_to_rgba(rec, o, pf, dt, w, h)
                 sv.DST = w
@@ -244,8 +265,10 @@ def main():
                 elif rec[o + 9] in (0x01, 0x09) and w == h and w in (256, 512):
                     raw += 1
     print("self-check: every PKTX entry in %d PAKs decompresses clean; "
-          "%d VQ / %d raw squares remain" % (len(paks), vq, raw))
-    assert raw == 0, "raw square entries survived the repack"
+          "%d VQ / %d raw squares remain (F-2 expects the %d cockpit "
+          "entries raw)" % (len(paks), vq, raw, cockpits))
+    assert vq == len(manifest), "VQ entry count != manifest"
+    assert raw == cockpits, "raw squares != the cockpit entries F-2 skips"
 
 
 if __name__ == "__main__":

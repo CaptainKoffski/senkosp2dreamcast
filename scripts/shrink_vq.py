@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""shrink_vq.py [senkosp.dat] — re-encode three of the four STAGE08.PAK
-1024x1024 VQ textures at 512x512 and write patch blobs for make_gdi.py to
-splice into track04 (the option-2 VRAM fix, docs/kb/phase5-hardware.md §Fix
-decision; saves 3 x 196,608 B of texture arena). 0b777810 ships at full size
-(operator amendment 2026-08-25, §Fix decision — predicted stage-8 peak
-8,182,816 B, headroom 205,792 B).
+"""shrink_vq.py [senkosp.dat] — re-encode TARGETS (STAGE08.PAK 1024x1024 VQ
+textures) at 512x512 and write patch blobs for make_gdi.py to splice into
+track04 (196,608 B of texture arena each). Config F-2 (arena-fit-options.md
+§7, operator 2026-08-26): one target, 0b736ff0. Runs AFTER pktx_vq.py —
+appends to its manifest rather than replacing it.
 
 Outputs (ROM-derived, gitignored):
   build/texpatch/<pvrt-off>.bin   full replacement PVRT record (67,600 B)
@@ -29,8 +28,10 @@ spec.loader.exec_module(dec)
 # The shrink targets: PVRT header offsets in senkosp.dat + expected pixfmt
 # (docs/kb/phase5-hardware.md §Fix scoping; GBIX headers precede, untouched).
 # The fourth offender, 0b777810 (pf02), ships full-size per the 2026-08-25
-# amendment and is no longer a target.
-TARGETS = [(0x0b6b5fb0, 0x01), (0x0b6f67d0, 0x01), (0x0b736ff0, 0x01)]
+# amendment. Config F-2 (arena-fit-options.md §7, operator 2026-08-26):
+# exactly one hero shrinks, and the operator picked 0b736ff0 (not 0b6f67d0);
+# the other two ship full-size.
+TARGETS = [(0x0b736ff0, 0x01)]
 # Output-format override, {pvrt_off: out_pixfmt}: re-encode in a different
 # 16-bit texel format, same record size. Path proven by the 0b777810
 # pf02->pf00 (ARGB1555) experiment; loader precedent for VQ-1555 is
@@ -319,7 +320,12 @@ def main():
     prevdir = REPO / "captures/phase5/textures"
     outdir.mkdir(parents=True, exist_ok=True)
     prevdir.mkdir(parents=True, exist_ok=True)
-    manifest = []
+    # F-2 merge: pktx_vq.py runs first and writes the portrait/ring manifest
+    # wholesale; this script appends its shrink records (idempotent — its own
+    # offsets are dropped before re-adding).
+    mf = outdir / "manifest.json"
+    manifest = json.loads(mf.read_text()) if mf.exists() else []
+    manifest = [m for m in manifest if m["pvrt_off"] not in {o for o, _ in TARGETS}]
     for off, pixfmt in TARGETS:
         # per-texture seed: reproducible AND independent of target-list order,
         # so a vq_tuner.py preview byte-matches the build for every texture
@@ -338,9 +344,9 @@ def main():
             "psnr_db": round(float(psnr), 2),
         })
         print("0x%08x: PSNR %.1f dB (%s) -> %s" % (off, psnr, src_note, blob.name))
-    (outdir / "manifest.json").write_text(json.dumps(manifest, indent=1))
-    print("manifest: %d records, %d B saved in-arena" %
-          (len(manifest), len(manifest) * ((SRC // 2) ** 2 - (DST // 2) ** 2)))
+    mf.write_text(json.dumps(manifest, indent=1))
+    print("manifest: %d records total, %d B saved in-arena by shrink" %
+          (len(manifest), len(TARGETS) * ((SRC // 2) ** 2 - (DST // 2) ** 2)))
 
 
 if __name__ == "__main__":

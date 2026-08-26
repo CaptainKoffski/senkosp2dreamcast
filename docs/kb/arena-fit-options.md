@@ -427,7 +427,7 @@ on-disc records verified 2026-08-26: PVRT dt=0x03 pf01 1024², record
 | 512-only (asked 2026-08-26) | pilots only | — | 8,723,456 | **−334,848 — not viable** (mid-match alone leaves 27,648) |
 | pilots+rings only | pilots + rings | — | 8,272,896 | 115,712 — viable on paper, inside the residency-variance band; not recommended |
 | **F-1** | pilots + rings + 4 COMMON atlases | — | 7,822,336 | **566,272** |
-| **F-2** | pilots + rings | 0b6f67d0 → tuned 512² | 8,076,288 | **312,320** |
+| **F-2** | pilots + rings | one hero → tuned 512² | 8,076,288 | **312,320** |
 | F-1 + shrink-1 | pilots + rings + 4 COMMON atlases | 0b6f67d0 | 7,625,728 | 762,880 (margin-maximizing; likely overkill) |
 | **F-3** (all portraits raw) | rings + 4 COMMON atlases | all three heroes (0b6b5fb0, 0b6f67d0, 0b736ff0) | 8,145,920 | **242,688** |
 
@@ -482,3 +482,17 @@ is preferred over leaving COMMON untouched (its four converted atlases
 are soft glow sprites, the content class VQ is kindest to; previews on
 disk). Verification suite (§4) reruns in full for whichever ships,
 including the campaign leg with the END-PAK overlap check.
+
+### Decision: F-2 (operator, 2026-08-26) — BUILT
+
+The operator chose **F-2**, amending the shrink target to **0b736ff0**
+(not the suggested 0b6f67d0; margin identical — all three heroes are
+co-resident at the stage-8 peak, so −196,608 applies regardless of
+which one shrinks). 0b736ff0 uses its own operator-tuned edit
+(`captures/phase5/textures/edit/0b736ff0.png` + params, Task-17 era;
+encode PSNR 39.3 dB). Shipping content deltas vs the original disc:
+48 pilot cut-ins + 2 ring sheets → same-size VQ (64 PKTX entries, 50
+unique sheets), one STAGE08 hero → tuned 512². Cockpits, MODESEL,
+COMMON, everything with text: untouched. Built 2026-08-26: 65-record
+manifest, `build/track04.iso` md5 `b056f4605662aab04bbff48609f891b6`.
+Verification: §4 suite reruns in full (Task 18).

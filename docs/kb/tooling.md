@@ -1028,19 +1028,22 @@ gate-closure evidence); treat only the four unaffected files as still-valid
 reproducibility checks, and recapture `track04.iso`'s baseline before
 relying on it again.
 
-### Phase 5: F-zero PKTX repacker (Task 20, 2026-08-26)
+### Phase 5: PKTX repacker (Task 20, 2026-08-26)
 
 `scripts/pktx_vq.py` — no new installs; runs on the existing
 `tools/pyenv` (numpy) and reuses `shrink_vq.py`'s encoder +
-`decode_pvr_vq.py`'s decoder. One command, fully offline:
+`decode_pvr_vq.py`'s decoder. Fully offline. The shipping F-2 config
+is a three-command build, ORDER MATTERS:
 
 ```
-tools/pyenv/bin/python3 scripts/pktx_vq.py        # ~40 min (58 k-means encodes)
-tools/pyenv/bin/python3 scripts/make_gdi.py       # splices the manifest it wrote
+tools/pyenv/bin/python3 scripts/pktx_vq.py     # pilots+rings → VQ; wipes build/texpatch/
+tools/pyenv/bin/python3 scripts/shrink_vq.py   # APPENDS the 0b736ff0 hero shrink
+tools/pyenv/bin/python3 scripts/make_gdi.py    # splices the merged 65-record manifest
 ```
 
-Rewrites `build/texpatch/` WHOLESALE (portrait entries only — the
-F-zero config; re-run `shrink_vq.py` instead to rebuild the old hero
-shrink config). Previews + INDEX.txt land in
+`pktx_vq.py` rewrites `build/texpatch/` WHOLESALE, so `shrink_vq.py`
+must always run after it (it merge-appends, idempotently, into the
+existing manifest). Previews + INDEX.txt land in
 `captures/phase5/textures/portraits-vq/` (gitignored, ROM-derived).
-Build record: `phase5-hardware.md` §F-zero build.
+Build records: `phase5-hardware.md` §F-zero build (rejected config,
+same tool), §F-2 build (shipping).

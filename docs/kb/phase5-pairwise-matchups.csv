@@ -1,0 +1,65 @@
+p1,p2,arena
+Mika Mikli,Mika Mikli,Arena-1
+Mika Mikli,Baek Changpo,Arena-2
+Mika Mikli,Cuilan,Arena-3
+Mika Mikli,Fabian the Fastman,Arena-4
+Mika Mikli,Sakurako Sanjo,Arena-5
+Mika Mikli,Lili Levinas,Arena-6
+Mika Mikli,Ernula,Arena-7
+Mika Mikli,Karel Werfel,Arena-8
+Baek Changpo,Mika Mikli,Arena-2
+Baek Changpo,Baek Changpo,Arena-3
+Baek Changpo,Cuilan,Arena-4
+Baek Changpo,Fabian the Fastman,Arena-5
+Baek Changpo,Sakurako Sanjo,Arena-6
+Baek Changpo,Lili Levinas,Arena-7
+Baek Changpo,Ernula,Arena-8
+Baek Changpo,Karel Werfel,Arena-1
+Cuilan,Mika Mikli,Arena-3
+Cuilan,Baek Changpo,Arena-4
+Cuilan,Cuilan,Arena-5
+Cuilan,Fabian the Fastman,Arena-6
+Cuilan,Sakurako Sanjo,Arena-7
+Cuilan,Lili Levinas,Arena-8
+Cuilan,Ernula,Arena-1
+Cuilan,Karel Werfel,Arena-2
+Fabian the Fastman,Mika Mikli,Arena-4
+Fabian the Fastman,Baek Changpo,Arena-5
+Fabian the Fastman,Cuilan,Arena-6
+Fabian the Fastman,Fabian the Fastman,Arena-7
+Fabian the Fastman,Sakurako Sanjo,Arena-8
+Fabian the Fastman,Lili Levinas,Arena-1
+Fabian the Fastman,Ernula,Arena-2
+Fabian the Fastman,Karel Werfel,Arena-3
+Sakurako Sanjo,Mika Mikli,Arena-5
+Sakurako Sanjo,Baek Changpo,Arena-6
+Sakurako Sanjo,Cuilan,Arena-7
+Sakurako Sanjo,Fabian the Fastman,Arena-8
+Sakurako Sanjo,Sakurako Sanjo,Arena-1
+Sakurako Sanjo,Lili Levinas,Arena-2
+Sakurako Sanjo,Ernula,Arena-3
+Sakurako Sanjo,Karel Werfel,Arena-4
+Lili Levinas,Mika Mikli,Arena-6
+Lili Levinas,Baek Changpo,Arena-7
+Lili Levinas,Cuilan,Arena-8
+Lili Levinas,Fabian the Fastman,Arena-1
+Lili Levinas,Sakurako Sanjo,Arena-2
+Lili Levinas,Lili Levinas,Arena-3
+Lili Levinas,Ernula,Arena-4
+Lili Levinas,Karel Werfel,Arena-5
+Ernula,Mika Mikli,Arena-7
+Ernula,Baek Changpo,Arena-8
+Ernula,Cuilan,Arena-1
+Ernula,Fabian the Fastman,Arena-2
+Ernula,Sakurako Sanjo,Arena-3
+Ernula,Lili Levinas,Arena-4
+Ernula,Ernula,Arena-5
+Ernula,Karel Werfel,Arena-6
+Karel Werfel,Mika Mikli,Arena-8
+Karel Werfel,Baek Changpo,Arena-1
+Karel Werfel,Cuilan,Arena-2
+Karel Werfel,Fabian the Fastman,Arena-3
+Karel Werfel,Sakurako Sanjo,Arena-4
+Karel Werfel,Lili Levinas,Arena-5
+Karel Werfel,Ernula,Arena-6
+Karel Werfel,Karel Werfel,Arena-7

@@ -428,18 +428,22 @@ its own hard boundary and designs nothing. Hardware rounds stay blocked until
 the fix lands and the spec's re-verification bar is met. Phase is **not**
 advanced.
 
-**Fix decision resolved — config F-zero built (2026-08-26).** The fix
-went through three generations: the option-2 stage-texture shrink
-(Tasks 15–17, A/B-gated), the Ghidra + savestate recon that found the
-real payload (character PKTX portrait raws resident all match,
-`docs/kb/phase5-hardware.md` §Ghidra + savestate recon), and the
-operator's config choice **F-zero** (`docs/kb/arena-fit-options.md`
-§6): every character-PAK raw portrait sheet re-encoded as same-size VQ,
-**everything else on the disc bit-original** — no stage-texture
-shrinks, MODESEL untouched. Worst-measured-pair margin 624,288 B.
-Built and mastered (`phase5-hardware.md` §F-zero build); operator
-preview of all 58 before/after sheet pairs and the Task 18
-verification legs are the remaining gates before hardware rounds.
+**Fix decision resolved — config F-2 built (2026-08-26).** The fix went
+through four generations: the option-2 stage-texture shrink (Tasks
+15–17, A/B-gated), the Ghidra + savestate recon that found the real
+payload (character PKTX portrait raws resident all match,
+`docs/kb/phase5-hardware.md` §Ghidra + savestate recon), config
+**F-zero** (all portrait sheets → VQ) — built, its VS leg technically
+PASS and the source of the measured Ernula-mirror baseline (peak
+7,685,120), then **rejected at the art gate** (cockpit VQ unacceptable;
+operator rule: never compress textures with text), and the operator's
+final choice **F-2** (`docs/kb/arena-fit-options.md` §7): 48 pilot
+cut-ins + 2 ring sheets → same-size VQ, one STAGE08 hero (**0b736ff0**,
+operator-amended from 0b6f67d0) → tuned 512², cockpits/MODESEL/COMMON
+and every text sheet untouched. Margin 312,320 B at the worst measured
+transition. Built and mastered (`phase5-hardware.md` §F-2 build); the
+Task 18 verification legs (§4 suite, full rerun) are the remaining gate
+before hardware rounds.
 
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.

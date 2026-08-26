@@ -2398,3 +2398,29 @@ emulator run (operator AFK by instruction).
 - Mastered `build/disc.gdi`; track04.iso md5
   `42ab245b905fa51ec9b32396918d07b7` (criterion-7 md5 set re-records at
   the Task 13 re-audit). Emulator verification legs = Task 18.
+
+## F-2 build (2026-08-26)
+
+The F-zero build above was rejected at the art gate (`arena-fit-options.md`
+§7: cockpit VQ visually unacceptable; new operator rule — never compress
+textures containing text). Operator config choice: **F-2** with the shrink
+target amended to **0b736ff0** (margin unchanged at 312,320 — all three
+STAGE08 heroes are co-resident at the stage-8 peak, so −196,608 applies
+whichever shrinks). Built entirely offline; no emulator run.
+
+- `scripts/pktx_vq.py` (F-2 policy): 512² pilot cut-ins always VQ; a 256²
+  is VQ'd only when its PVRT content md5 also appears in P10.PAK/P11.PAK
+  (the pure ring PAKs) — that classifies the two shared glow-ring sheets
+  as rings and leaves all 48 per-character cockpit entries RAW. Result:
+  **64 entries repacked, 50 unique sheets** (48 pilots + 2 rings);
+  self-check re-walked all 51 PAKs — 64 VQ, 48 raw squares, exactly the
+  skipped cockpits. Pilot/ring encodes are content-seeded, so they are
+  byte-identical to the F-zero build and the existing
+  `portraits-vq/` previews remain the operator-gated evidence (ignore the
+  256² cockpit `-after` previews there — those sheets now ship raw).
+- `scripts/shrink_vq.py` (TARGETS = 0b736ff0 only) now runs AFTER
+  pktx_vq.py and APPENDS to its manifest. Encode from the operator-tuned
+  edit (`textures/edit/0b736ff0.png` + params), PSNR 39.3 dB.
+- Mastered `build/disc.gdi`: 65-record texpatch; track04.iso md5
+  `b056f4605662aab04bbff48609f891b6` (criterion-7 md5 set re-records at
+  the Task 13 re-audit). Verification legs (§4 suite, full rerun) = Task 18.
