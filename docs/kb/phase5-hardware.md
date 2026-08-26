@@ -2424,3 +2424,33 @@ whichever shrinks). Built entirely offline; no emulator run.
 - Mastered `build/disc.gdi`: 65-record texpatch; track04.iso md5
   `b056f4605662aab04bbff48609f891b6` (criterion-7 md5 set re-records at
   the Task 13 re-audit). Verification legs (§4 suite, full rerun) = Task 18.
+
+## Task 18 — F-2 verification legs (2026-08-26, operator)
+
+**Leg 1 (`captures/phase5/f2-vs.log`, 3,512,031 lines): PASS.** Operator
+played beyond the asked scope — Ernula mirror + many 2P matches across
+characters + a 1P set. TEXERR: 71 post-boot samples all clean (line 128 =
+known pre-boot sampler junk). ARENAHW all-time peak **7,718,528** (free
+670,080) vs the F-2 prediction 7,713,792 (= measured F-zero mirror
+baseline 7,685,120 + cockpits-raw 225,280 − hero shrink 196,608) —
+model within 4,736 B despite the wider matchup pool. Every mode-select
+transition clean. CRC: 4,631/4,631 drive reads verified, 0 mismatches
+(coverage FAIL = expected no-shim condition on release discs). Operator
+art verdict: everything looks fine. 49 operator F12 screenshots archived
+in `captures/phase5/f2-shots/`.
+
+**1P between-stage splash identified (`f2-splash` leg + frame capture).**
+Operator asked whether the between-stage splash uses compressed art.
+Evidence: (1) disc has no dedicated splash/loading file; (2) the leg's
+read log shows only opponent P##.PAK + STAGEnn.PAK loading between 1P
+stages; (3) continuous framebuffer capture (FLYCAST_SHOT_EVERY=4 + a
+copy-on-change archiver, ~15 fps, 10,512 frames in
+`captures/phase5/f2-splash-frames/`) caught both transitions: the splash
+is **"STAGE n" FONT text on black** (frames 01596, 08865–08868), entered
+and exited by a diagonal wipe of live scene renders — the incoming wipe
+corner already shows the next arena rendering, i.e. the wipe starts only
+after the load completes. No portrait/pilot art appears; FONT and COMMON
+are untouched in F-2, so the splash ships bit-identical art. Slow media
+lengthens the black card, never exposes partially-loaded textures (loads
+go PAK→RAM→decompress→VRAM; nothing draws before upload). Splash-leg
+health: TEXERR clean, peak 6,020,128.
