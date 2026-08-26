@@ -353,7 +353,7 @@ Either way the panel-selection and any VQ menu art go through the
 existing vq_tuner preview flow, and the verification suite in §4
 gates the ship ruling.
 
-### Decision: F-zero (operator, 2026-08-26) — BUILT
+### Decision: F-zero (operator, 2026-08-26) — BUILT, then rejected at the art gate (§7)
 
 The operator chose **F-zero** and the build shipped the same day
 (`scripts/pktx_vq.py` + `make_gdi.py`; build record in
@@ -367,3 +367,78 @@ before/after previews: `captures/phase5/textures/portraits-vq/`
 (INDEX.txt maps sheets to PAKs). No hero shrink records, MODESEL
 untouched. Verification legs (§4 suite, Task 18) pending — no emulator
 run at build time by operator instruction.
+
+## 7. The F-zero verification round, the art gate, and the revised F-family (2026-08-26)
+
+### What the F-zero legs measured (evidence: `captures/phase5/fzero-vs.log`)
+
+The F-zero build passed every technical check and produced the first
+measurement of the theoretical worst pair:
+
+- Operator VS leg: Ernula(P07C)+Lili(P05F) on STAGE08, then the
+  **Ernula mirror** (P07E+P07A) on STAGE08, each played through the
+  post-match mode-select transition. TEXERR 49/49 clean post-boot;
+  both MODESEL transitions clean; gdread CRC 3,012/3,012 vs the
+  F-zero track04.
+- **Ernula-mirror peak (first measurement ever): ARENAHW alloc
+  7,685,120**, free 703,488, set mid-mirror (log line 924,334). With
+  MODESEL's raw 362,496 on top the transition demand is 8,047,616 →
+  free 340,992. Every §6 margin model is now replaced by this measured
+  baseline: `transition = 7,685,120 + Δ(config) + 362,496 ≤ 8,388,608`.
+- Campaign leg aborted mid-run by the operator (partial log kept,
+  `fzero-campaign.log`) — see verdict below. END-PAK overlap remains
+  unmeasured.
+
+### The art gate verdict (operator, in-game)
+
+1. **The 256² cockpit sheets look awful as VQ in game** — the busy
+   glitter/detail content speckles (they were the lowest PSNR family,
+   25.4–29.8 dB). Cockpit VQ is rejected.
+2. **New rule: textures containing text are not compressed.**
+
+Decoded evidence gathered for the rule
+(`captures/phase5/textures/common-modesel/`):
+
+- MODESEL's three raw sheets are **the mode-select menu buttons with
+  text** ("VS CPU モード", "ストーリーモード") — the §4-D MODESEL→VQ
+  lever is **excluded** by the rule.
+- COMMON's five always-resident 256² raw sheets: **four are textless
+  effect-sprite atlases** (muzzle flashes, glow orbs, beams; cyan +
+  orange variants — VQ previews 30.0–33.8 dB, visually clean) and
+  **one carries button icons + the "SP" logo** — excluded.
+- The 512² pilot cut-ins (31.5–40.4 dB) and the three glow-ring
+  sheets (40.9/41.8 dB) drew no operator objection in the played
+  build; both are textless.
+
+### The revised config family (all margins = worst measured point, the Ernula-mirror mode-select transition)
+
+Deltas from the measured F-zero baseline: cockpits back to raw
++225,280 (mirror; +112,640/side); rings back to raw +450,560 (mirror);
+4 COMMON atlases →VQ −450,560 (global, always resident); one 1024²
+STAGE08 hero shrunk to the A/B-gated tuned 512² −196,608 (stage-8
+scenes — exactly where every ARENAHW all-time max was set).
+
+| Config | VQ'd sheets | Also shrunk | Transition demand | Margin |
+|---|---|---|---|---|
+| F-zero (built, rejected) | pilots + cockpits + rings | — | 8,047,616 | 340,992 |
+| 512-only (asked 2026-08-26) | pilots only | — | 8,723,456 | **−334,848 — not viable** (mid-match alone leaves 27,648) |
+| pilots+rings only | pilots + rings | — | 8,272,896 | 115,712 — viable on paper, inside the residency-variance band; not recommended |
+| **F-1** | pilots + rings + 4 COMMON atlases | — | 7,822,336 | **566,272** |
+| **F-2** | pilots + rings | 0b6f67d0 → tuned 512² | 8,076,288 | **312,320** |
+| F-1 + shrink-1 | pilots + rings + 4 COMMON atlases | 0b6f67d0 | 7,625,728 | 762,880 (margin-maximizing; likely overkill) |
+
+Common to every F-row: all cockpits raw, MODESEL raw, COMMON SP-logo
+sheet raw, no text sheet anywhere near VQ. F-2 additionally leaves all
+of COMMON raw — the only art delta vs the original disc beyond the
+pilot/ring VQ is the one stage texture already through the operator's
+own tuned-edit visual gate (§Fix decision era).
+
+### Recommendation
+
+**F-2** — smallest touched-art surface that clears the variance band
+(~3× margin over it), reusing only already-approved art changes.
+**F-1** if ~566 KB of cushion is preferred over leaving COMMON
+untouched (its four converted atlases are soft glow sprites, the
+content class VQ is kindest to; previews on disk). Verification suite
+(§4) reruns in full for whichever ships, including the campaign leg
+with the END-PAK overlap check.
