@@ -241,6 +241,20 @@ def main():
             blob = rebuild_jvs10(raw)
         elif key == ("sub", 0x03):
             blob = rebuild_sub03(raw)
+            ov = os.environ.get("EEPROM_GAME_HEX")
+            if ov:
+                # Leg-only bake: splice a Flycast-saved game area (EEPROM
+                # 0x24..0x4B: 2 CRC headers + 2 record copies, CRCs already
+                # valid from the Naomi BIOS writer) over the captured one.
+                # Default builds (env unset) are byte-identical to before.
+                gb = bytes.fromhex(ov)
+                assert len(gb) == 40, f"EEPROM_GAME_HEX: {len(gb)} B != 40"
+                assert gb[0:4] == gb[4:8], "override: game headers differ"
+                assert gb[8:24] == gb[24:40], "override: game copies differ"
+                b = bytearray(blob)
+                b[4 + 0x24:4 + 0x4C] = gb
+                blob = bytes(b)
+                print(f"sub03: EEPROM_GAME_HEX override applied ({ov})")
         else:
             assert outlen <= 64, f"{name}: {outlen:#x} B reply, dump is 0x40"
             blob = raw[:outlen]

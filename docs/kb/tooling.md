@@ -1047,3 +1047,16 @@ existing manifest). Previews + INDEX.txt land in
 `captures/phase5/textures/portraits-vq/` (gitignored, ROM-derived).
 Build records: `phase5-hardware.md` §F-zero build (rejected config,
 same tool), §F-2 build (shipping).
+
+### EEPROM game-area bake hook (2026-08-26)
+
+`scripts/extract_mie_blobs.py` accepts `EEPROM_GAME_HEX` (env, 40 hex
+bytes = EEPROM `0x24..0x4B`: 2 CRC headers + 2 record copies; asserts
+both pairs equal) and splices it over the captured game area in the
+sub-0x03 blob. Default builds (env unset) are byte-identical to before.
+Source of the bytes: flip settings in the **stock** Naomi-profile
+Flycast test menu, quit, read
+`~/Library/Application Support/Flycast/data/senkosp.zip.eeprom`
+(`.hex()[0x24:0x4C]`) — the Naomi BIOS computes the CRCs, so the splice
+needs no CRC code. Used for the Task 18 campaign leg (easy difficulty):
+`EEPROM_GAME_HEX=<hex> make gdi`. No new installs.

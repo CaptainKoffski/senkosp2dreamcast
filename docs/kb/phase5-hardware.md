@@ -2465,3 +2465,25 @@ clean (line 128 = known pre-boot junk). ARENAHW peak 7,448,928 (free
 1,739/1,739 drive reads verified, 0 mismatches (coverage FAIL = expected
 no-shim condition). Remaining §4 item: savestate-assisted 1P campaign
 completion with the END1–END4 PKTX overlap check (operator leg).
+
+**Leg 3 prep — easy-difficulty leg build (2026-08-26).** The campaign
+leg needs the easiest difficulty (operator can't reliably beat the
+level-8 boss's bird form otherwise). A DC-side test-menu change cannot
+work: the shim's EEPROM is session-only (`shims/src/main.c` §EEPROM —
+RAM copy, no backing store) and test-menu exit is a full reboot that
+reloads the baked image. So the setting is **baked**, free-play
+precedent: operator flipped the settings once in the Naomi-profile
+Flycast (stock build; writes
+`~/Library/Application Support/Flycast/data/senkosp.zip.eeprom` on
+quit), and the changed game area (EEPROM 0x24..0x4B, both CRC headers
+`1c1e`→`0868` + both record copies, CRCs computed by the Naomi BIOS
+writer itself) was spliced verbatim into the sub-0x03 blob via a new
+default-off env hook in `scripts/extract_mie_blobs.py`
+(`EEPROM_GAME_HEX`, 40 hex bytes, asserts dual-copy consistency).
+Settings decoded from the diff: difficulty byte[6] `01`→`00` (Easy,
+numeric floor), round time vs Human u16@[10] 70→120, vs CPU u16@[14]
+70→110, CPU-story u16@[12] 150 unchanged (was already default).
+**Leg-only build** (`LOADER_FORCE_TEST_BOOT` precedent): track04 md5
+`ec3dba3c79e544843fb7d12be44a8c03`; the shipping F-2 build stays
+`b056f4605662aab04bbff48609f891b6` and is rebuilt (env unset) after the
+leg. Texpatch manifest confirmed 65 records before mastering.
