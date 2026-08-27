@@ -1060,3 +1060,36 @@ Flycast test menu, quit, read
 (`.hex()[0x24:0x4C]`) — the Naomi BIOS computes the CRCs, so the splice
 needs no CRC code. Used for the Task 18 campaign leg (easy difficulty):
 `EEPROM_GAME_HEX=<hex> make gdi`. No new installs.
+
+### Capture compression + artifact cleanup (2026-08-27)
+
+Disk pressure (12 GiB free): every capture `*.log` over 5 MB is now
+**zstd-compressed in place** (`zstd -T0 -9 --rm`, homebrew zstd) —
+`<name>.log` → `<name>.log.zst`, every byte preserved (the never-delete
+rule is honored by compression, not deletion). Restore any log with
+`zstd -d <file>.zst` (or stream with `zstdcat`) before running the
+checkers; the artifact tables above keep the original `.log` names.
+captures/ went 2.7 GB → 278 MB. Deleted as regenerable: `build/ab-a`,
+`build/ab-b` (A/B gate discs — `make_gdi.py --no-texpatch` per §A/B
+build), `build/ernula-s2` (measurement-era clone), `senkosp-reloc.dat`
+(regen: `scripts/apply_reloc.py`, seconds, patchset committed). Kept:
+all evidence logs (compressed), `captures/phase5/textures/edit/` (F-2
+build INPUT), f2-shots/f2-campaign-shots/f2-splash-frames, build/donor
++ donor 7z, Flycast savestates. Operator F12 finale screenshots (17)
+archived to `captures/phase5/f2-campaign-shots/` (gitignored,
+ROM-derived).
+
+### Unused-PAK texture dump (2026-08-27)
+
+One-off extractor (session scratchpad, reuses `pktx_vq.py` walk/LZSS +
+`decode_pvr_vq.decode`) dumped every PVRT record in the never-loaded
+PAKs to `captures/phase5/textures/unused-paks/` (56 PNGs + INDEX.txt).
+Findings: STAGE09/P09 are DRES/TGRP packs with **bare** GBIX/PVRT
+records (no PKTX wrapper — that's why the repacker never saw them);
+**P10.PAK ≡ P11.PAK byte-identical** (md5 `f3e0113f…`, boss pack's
+second player-slot copy); STAGE09 = space arena in Earth orbit (planet,
+starfields, station); P09 = an unseen unit (mech hull atlases).
+Operator hypothesis: score-attack bonus/final content. Fit exposure:
+none measured, and every record in all three is already VQ on disc
+(dt=0x03) with no PKTX portrait block in P09 — lighter than any
+campaign scene.
