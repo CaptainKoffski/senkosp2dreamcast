@@ -2552,3 +2552,15 @@ for F-2). CRC 3,417/3,417, 0 mismatches (coverage FAIL = expected
 no-shim). Operator attests the stage-8 panel rows now render full-size
 and no issues occurred. Remaining for F-2u acceptance: the unattended
 attract soak through stage-8 demos.
+
+**Leg 2 — unattended attract soak (`captures/phase5/f2u-soak.log`,
+2,478,831 lines): PASS.** Clean boot, zero input, ended by watcher at
+1,808 s (30.1 min) with 3 stage-8 demo loads. TEXERR 47 lines, 46 clean
++ line-128 junk. **ARENAHW peak 7,645,536 (free 743,072) — byte-exact
+arithmetic closure: the F-2 soak's 7,448,928 + the hero delta 196,608**
+(the attract path is deterministic; the only content delta is the
+un-shrunk hero). CRC 1,739/1,739 (same verified count as the F-2 soak),
+0 mismatches. **F-2u ACCEPTED as shipping** per operator
+pre-authorization ("if such risky build works OK, we can save it"):
+track04 md5 `85f7b3222e6bd2f6ae16d6f28bda47a1`, F-2 (`b056f460…`)
+demoted to fallback. Criterion-7 md5 set re-records at Task 13.

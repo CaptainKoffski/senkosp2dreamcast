@@ -516,3 +516,10 @@ fallback. Context: score-attack coverage is pending too, but its arena
 is measured lighter (STAGE09 all-VQ total 2,807,808 vs STAGE08
 3,280,896; P09 has no PKTX raws) — the stage-8 transition stays the
 binding scene under F-2u.
+
+**F-2u ACCEPTED — shipping (2026-08-27).** Both verification legs PASS
+(`phase5-hardware.md` §F-2u): binding-scene VS leg peak 7,898,752 (free
+489,856), attract soak peak 7,645,536 = F-2 soak + 196,608 exactly.
+Shipping deltas vs the original disc are now only: 48 pilot cut-ins +
+2 ring sheets → same-size VQ. All stage art original. F-2 remains the
+documented fallback if hardware disagrees with the emulator margins.
