@@ -450,7 +450,9 @@ attract soak (3 stage-8 demos, peak 7,448,928), leg 3 operator 1P
 campaign to the ending (two sessions, easy-difficulty leg build md5
 `ec3dba3c…`; boss beaten, END2 + credits watched; campaign peak
 7,305,536; ending stretch set no new high-water above 5,339,424 — no
-END-overlap hazard; disc has only END1/END2, no END3/END4).
+END-overlap hazard; ~~disc has only END1/END2~~ — CORRECTED 2026-08-28:
+END3/END4 exist as per-character `END3_Pnn`/`END4_Pnn` files, see the
+full-disc census in `phase5-hardware.md`).
 STAGE09/P09/P10 never load on any exercised path (attract, VS, full
 campaign incl. ending) — unreachable in observed play, no fit exposure.
 Every leg: TEXERR clean, CRC 0 mismatches. Shipping build re-mastered
