@@ -2637,3 +2637,128 @@ texture, no arena pressure). PAK ledger now: 76/94 observed; remaining
 18 = the 14 END3_/END4_ ura-route endings + 4 unpicked costumes
 (P06A/P06C/P07D/P08B — coverable in one short VS session by picking
 those colors).
+
+## Ending system decoded by disassembly + census rebuild (2026-08-28)
+
+**Naming correction (operator).** The hidden score-attack boss (P09 +
+STAGE09, destroyed-base orbit arena) is **Basso Serio**. **NO NAME** is
+the *story* stage-8 boss — the robot with the bird inside (P10/P11).
+Every "NO NAME encounter" mention in the score-attack leg records above
+refers to Basso Serio.
+
+**Method.** Ghidra headless on the existing `senkosp3` project
+(`tools/boot.bin` = first 1,515,512 B of `senkosp.dat`, base
+0x8c020000, SuperH4:LE): string scan → literal-pool byte scan →
+`DisasmRange.java force` over the unanalyzed flow module at 0x8c075xxx.
+All addresses below are primary-source citations into that image.
+
+**Ending filename table (0x8c1818c4).** 16 pointers: `END3_P01..P08`,
+then `END4_P01..P08` (strings at 0x8c18190c+). Indexed by character ID.
+**All 16 files exist on disc** — re-verified from the ISO root
+directory. ~~The 2026-08-28 census correction's "no P07 variant"~~ was
+itself wrong (same regex family of error it was correcting).
+
+**Dispatcher (fn 0x8c079544, vtable 0x8c169b98).** Switch on the
+ending-type byte (global 0x8c1cee10), read via the object field +0x2c
+set by ctor 0x8c0794ac / creator fn 0x8c079474:
+
+- type 0 → `END1.PAK` (string = table base string + 0xd0)
+- type 1 → `END2.PAK` (+0xd9)
+- type 2 → `END2.PAK` **+ END3 table[charID]**
+- type 3 → `END2.PAK` **+ END4 table[charID]** (charID = u16 at +0 of
+  the player struct from fn 0x8c0751d0(sideIndex))
+
+**Writers of the ending-type byte (all three, complete list by pool
+scan):**
+
+- 0x8c075a5c: score attack (mode byte 0x8c1cee14 == 2), gate stage
+  index (struct 0x8c1ced48 +0xa) ≥ 6 → `type = stageIndex − 5`.
+- 0x8c075a94: story path (mode ≠ 2), gate stage index ≥ 7 →
+  `type = 3`.
+- 0x8c075e18: score-attack game-over with fn 0x8c076088(player) ≥ 6 →
+  `type = 0` (END1) and flow state = 8.
+
+**So the "ura endings" reading is RETRACTED: END3_Pnn is the normal
+per-character score-attack clear ending; END4_Pnn is the normal
+per-character story clear ending; both load on top of the shared END2
+splash.** Log confirmation (missed by the old census, see below):
+`END3_P07.PAK` loaded in the Ernula score-attack clear
+(`f2u-scoreattack.log` line 1,668,672, right after END2 at 1,668,617);
+`END4_P07.PAK` loaded in the Ernula story win (`f2-campaign2.log` line
+4,289,309, after END2 at 4,289,254). The Basso Serio *win* leg
+(`f2u-scoreattack3.log`) loaded END2 only (type 1) — the hidden-route
+clear does not take the per-character ending file; its unique credits
+content is the STAGE09 3D reload already recorded.
+
+**Hidden-stage (Basso Serio) trigger (0x8c075d78–0x8c075db6).** At
+stage index == 6 in score attack:
+`if counterA[player] (0x8c1ced9c) + counterB[player] (0x8c1ceda0) >=
+threshold[charID]` → stage index = 7, inserting the encounter. The
+threshold table (0x8c15f058) is `05 05 05 05 05 05 05 05 02 00 00` —
+**5 for every playable character** (2 for ID 8 = the boss slot), so the
+route is NOT Mika-specific; any character qualifies. What exactly
+increments the two per-player counters is still open (written from many
+modules; per the operator's controlled runs, sparing opponents' boss
+forms drives them). The END1 gate (fn 0x8c076088 ≥ 6) is a related but
+distinct count. Round-timer sidebar decoded in passing (fn 0x8c0752d0):
+stage index ≥ 7 or boss character IDs 8/9 get a 240 s timer; EEPROM
+times feed the other branches.
+
+**Character ↔ slot map** (music-name table at boot.bin file offset
+0x168cc4 — theme + ura-theme per character in slot order — anchored by
+two operator legs: Mika leg loaded P02A first, all Ernula legs loaded
+P07x first):
+
+| slot | character | theme ADX |
+|------|-----------|-----------|
+| P01 | Changpo | CHAMPO1 / URA_CHA |
+| P02 | Mika | MIKA / URA_MIKA |
+| P03 | Cuilan | TYLAN / U_TUYLAN |
+| P04 | Fabian | FABIAN / U_FABI |
+| P05 | Lili | LILI / URA_LILI |
+| P06 | Sakurako | SAKURA / URA_SAKU |
+| P07 | Ernula | PERNA / URA_PER |
+| P08 | Karel | KARERU / U_KARERU / KARERU_EX |
+
+Every character has an URA_/U_ theme variant — consistent with the
+operator's finding that story mode swaps the final boss (Mika when
+playing Lili or Fabian), not with a separate hidden ending family.
+KARERU_EX is Karel's extra variant, trigger unknown.
+
+**Character VRAM prices (shipping F-2u pricing: PVRT datalen−8, the one
+512² pilot cut-in per costume pak priced as VQ 67,584).** Every costume
+pak of every character totals **198,656 B — except Ernula (P07x):
+460,800 B** (4 textures, two extra 256² sheets, +262,144 B). Lili
+(P05) and Fabian (P04) are byte-identical in cost. Consequence: all
+recorded high-waters came from Ernula legs (mirror matches = two P07
+paks = the true worst case), so every other character runs ≥262 kB
+lighter than the validated envelope.
+
+**Census rebuild (all capture logs, zst included, interval-mapped
+first-sector FADs, STAGE08 fad assert):** 94 PAKs on disc, **74
+observed, 20 never observed** — supersedes the 76/94-observed,
+18-remaining figures above (the old census both missed the P07 ending
+files on the disc side and failed to map the two observed ending loads;
+it also undercounted unpicked costumes). Remaining 20 = 14 endings for
+the seven uncleared characters (`END3_/END4_ P01..P06,P08`) + 6
+costumes (P01B, P04A, P06A, P06C, P07D, P08B). Fit exposure of the
+remainder: none beyond validated — ending paks are size-uniform per
+family (every END3_Pnn = 1,048,576 B, every END4_Pnn = 262,144 B,
+computed from the PAKs) and Ernula's own END3/END4 loaded with no new
+high-water; costumes are ordinary character paks inside the envelope.
+
+**Route-coverage ledger (game paths executed to date, DC build):**
+
+| path | leg(s) | endings seen |
+|------|--------|--------------|
+| Attract/demo soaks | f2-soak, f2u-soak | — |
+| VS human: Ernula mirror ×4, Ernula vs Lili | f2u-vs | — |
+| Test menu round trip | phase 4 | — |
+| Story clear (Ernula, Easy bake) | f2-campaign, f2-campaign2 | END2 + END4_P07 |
+| Score attack clear (Ernula) | f2u-scoreattack | END2 + END3_P07 |
+| Score attack hidden route + Basso Serio win (Mika) | f2u-scoreattack2/3 | END2 |
+| Score attack hidden route, game over (Mika) | f2u-end1test | END1 |
+
+Never executed: story/score clears with the other 7 characters (their
+14 ending paks), the Lili/Fabian-vs-Mika story final, Novice modifier,
+the 6 unpicked costumes.

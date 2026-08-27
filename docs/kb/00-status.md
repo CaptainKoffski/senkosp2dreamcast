@@ -451,8 +451,8 @@ campaign to the ending (two sessions, easy-difficulty leg build md5
 `ec3dba3c…`; boss beaten, END2 + credits watched; campaign peak
 7,305,536; ending stretch set no new high-water above 5,339,424 — no
 END-overlap hazard; ~~disc has only END1/END2~~ — CORRECTED 2026-08-28:
-END3/END4 exist as per-character `END3_Pnn`/`END4_Pnn` files, see the
-full-disc census in `phase5-hardware.md`).
+END3/END4 exist as per-character `END3_Pnn`/`END4_Pnn` files, see
+§Ending system decoded in `phase5-hardware.md`).
 STAGE09/P09/P10 never load on any exercised path (attract, VS, full
 campaign incl. ending) — unreachable in observed play, no fit exposure.
 Every leg: TEXERR clean, CRC 0 mismatches. Shipping build re-mastered
@@ -472,6 +472,24 @@ STAGE09/P09 (score-attack orbit arena + unseen unit) never load in any
 exercised path, are all-VQ on disc, and total lighter than STAGE08 —
 operator score-attack walkthrough pending as coverage.
 `arena-fit-options.md` §F-2u, `phase5-hardware.md` §F-2u verification.
+
+**Ending system decoded, census rebuilt (2026-08-28).** Ghidra
+disassembly of the flow module (0x8c075xxx/0x8c079xxx) settled the
+"unseen paks": **END3_Pnn = per-character score-attack clear ending,
+END4_Pnn = per-character story clear ending** (both load with the
+shared END2 splash; NOT an ura route — that reading is retracted),
+END1 = score-attack game-over epilogue behind a spare-counter gate.
+The hidden Basso Serio stage (operator naming correction: NO NAME is
+the *story* stage-8 boss) inserts when the per-player spare counters
+reach **5 — same threshold for every character**, not Mika-specific.
+Character↔slot map fixed (P02 Mika, P04 Fabian, P05 Lili, P07 Ernula,
+…); **every character costs 198,656 B per costume pak except Ernula at
+460,800 B**, so all validated peaks (Ernula mirrors) are the true worst
+case. Rebuilt census: **74/94 PAKs observed; remaining 20** = 14
+endings of the seven uncleared characters + 6 unpicked costumes (P01B,
+P04A, P06A, P06C, P07D, P08B); ending paks are size-uniform per family
+→ no new fit exposure. Full record + addresses:
+`phase5-hardware.md` §Ending system decoded.
 
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.
