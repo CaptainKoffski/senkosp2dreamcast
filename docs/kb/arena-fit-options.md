@@ -496,3 +496,23 @@ unique sheets), one STAGE08 hero → tuned 512². Cockpits, MODESEL,
 COMMON, everything with text: untouched. Built 2026-08-26: 65-record
 manifest, `build/track04.iso` md5 `b056f4605662aab04bbff48609f891b6`.
 Verification: §4 suite reruns in full (Task 18).
+
+### Candidate: F-2u — F-2 without the hero shrink (operator, 2026-08-27)
+
+After playing the beginner-mode stage-8 camera paths, the operator can
+clearly see the shrunk hero's bottom panel rows (red lights) and asked
+for full resolution there. Per-region resolution inside one PVR texture
+is impossible, so the candidate **un-shrinks 0b736ff0 entirely**:
+demand 8,076,288 + 196,608 = **8,272,896, margin 115,712** — ~24× the
+VS-leg model error (+4,736) but ~6× thinner than F-2's 312,320 and
+inside a band where the doc's ±20 KB variance note matters. Content
+deltas vs the original disc reduce to: 48 pilot cut-ins + 2 ring
+sheets → same-size VQ. No stage art touched at all. Built 2026-08-27:
+64-record manifest, track04 md5 `85f7b3222e6bd2f6ae16d6f28bda47a1`.
+**Status: CANDIDATE** — pending the binding-scene operator leg (stage-8
+Ernula mirror + post-match MODESEL transition) and an attract soak
+through the stage-8 demo; F-2 (`b056f460…`) remains the accepted
+fallback. Context: score-attack coverage is pending too, but its arena
+is measured lighter (STAGE09 all-VQ total 2,807,808 vs STAGE08
+3,280,896; P09 has no PKTX raws) — the stage-8 transition stays the
+binding scene under F-2u.
