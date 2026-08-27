@@ -2596,3 +2596,33 @@ expected to be the hidden route's ending. Part 3 (operator): resume
 savestate under a new leg name, beat NO NAME, run ending + credits to
 attract. Build stays untouched until then (savestates need the same
 disc bytes).
+
+**Score-attack leg 3 — NO NAME beaten, hidden ending observed
+(`captures/phase5/f2u-scoreattack3.log`, 753,947 lines, operator,
+2026-08-28): PASS.** Savestate resume; operator beat NO NAME's second
+form, watched the ending splash + credits (3D rotating destroyed base)
+to attract. TEXERR 7/7 clean + line-128 junk; peak 7,107,424 (free
+1,281,184); CRC 841/841, 0 mismatches. Load order: STAGE09 reloads at
+line 582,483 (the credits' 3D scene — matches the operator's
+description), then **END2.PAK at 582,604 — the hidden ending uses the
+same END2 splash art as the regular ending** (operator confirmed
+visually); STAGE10/STAGE04 after = attract demos.
+
+**Full-disc census (2026-08-28, all DC legs cumulative, first-sector
+FAD hits, zst logs included): 288/1,001 files observed loading.**
+**CORRECTION to the 2026-08-27 "only END1/END2" note (here and
+00-status): the disc HAS END3/END4 — as per-character files
+`END3_P01..P06,P08` + `END4_P01..P06,P08`** (underscore names; the
+earlier `END\d+\.PAK` pattern missed them; no P07 variant exists).
+PAK census: 94 total, 75 observed, 19 never observed: END1.PAK (single
+512² ARGB1555 linear text card, English epilogue — decoded to
+`unused-paks/END1-pktx000-…png`), the 14 END3_/END4_ per-character
+endings, and 4 costume paks nobody picked in any leg (P06A, P06C,
+P07D, P08B — benign roster gaps). Also never observed: 694 of the ADX
+audio streams, including **URA_LILI/URA_SAKU/URA_PER/KARERU_EX** —
+"ura" (hidden/reverse) themes: evidence of an ura route carrying the
+END3/END4 per-character endings. Fit exposure of the remainder:
+minimal — all three observed endings load into a torn-down arena (no
+new high-water in any ending sequence), END3/END4 are 0.36–0.70 MB
+packs of the same kind, and the 4 costumes are ordinary character paks
+inside the measured envelope.
