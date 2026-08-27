@@ -458,6 +458,19 @@ byte-identical after the leg (`b056f460…`). **The emulator-side fix
 gate is closed; hardware rounds (Tasks 9–13) are unblocked.** Evidence:
 `phase5-hardware.md` §Task 18.
 
+**Config revision — F-2u is shipping (2026-08-27).** The operator saw
+the shrunk hero's panel rows on the beginner-mode stage-8 camera paths;
+the shrink was dropped (F-2 minus shrink = **F-2u**, only deltas: 48
+pilot cut-ins + 2 ring sheets → same-size VQ, all stage art original).
+Both verification legs PASS: binding-scene VS leg peak 7,898,752 (free
+489,856), attract soak peak 7,645,536 — byte-exact = F-2 soak +
+196,608. Track04 md5 **`85f7b3222e6bd2f6ae16d6f28bda47a1`**; F-2
+(`b056f460…`) is the fallback if hardware disagrees. Also dispositioned:
+STAGE09/P09 (score-attack orbit arena + unseen unit) never load in any
+exercised path, are all-VQ on disc, and total lighter than STAGE08 —
+operator score-attack walkthrough pending as coverage.
+`arena-fit-options.md` §F-2u, `phase5-hardware.md` §F-2u verification.
+
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.
 
