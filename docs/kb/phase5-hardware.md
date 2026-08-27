@@ -2578,3 +2578,21 @@ never-loaded files.** Operator's research: the hidden octopus/bird is
 character (Mika, the antagonist per plot; or Lili) and/or sparing the
 opponents' boss forms. Next leg: Mika + spare boss forms + score
 attack.
+
+**Score-attack leg 2 (`captures/phase5/f2u-scoreattack2.log`, 3,178,876
+lines, operator, 2026-08-27): PASS — hidden route FOUND.** Mika, score
+attack, opponents' boss forms spared (operator-discovered trigger).
+Route observed in the drive log: 7 regular opponents ending with
+STAGE08 (P04B, first-sector line 1,028,902), then **P09.PAK + STAGE09.PAK
+load at lines 1,162,885/1,162,892 — the hidden NO NAME encounter on the
+destroyed-base orbit arena.** Operator reached but could not beat its
+second form; two savestates banked (encounter start, after form 1).
+Health: TEXERR 14/14 clean + line-128 junk; **peak 7,371,744 (free
+1,016,864) set during the stage-8 match — the hidden scene set no new
+high-water**, confirming the static bound (STAGE09 all-VQ 2,807,808 <
+STAGE08 3,280,896; P09 has no PKTX raws). CRC 3,155/3,155, 0
+mismatches. Remaining never-loaded watched file: **END1.PAK only** —
+expected to be the hidden route's ending. Part 3 (operator): resume
+savestate under a new leg name, beat NO NAME, run ending + credits to
+attract. Build stays untouched until then (savestates need the same
+disc bytes).
