@@ -2564,3 +2564,17 @@ un-shrunk hero). CRC 1,739/1,739 (same verified count as the F-2 soak),
 pre-authorization ("if such risky build works OK, we can save it"):
 track04 md5 `85f7b3222e6bd2f6ae16d6f28bda47a1`, F-2 (`b056f460…`)
 demoted to fallback. Criterion-7 md5 set re-records at Task 13.
+
+**Score-attack leg 1 (`captures/phase5/f2u-scoreattack.log`, operator,
+2026-08-27): PASS, hidden route not triggered.** Ernula, full score
+attack (operator: 8 levels, same arenas as Beginner, dialog inserts,
+boss forms killed). TEXERR 24/24 clean + line-128 junk; peak 7,520,608
+(free 868,000); CRC 2,094/2,094, 0 mismatches. Coverage: **P10.PAK
+loads in score attack** (the boss pack's other player-slot copy — P11
+was the campaign's; P10 leaves the never-loaded list), STAGE10 ×2,
+END2 again (regular ending). **STAGE09 + P09 remain the only
+never-loaded files.** Operator's research: the hidden octopus/bird is
+"NO NAME"; candidate triggers for the hidden route — different
+character (Mika, the antagonist per plot; or Lili) and/or sparing the
+opponents' boss forms. Next leg: Mika + spare boss forms + score
+attack.
