@@ -2626,3 +2626,14 @@ minimal — all three observed endings load into a torn-down arena (no
 new high-water in any ending sequence), END3/END4 are 0.36–0.70 MB
 packs of the same kind, and the 4 costumes are ordinary character paks
 inside the measured envelope.
+
+**END1 lose-test (`captures/phase5/f2u-end1test.log`, operator,
+2026-08-28): CONFIRMED.** Savestate resume, operator lost to NO NAME
+and let the continue countdown expire: **END1.PAK loads (line 64,116)
+and the English cover-up epilogue card displays** — END1 is the hidden
+encounter's failure ending. TEXERR clean, CRC 177/177, peak 7,107,424
+(inherited from the savestate; the card itself is a single 512² linear
+texture, no arena pressure). PAK ledger now: 76/94 observed; remaining
+18 = the 14 END3_/END4_ ura-route endings + 4 unpicked costumes
+(P06A/P06C/P07D/P08B — coverable in one short VS session by picking
+those colors).
