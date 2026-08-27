@@ -2535,3 +2535,20 @@ exposure. **Task 18 §4 suite complete — all legs PASS.** Shipping F-2
 build re-mastered after the leg (forced `mie_blobs.c` regen, env
 unset): track04 md5 `b056f4605662aab04bbff48609f891b6`, byte-identical
 to the pre-leg shipping build. Hardware rounds unblocked.
+
+## F-2u verification (2026-08-27, operator)
+
+**Leg 1 — binding-scene VS leg (`captures/phase5/f2u-vs.log`, 1,823,496
+lines): PASS.** F-2u candidate build (64 records, no hero shrink, md5
+`85f7b322…`). Operator procedure: 2× Ernula mirror → MODESEL, 2× Ernula
+mirror → Beginner-mode jump, 1× Ernula-vs-Lili → MODESEL, plus several
+Beginner-mode matches including 2× stage 8 (one interrupted for 2P, one
+played through). TEXERR 52 lines, 51 clean + line-128 pre-boot junk.
+**ARENAHW peak 7,898,752 (free 489,856)**, hit at line 1,814,342 (end
+of session, the last stage-8 scene) — the un-shrunk hero's full-size
+record fits the binding transition with ~480 KB real headroom (the
+additive model's 8,272,896 demand bound remains conservative, as it was
+for F-2). CRC 3,417/3,417, 0 mismatches (coverage FAIL = expected
+no-shim). Operator attests the stage-8 panel rows now render full-size
+and no issues occurred. Remaining for F-2u acceptance: the unattended
+attract soak through stage-8 demos.
