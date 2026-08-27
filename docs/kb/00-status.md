@@ -441,9 +441,22 @@ final choice **F-2** (`docs/kb/arena-fit-options.md` §7): 48 pilot
 cut-ins + 2 ring sheets → same-size VQ, one STAGE08 hero (**0b736ff0**,
 operator-amended from 0b6f67d0) → tuned 512², cockpits/MODESEL/COMMON
 and every text sheet untouched. Margin 312,320 B at the worst measured
-transition. Built and mastered (`phase5-hardware.md` §F-2 build); the
-Task 18 verification legs (§4 suite, full rerun) are the remaining gate
-before hardware rounds.
+transition. Built and mastered (`phase5-hardware.md` §F-2 build).
+
+**Task 18 verification suite — COMPLETE, all PASS (2026-08-27).** Leg 1
+operator VS/mirror (peak 7,718,528, +4,736 over prediction), splash
+question resolved (FONT text, untouched), leg 2 unattended 30.1-min
+attract soak (3 stage-8 demos, peak 7,448,928), leg 3 operator 1P
+campaign to the ending (two sessions, easy-difficulty leg build md5
+`ec3dba3c…`; boss beaten, END2 + credits watched; campaign peak
+7,305,536; ending stretch set no new high-water above 5,339,424 — no
+END-overlap hazard; disc has only END1/END2, no END3/END4).
+STAGE09/P09/P10 never load on any exercised path (attract, VS, full
+campaign incl. ending) — unreachable in observed play, no fit exposure.
+Every leg: TEXERR clean, CRC 0 mismatches. Shipping build re-mastered
+byte-identical after the leg (`b056f460…`). **The emulator-side fix
+gate is closed; hardware rounds (Tasks 9–13) are unblocked.** Evidence:
+`phase5-hardware.md` §Task 18.
 
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.

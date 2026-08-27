@@ -2510,3 +2510,28 @@ log overwrite), beat the bird, run ending + credits to attract, quit;
 then END overlap + remaining-coverage analysis. The easy leg build
 stays mastered untouched until part 2 completes (the savestate must
 replay against the same disc bytes).
+
+**Leg 3 part 2 — boss beaten, ending + credits to attract: PASS
+(2026-08-27, `captures/phase5/f2-campaign2.log`, 4,474,784 lines).**
+Savestate resume (coverage leg — allowed), same easy leg build
+(`ec3dba3c…`). Operator beat the level-8 boss, watched the final
+explosion, ending splash, full credits, back to attract. Health: TEXERR
+8 lines, 7 clean + line-128 junk; CRC 3,479/3,479 verified, 0
+mismatches, 4 lowfad donor reads (coverage FAIL = expected no-shim).
+**Ending overlap check: PASS with ~3 MB headroom** — END2.PAK loads at
+line 4,289,254 and the entire post-boss stretch (boom → END2 splash →
+credits) sets no new ARENAHW high-water above the session's early
+5,339,424 (samples emit on new max; part 1 confirms sampling runs
+whole-log): the ending does not stack on a resident match arena the way
+MODESEL does. Ernula's route loads **END2** (END1 presumably the other
+route — untested, but its file is 144 sectors vs END2's ~2.4 MB region,
+and the overlap mechanism just measured is route-independent).
+Post-credits STAGE10 + STAGE04 loads = attract demos resumed (STAGE04
+was the one stage part 1 missed — all 10 STAGEnn now observed across
+legs). **STAGE09/P09/P10 disposition: never load on any exercised path**
+(30-min attract soak, VS matches, full campaign incl. ending+credits) —
+unreachable in observed play (conditional/unused content), no fit
+exposure. **Task 18 §4 suite complete — all legs PASS.** Shipping F-2
+build re-mastered after the leg (forced `mie_blobs.c` regen, env
+unset): track04 md5 `b056f4605662aab04bbff48609f891b6`, byte-identical
+to the pre-leg shipping build. Hardware rounds unblocked.
