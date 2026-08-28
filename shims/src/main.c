@@ -464,9 +464,54 @@ static void maple_service(void) {
  * pc=8c025448; the boot driver only uploads the MIE's Z80 firmware). Leg
  * attract1 confirmed it live: 345/345 boot transactions serviced, the error
  * path never taken, and the game then stopped dead at the first steady kick. */
+#if SHIM_TEXHUD
+/* HW round 3: texture-error autopsy (docs/kb/phase5-hardware.md §Hardware
+ * rounds Round 2). Round-2 photos show whole asset classes missing on real
+ * HW (stage bg, opponent, meter fills) + flicker; the game's own KAMUI2
+ * error cell 0x8c1a20a8 (§Texture-error handler: 6 = arena-alloc fail OR
+ * bad header, 7 = surface/descriptor table full, 8 = data extent mismatch,
+ * 1 = zero-entry TXTR/no buffer) says WHICH failure family is live. Painted
+ * per steady kick (the legacy block's round-13 lesson: sub-frame-rate paints
+ * are overdrawn and unreadable). All reads passive; P1 reads of game-written
+ * RAM, same CPU. Rows x=20:
+ *   y240 live error cell   y254 nonzero transitions
+ *   y268 count code 6      y282 count code 7
+ *   y296 cnt8<<16|cnt1     y310 gd_diag[0] (GD idle-gap recoveries)
+ *   y324 arena-init VRAM size passed (config 0x8c170eb8+4: 0x800000 = DC
+ *        8 MB arm, 0x1000000 = Naomi 16 MB arm)  y338 chosen size (+0x18)
+ * Slot 26: green = error cell clean since boot; red sticky = fired. */
+void hex_paint(u32 x, u32 y, u32 val);                  /* util.c */
+static void texhud_tick(void) {
+    static u32 tex_prev = 0, tex_trans = 0, tex_c6 = 0, tex_c7 = 0,
+               tex_c8 = 0, tex_c1 = 0, tex_ever = 0;
+    extern unsigned int gd_diag[8];
+    u32 cur = *(volatile u32 *)0x8c1a20a8;
+    if (cur != 0 && tex_prev == 0) {
+        tex_trans++; tex_ever = 1;
+        if (cur == 6) tex_c6++;
+        else if (cur == 7) tex_c7++;
+        else if (cur == 8) tex_c8++;
+        else if (cur == 1) tex_c1++;
+    }
+    tex_prev = cur;
+    hex_paint(20, 240, cur);
+    hex_paint(20, 254, tex_trans);
+    hex_paint(20, 268, tex_c6);
+    hex_paint(20, 282, tex_c7);
+    hex_paint(20, 296, (tex_c8 << 16) | (tex_c1 & 0xffffu));
+    hex_paint(20, 310, gd_diag[0]);
+    hex_paint(20, 324, *(volatile u32 *)0x8c170ebc);
+    hex_paint(20, 338, *(volatile u32 *)0x8c170ed0);
+    shim_mark(26, tex_ever ? 0xf800 : 0x07e0);
+}
+#else
+#define texhud_tick() ((void)0)
+#endif /* SHIM_TEXHUD */
+
 int shim_maple_service(void);
 int shim_maple_service(void) {
     maple_service();
+    texhud_tick();
     if (SHIM_TRACE && (maple_count & 0x1ffu) == 0u) {   /* ~8 s heartbeat */
         scif_puts("MS n="); scif_puthex(maple_count & 0xffffu); scif_puts("\n");
     }

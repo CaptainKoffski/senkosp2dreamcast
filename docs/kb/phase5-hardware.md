@@ -2858,3 +2858,69 @@ mid-block data corruption (separate mechanism from the wait race); the
 splash's cyan-white background on hardware matches the emulator's "cyan
 splash" (Task 12) — hardware photo suggests it is simply what this game's
 splash looks like, pending Task 12's formal disposition.
+
+### Round 2 — boot fixed and VERIFIED; new defect: systematic missing/flickering assets (2026-08-28)
+
+**Round-1 fix verdict: CONFIRMED on hardware.** F-2u-r2 boots reliably
+every time — loader, NOW LOADING, attract, char select, demo and actual
+gameplay all reached, no death screens across the session. The GDEMU
+idle-gap race was the boot blocker.
+
+**New defect (operator + 4 photos):** whole asset classes missing or
+flickering, **the same classes every boot** — this is systematic, not
+stochastic:
+
+| Scene | Observed | Photo |
+|---|---|---|
+| Intro credits | 3D mech renders with missing pieces (holes where sub-textures should be) | `img/phase5-round2-credits-modelholes.jpeg` |
+| Demo battle | NO stage background, opponent NOT rendered, P2 meter fill missing, P1 pilot cut-in garbled, weapon-circle rings + meters flicker | `img/phase5-round2-demo-nobg.jpeg` |
+| Gameplay | identical to demo | `img/phase5-round2-gameplay-nobg.jpeg` |
+| Char select | background missing, mech model textures dark/flickering — while the big 2D character art renders PERFECTLY | `img/phase5-round2-charselect.jpeg` |
+
+Reading of the evidence: 2D art + text (including the largest single
+textures in the game) arrive and render intact, so wholesale read
+corruption is unlikely; the repeatable per-class absence pattern points at
+**texture-load failures** — the game's own error handler (§Texture-error
+handler) skips objects whose texture chain fails, which renders exactly as
+"object missing, rest of scene fine". Two candidate families:
+**(b) allocation/arena-space** (biggest textures = stage backgrounds fail
+first; hardware VRAM layout differing from the emulator-measured one) vs
+**(a) data integrity** (delivered bytes or our 50 texpatch VQ records bad
+on real PVR — the garbled pilot cut-in IS one of the 48 VQ re-encodes).
+Round-1's splash stripe may be the same defect's boot-time face.
+
+**Round 3 instrument (build F-2u-r3, track04 md5
+`57ab322e114f9ad4fc4eb85c11ad4d53`):** the game's KAMUI2 error cell
+`0x8c1a20a8` discriminates the families by VALUE (§Trigger taxonomy: 6 =
+arena-alloc fail or bad header, 7 = surface/descriptor table full, 8 =
+data-extent mismatch, 1 = zero-entry TXTR). New `SHIM_TEXHUD` block
+(`shims/src/main.c` `texhud_tick`, called per steady kick from
+`shim_maple_service`) paints live rows at x=20:
+
+| y | Value |
+|---|---|
+| 240 | error cell, live |
+| 254 | nonzero transitions since boot |
+| 268 | count of code 6 |
+| 282 | count of code 7 |
+| 296 | `cnt8<<16 \| cnt1` |
+| 310 | `gd_diag[0]` — GD idle-gap recoveries (round-1 fix engagements) |
+| 324 | arena-init VRAM size passed (config `0x8c170eb8+4`): `00800000` = DC arm, `01000000` = Naomi 16 MB arm |
+| 338 | arena chosen bank size (config `+0x18`) |
+
+Plus **slot 26** (row 2): green = error cell clean since boot, red sticky
+= fired at least once. Expected readings: codes 6/7 climbing → allocation
+family (then y324/y338 say whether the arena itself is mis-sized); code
+8/6 with free VRAM → data-integrity family; all zeros while assets are
+missing → neither family, texture chain fails before the KAMUI2 loader
+(pak parse) — also informative. Emulator smoke `phase5/r3-smoke`: 0
+SHIMERR, attract reached; rows are invisible under Flycast by design (GL
+present replaces VRAM paints once real rendering starts — §HUD kit).
+
+**Build-system gotcha recorded:** `shims/src/main.c` below line ~490 is a
+`#if 0` legacy region (Cleopatra DreamShell-round autopsy code, never
+linked — the round-3 instrument was first inserted there and silently
+vanished; `shims/build/shim.map` is the ground truth for what ships).
+The §HUD kit slot table rows citing that region (slots 2-3, 8-14 and the
+per-trigger 16-20) describe NEVER-PAINTED legacy slots — table audit
+pending. Live slots in the shipping shim: 0 (ee), 1, 4-7, 15, 21-26.

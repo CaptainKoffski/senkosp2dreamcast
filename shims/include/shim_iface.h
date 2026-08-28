@@ -80,5 +80,10 @@
 #ifndef SHIM_HUD
 #define SHIM_HUD 1              /* breadcrumbs on-screen; 0 for release */
 #endif
+#ifndef SHIM_TEXHUD
+#define SHIM_TEXHUD 1           /* HW round 3: live texture-error autopsy rows
+                                 * (main.c texhud block). 0 once the missing-
+                                 * asset defect is dispositioned. */
+#endif
 
 #endif
