@@ -21,3 +21,6 @@ loader/splash.png
 
 # Phase 4 Task 8: GDI mastering donor archive (commercial/ROM-derived data)
 *.7z
+
+# Phase 5 Task 9: extracted control disc + card staging (commercial data)
+/deploy/
