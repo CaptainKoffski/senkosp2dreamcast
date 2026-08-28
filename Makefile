@@ -6,6 +6,11 @@
 #   make gdi     = build/disc.gdi -- B5 donor-clone mastering (make_gdi.py);
 #                  needs the donor archive at repo root, docs/kb/tooling.md
 #                  §GDI mastering (Task 8)
+#   make disc    = alias for gdi (Cleopatra's name for the same thing)
+#   make release = disc + "build/[GDI] Senko no Ronde Special.zip"
+#                  (gdi + 4 tracks, the exact set GDMENUCardManager wants).
+#                  CONTAINS THE FULL COMMERCIAL ROM — local use only, never
+#                  upload/commit (build/ is gitignored for this reason).
 #   make test    = shims host tests + the maple-literal scan
 #   make deploy  = copy the five disc files to a GDEMU card entry + dot_clean
 #                  (the playbook's AppleDouble boot trap). Override target:
@@ -17,8 +22,9 @@
 CARD ?= /Volumes/GDEMU/03
 DISC_FILES = build/disc.gdi build/track01.iso build/track02.raw \
              build/track03.iso build/track04.iso
+ZIP = build/[GDI] Senko no Ronde Special.zip
 
-.PHONY: shims loader gdi test deploy clean
+.PHONY: shims loader gdi disc release test deploy clean
 
 shims:
 	$(MAKE) -C shims
@@ -28,6 +34,14 @@ loader: shims
 
 gdi: loader
 	python3 scripts/make_gdi.py
+
+disc: gdi
+
+release: disc
+	rm -f "$(ZIP)"
+	cd build && zip -j "../$(ZIP)" disc.gdi track01.iso track02.raw \
+	  track03.iso track04.iso
+	@echo "NOTE: archive embeds the commercial ROM -- do not upload."
 
 test:
 	$(MAKE) -C shims test
