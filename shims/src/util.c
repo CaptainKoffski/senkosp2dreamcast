@@ -200,5 +200,13 @@ void shim_die(unsigned int code, unsigned int a, unsigned int b) {
     hex_paint(20, 100, code);        /* unconditional: fatal screens stay verbose */
     hex_paint(20, 114, a);
     hex_paint(20, 128, b);
+    /* GD forensics block (gd.c gd_diag, hardware round 1): recoveries,
+     * max-wait polls, blocks/nmin/nmax of the last read, bytes drained after
+     * a GD_E_END. Meaning table: docs/kb/phase5-hardware.md §HUD kit. */
+    {
+        extern unsigned int gd_diag[8];
+        for (unsigned int i = 0; i < 6; i++)
+            hex_paint(20, 156 + 14 * i, gd_diag[i]);
+    }
     for (;;) ;
 }

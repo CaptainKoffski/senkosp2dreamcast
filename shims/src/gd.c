@@ -118,6 +118,16 @@ unsigned int shim_crc32(const void *p, unsigned len) {
  * is only zeroed by the loader's Tasks 10-12 block). */
 unsigned int gd_last_err = 0xcafe0000;
 
+/* Hardware-round forensics, painted by shim_die below the code/a/b rows
+ * (util.c). [0] idle-gap recoveries survived (cumulative -- the count of
+ * times the pre-round-1 code would have died, see gd_wait_drq), [1] max poll
+ * iterations any successful wait needed (cumulative -- measures GDEMU's
+ * block-staging latency), [2] DRQ blocks this read, [3]/[4] min/max announced
+ * byte count this read, [5] bytes drained off the drive after a GD_E_END
+ * (how far ahead of us it really was), [6] spare, [7] .data-forcing tag
+ * (nonzero init per house style, same reason as gd_last_err). */
+unsigned int gd_diag[8] = {0, 0, 0, 0, 0, 0, 0, 0xd1a6d1a6u};
+
 /* ATA "400 ns settle": for up to 400 ns after a command write or the last word
  * of a data block, the status register still reads the PREVIOUS phase -- poll
  * DRQ too early and you sample the packet phase's DRQ as if it were the data
@@ -149,8 +159,13 @@ void shim_mark(unsigned int slot, unsigned short color);   /* util.c: breadcrumb
 #define GD_HEARTBEAT(i) \
     do { if (!((i) & 0xffffu))                   /* every 64K polls: cheap, visible */ \
              shim_mark(24, ((i) & 0x10000u) ? 0x07e0 : 0x001f); } while (0)  /* green<->blue */
+/* Slot 25 (next free after Task 8's 24, §HUD kit): sticky yellow = at least
+ * one mid-transfer idle window was survived this session, i.e. the
+ * pre-round-1 code would have red-screened by now. */
+#define GD_RECOVERY_MARK() shim_mark(25, 0xffe0)
 #else
 #define GD_HEARTBEAT(i) ((void)0)
+#define GD_RECOVERY_MARK() ((void)0)
 #endif
 
 static int gd_wait_clear(unsigned char mask) {
@@ -161,25 +176,47 @@ static int gd_wait_clear(unsigned char mask) {
     return -1;
 }
 
-/* Wait for the next DRQ block. 0 = data ready, 1 = the drive went idle without
- * offering data (command finished or FAILED -- read the verdict), -1 = timeout.
+/* Wait for the next DRQ block. 0 = data ready, 1 = the drive ended the command
+ * with a verdict waiting (CHECK set -- read the status register), -1 = timeout.
  *
  * Ready means BSY clear AND DRQ set: ATA status bits are not valid while BSY is
  * asserted, and KOS polls the same pair (g1ata.c:193-195).
  *
- * The idle exit is what keeps a failed command cheap: a rejected packet never
- * enters a data phase at all -- flycast lands it in gds_procpacketdone with
- * CHECK=1, DRQ=0 and a sense key (gdromv3.cpp:1030-1037, :282-301). Waiting for
- * a DRQ that will never come would burn the whole 50M-poll budget and report a
- * stall, throwing away the drive's own verdict; instead we fall straight through
- * to the status read. */
+ * Hardware round 1 (docs/kb/phase5-hardware.md §Hardware rounds): the old
+ * version returned 1 on ANY idle sample. On GDEMU that is a race: between DRQ
+ * blocks its firmware stages the next chunk, and status can float idle
+ * (BSY=0, DRQ=0) for longer than gd_settle covers. The loop then broke
+ * mid-transfer with bytes still owed, and the end-of-command wait timed out
+ * against the re-raised DRQ of the block the drive went on to offer --
+ * GD_E_END, ALTSTAT 0x58 (DRDY|DSC|DRQ), at three unrelated cart offsets,
+ * probabilistic per block boundary. Flycast cannot exhibit the window: its
+ * status transitions are synchronous with the last data-register read
+ * (gdromv3.cpp:1079), which is why every emulator leg was green.
+ *
+ * Policy now: idle is trusted only when CHECK is set -- the one state a
+ * rejected command actually presents (flycast gds_procpacketdone: CHECK=1,
+ * DRQ=0, sense key set, gdromv3.cpp:1030-1037, :282-301; both call sites owe
+ * data at every call, so a CHECK-less idle mid-command has no legitimate
+ * reading). Idle without CHECK keeps polling; DRQ reappearing resumes the
+ * transfer (counted in gd_diag[0], sticky slot-25 mark -- each one is a boot
+ * the old code would have red-screened). A genuinely dead drive still fails,
+ * one full GD_SPIN (~10 s) slower, on a path that is fatal either way. The
+ * same policy closes the packet-accept race the settle comment above
+ * describes: a stale pre-BSY idle sample now waits instead of dying. */
 static int gd_wait_drq(void) {
     gd_settle();
+    unsigned gap = 0;
     for (unsigned i = 0; i < GD_SPIN; i++) {
         GD_HEARTBEAT(i);
         unsigned char st = GD_ALTSTAT;
         if (st & ST_BSY) continue;
-        return (st & ST_DRQ) ? 0 : 1;
+        if (st & ST_DRQ) {
+            if (gap) { gd_diag[0]++; GD_RECOVERY_MARK(); }
+            if (i > gd_diag[1]) gd_diag[1] = i;
+            return 0;
+        }
+        if (st & ST_CHECK) return 1;
+        gap = 1;
     }
     return -1;
 }
@@ -316,12 +353,16 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
     unsigned char *p = (unsigned char *)P2ADDR((unsigned long)dst);
     int odd = (int)((unsigned long)p & 1u);
     unsigned left = sectors * GD_SECSZ;
+    gd_diag[2] = 0; gd_diag[3] = 0xffffffffu; gd_diag[4] = 0; gd_diag[5] = 0;
     while (left) {
         int wait = gd_wait_drq();
         if (wait < 0) return gd_fail(GD_E_DATA, fad);
-        if (wait > 0) break;            /* drive ended the command early: verdict below */
+        if (wait > 0) break;            /* drive ended with CHECK: verdict below */
         unsigned n = ((unsigned)GD_BCHI << 8) | (unsigned)GD_BCLO;
         if (!n || (n & 1u) || n > left) return gd_fail(GD_E_COUNT, fad);
+        gd_diag[2]++;
+        if (n < gd_diag[3]) gd_diag[3] = n;
+        if (n > gd_diag[4]) gd_diag[4] = n;
         left -= n;
         if (odd) {
             /* SH-4 faults on a 16-bit store to an odd address, and an unaligned
@@ -339,7 +380,19 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
         }
     }
 
-    if (gd_wait_clear(ST_BSY | ST_DRQ)) return gd_fail(GD_E_END, fad);
+    if (gd_wait_clear(ST_BSY | ST_DRQ)) {
+        /* Forensics before dying: pull whatever the drive still holds and
+         * count it (gd_diag[5], painted on the death screen). The leftover
+         * size says HOW the accounting desynced: a few whole sectors = block
+         * boundary, odd/huge = counter desync. Fatal path only. */
+        for (unsigned i = 0; i < GD_SPIN && gd_diag[5] < 0x400000u; i++) {
+            unsigned char st = GD_ALTSTAT;
+            if (st & ST_BSY) continue;
+            if (!(st & ST_DRQ)) break;
+            (void)GD_DATA; gd_diag[5] += 2;
+        }
+        return gd_fail(GD_E_END, fad);
+    }
     /* Read the real status register, not ALTSTAT: this is the read that acks
      * INTRQ (gdromv3.cpp:1046-1047) and carries the command's verdict. */
     if (GD_STATCMD & ST_CHECK) return gd_fail(GD_E_CHECK, fad);

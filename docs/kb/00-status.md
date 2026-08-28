@@ -491,6 +491,26 @@ P04A, P06A, P06C, P07D, P08B); ending paks are size-uniform per family
 → no new fit exposure. Full record + addresses:
 `phase5-hardware.md` §Ending system decoded.
 
+**Hardware first contact — round 1 diagnosed and fixed (2026-08-28).**
+Task 9 banked: card mastered (`make deploy` added; control disc Dolphin
+Blue boots = process sound). First senkosp boots: loader, handoff, cart
+streaming and even attract all work on real hardware, but sessions died
+probabilistically with an identical death signature at random cart
+offsets — `GD_E_END`, ALTSTAT `0x58` (DRQ still up after a "complete"
+read). Root cause: `gd_wait_drq` trusted any idle status sample as
+command-end; GDEMU floats idle between DRQ blocks while staging the
+next chunk, a window Flycast structurally cannot show (its status
+transitions are synchronous with the data-register read — the
+emulator-as-spec gap made flesh). Fix: idle is only final with CHECK
+set; otherwise keep polling (no tuned timing constant). Death screen
+now paints six `gd_diag` forensics rows; sticky slot-25 yellow mark =
+"the old code would have died here". Emulator regression green. New
+build **F-2u-r2**, track04 md5 `f004fba41ad50726e17085a8e780752b`
+(code-only; texture config = F-2u; F-2u `85f7b322…` superseded).
+Round 2 (operator): re-deploy, boot, expect reliability + slot-25
+yellow; if it still dies, photograph the 9-row death screen. Full
+round record: `phase5-hardware.md` §Hardware rounds.
+
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.
 

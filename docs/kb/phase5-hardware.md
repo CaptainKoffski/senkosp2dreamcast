@@ -2038,8 +2038,16 @@ Row 2 is slots 16+, 4 px below row 1 (y=12-19, x = (slot−16)×24 px) —
 | 23 | 2 | red | **Fault flag:** a maple list pointer or reply address landed outside RAM (undeliverable reply) | one-shot |
 | 24 | 2 | green↔blue blink | **New, Task 8:** GD-ROM drive poll heartbeat (`gd_wait_drq`/`gd_wait_clear`, `shims/src/gd.c`) — see below | repeating |
 
+| 25 | 2 | yellow, sticky | **New, round 1:** GD idle-gap survived — the wait-policy fix recovered a transfer the pre-round-1 code would have died on (`gd.c` `GD_RECOVERY_MARK`, §Hardware rounds Round 1) | one-shot per event |
+
 Full per-slot source citations: `shims/src/cart.c`, `shims/src/main.c`,
 `shims/src/gd.c` (grep `shim_mark(` in `shims/src/`).
+
+**Death-screen rows (round-1 extension):** `shim_die` paints
+code/a/b at y=100/114/128 as before, then six `gd_diag` forensics rows at
+y=156..226: recoveries, max wait-polls, blocks of the failing read, min
+announced byte count, max announced byte count, drained bytes after
+GD_E_END (`shims/src/util.c` `shim_die`, `shims/src/gd.c` `gd_diag`).
 
 ### The new heartbeat (slot 24)
 
@@ -2762,3 +2770,91 @@ high-water; costumes are ordinary character paks inside the envelope.
 Never executed: story/score clears with the other 7 characters (their
 14 ending paks), the Lili/Fabian-vs-Mika story final, Novice modifier,
 the 6 unpicked costumes.
+
+## Hardware rounds (Task 10)
+
+### Round 1 — first senkosp contact with real hardware (2026-08-28)
+
+**Setup:** operator's Dreamcast + GDEMU-class ODE, card mastered per Task 9
+(control disc Dolphin Blue + senkosp F-2u, track04 md5
+`85f7b3222e6bd2f6ae16d6f28bda47a1`). **Control test PASS:** Dolphin Blue and
+the operator's other games boot and run normally — card, ODE and process are
+sound; every observation below is about our bytes.
+
+**Observed (operator, multiple boots, non-deterministic):**
+
+| Boot | Sequence | Evidence |
+|---|---|---|
+| A | NAOMI splash → black → NOW LOADING (~10 s) → red death screen | `img/phase5-round1-red-1e76800.jpeg` |
+| B | same start → **attract reached** (story panels) → START pressed → black screen with digits | `img/phase5-round1-black-digits.jpeg` |
+| C | NAOMI splash → garbled stripe on the splash → red death screen | `img/phase5-round1-naomi-splash-stripe.jpeg`, `img/phase5-round1-red-810800.jpeg` |
+| — | healthy NOW LOADING with slot-24 heartbeat block (green) | `img/phase5-round1-nowloading.jpeg` |
+
+The game BOOTS: loader runs, handoff succeeds, cart streaming works well
+enough to reach attract once. The failure is probabilistic, mid-session.
+
+**Death screens decoded** (`shim_die(4, cart_off, gd_last_err)`,
+`shims/src/cart.c:144`; field order `util.c` `shim_die`):
+
+| Photo | cart offset | gd_last_err | Meaning |
+|---|---|---|---|
+| red-1e76800 | `0x01E76800` (~30 MB) | `0xDA055860` | site 5 GD_E_END, ALTSTAT 0x58, ERR 0x60 |
+| black-digits | `0x0935A800` (~147 MB) | `0xDA055860` | same |
+| red-810800 | `0x00810800` (~8 MB) | `0xDA055860` | same |
+
+Identical signature at three unrelated offsets: **site 5 = GD_E_END**
+("transfer done but the drive never went idle"), ALTSTAT `0x58` =
+DRDY|DSC|**DRQ** — after our byte accounting says the read is complete, the
+drive is still offering data. (Boot B's screen is black, not red, because the
+game's scanout base sat above the first MB of VRAM that `shim_die` floods;
+the hex rows paint into the visible framebuffer regardless.)
+
+**Root cause (code-level, `shims/src/gd.c` pre-fix `gd_wait_drq`):** the
+wait treated any BSY=0/DRQ=0 sample as "command ended early" and broke the
+transfer loop. Between DRQ blocks, GDEMU's firmware stages the next chunk,
+and status can float idle longer than `gd_settle`'s 4 discarded reads. When
+the race lost, the loop broke with bytes still owed; the end-of-command wait
+then timed out against the re-raised DRQ of the next block the drive went on
+to offer → GD_E_END with ALTSTAT 0x58, after burning the full `GD_SPIN`
+budget (~5-10 s — boot A's "~10 s at NOW LOADING then red"). Probabilistic
+per block boundary (thousands per session) → random offsets, random boots
+surviving. **Flycast cannot exhibit the window**: its status transitions are
+synchronous with the last data-register read (`gdromv3.cpp:1079`) — which is
+why 100% of emulator legs were green and why this driver's first hardware
+contact found it. Commercial games (and the control disc) are immune because
+the BIOS GD driver is interrupt-driven per block; our raw-ATA path must poll
+(the loader kills the BIOS driver's low RAM — `gd.c` header).
+
+**Fix (one variable):** idle is trusted only when CHECK is set — the one
+state a rejected command actually presents (`gdromv3.cpp:1030-1037`). Idle
+without CHECK keeps polling; DRQ reappearing resumes the transfer. No timing
+constant to tune; a genuinely dead drive still fails, one `GD_SPIN` slower,
+on a path that is fatal either way. Same policy closes the packet-accept
+stale-idle race. `shims/src/gd.c` `gd_wait_drq`.
+
+**Forensics added for the next round (passive, fatal-path only):**
+`gd_diag[8]` (`gd.c`), painted by `shim_die` as six extra hex rows under the
+existing three (`util.c`): recoveries survived / max wait-polls seen /
+DRQ blocks of the failing read / min announced byte count / max announced
+byte count / bytes drained off the drive after a GD_E_END. Plus **slot 25**
+(row 2, x=216): sticky yellow = at least one idle-gap was survived this
+session, i.e. the pre-fix code would have red-screened by now.
+
+**Emulator regression (F-2u-r2 build):** leg `phase5/f3-smoke`, 90 s
+unattended, 149 GDPIO + 112 GDDMA reads, 0 SHIMERR, attract credits + FREE
+PLAY on screen (screenshot verified). Fix is behavior-neutral under Flycast.
+New build: **F-2u-r2**, track04 md5 `f004fba41ad50726e17085a8e780752b`
+(texture config unchanged from F-2u; code-only revision).
+
+**Round 2 prediction (falsifiable):** boots become reliable; a yellow
+16×8 block appears at slot 25 during loading/play sooner or later. If it
+still red-screens, the death screen's rows 4-9 carry the six gd_diag values —
+photograph them; the drained-bytes row alone separates block-boundary desync
+(small, sector-multiple) from counter desync (large/odd).
+
+**Open observations, not blocking:** boot C's garbled stripe across the
+NAOMI splash — if it recurs on the fixed build, investigate as possible
+mid-block data corruption (separate mechanism from the wait race); the
+splash's cyan-white background on hardware matches the emulator's "cyan
+splash" (Task 12) — hardware photo suggests it is simply what this game's
+splash looks like, pending Task 12's formal disposition.

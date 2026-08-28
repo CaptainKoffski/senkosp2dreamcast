@@ -1093,3 +1093,13 @@ Operator hypothesis: score-attack bonus/final content. Fit exposure:
 none measured, and every record in all three is already VQ on disc
 (dt=0x03) with no PKTX portrait block in P09 — lighter than any
 campaign scene.
+
+### Leg: phase5/f3-smoke (2026-08-28, hardware round 1 regression)
+
+`captures/phase5/f3-smoke.log` (3.7 MB) — 90 s unattended
+`capture_dc_leg.sh` run of the **F-2u-r2** build (GD wait-policy fix,
+`phase5-hardware.md` §Hardware rounds Round 1) with `FLYCAST_SHOT`.
+149 GDPIO + 112 GDDMA reads, 0 SHIMERR, attract credits + FREE PLAY on
+the grabbed frame — the fix is behavior-neutral under Flycast, as the
+race analysis predicts (Flycast's status transitions are synchronous
+with the data-register read; the GDEMU idle window cannot occur there).
