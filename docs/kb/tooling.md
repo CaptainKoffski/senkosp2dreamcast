@@ -1152,3 +1152,32 @@ in serial out = LOADER_SERIAL live; 11 `TEXHUD` summary lines, 0
 `TEXERR`, all counters zero, arena words `a4=00800000 a18=00800000`
 (correct DC 8 MB arm); 162 GDPIO reads, 0 SHIMERR. This log is the
 emulator baseline to diff hardware round-3 captures against.
+
+### Leg: phase5/hw-round3b (2026-08-29, FIRST hardware serial capture)
+
+`captures/phase5/hw-round3b.log` (9.3 KB) — operator coder's-cable
+capture of **F-2u-r4** through the defective scenes. KOS + loader boot
+chatter complete, 30 TEXHUD summaries: KAMUI2 error cell clean the
+whole session, arena `00800000/00800000`, `gd=` 0→9 (idle-gap
+recoveries mid-scene). Verdict: `phase5-hardware.md` §Round 3 verdict.
+(`hw-round3.log`, 795 B baud garbage, kept as termios-lesson evidence.)
+
+### Leg: phase5/r5-smoke (2026-08-29, round-4 CRC pipeline control test)
+
+~110 s unattended Flycast leg of the r5 build (`SERIAL=1 CRC=1`),
+`Debug.SerialConsoleEnabled=yes`. 11 TEXHUD lines with `ie=00000000`
+throughout (Flycast never raises SB_ISTERR = emulator baseline for the
+TA-overflow hypothesis) + 74 SHIMCRC lines. `check_stream_crc.py
+--stdout r5-smoke.stdout.log --cartlog r5-smoke.log --dat
+<track04-slice> --track04 build/track04.iso`: **all checks PASS, exit
+0** (74/74 SHIMCRC, 270 GD reads verified, 4 lowfad). The
+texpatch-applied `--dat` is `dd if=build/track04.iso bs=4096 skip=864`
+(cart region starts at byte 3,538,944; extracted to scratchpad, 251 MB,
+not kept in-repo).
+
+### Leg: phase5/r6-smoke (2026-08-29, F-2u-r6 regression)
+
+~100 s unattended Flycast leg of **F-2u-r6** (adds `iea=` sticky
+SB_ISTERR accumulator; the round-4 hardware build, track04 md5
+`93a5a0c85200635c517021596da93ac9`). `ie=00000000 iea=00000000`
+throughout, 67 SHIMCRC lines, 0 SHIMERR — emulator baseline clean.

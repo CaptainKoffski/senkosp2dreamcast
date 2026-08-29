@@ -527,6 +527,22 @@ Round 3 (operator): deploy r4, capture serial through the defective
 scenes, send the log. Record: `phase5-hardware.md` §Hardware rounds
 §Round 3 goes serial-first.
 
+**Round 3 verdict (2026-08-29, leg `phase5/hw-round3b`).** First
+hardware serial capture, 4.3 min through the defective scenes: the
+game's KAMUI2 error cell NEVER fires (`cur=0`, all counters 0), arena
+correctly armed 8 MB — both round-2 families (allocation, KAMUI2-visible
+data error) are dead, and the F-2u VQ arena fix holds on hardware.
+Bonus: `gd=` climbed to 9 — the round-1 idle-gap fix engages routinely
+mid-scene. Surviving hypotheses: (c) real-TA geometry drop (ISP/TSP or
+object-list overflow — Flycast doesn't model limits; emulator baseline
+`ie=00000000`), (d) pixel-payload corruption below KAMUI2 visibility.
+Round 4 build **F-2u-r6** (`make gdi SERIAL=1 CRC=1`, track04 md5
+`93a5a0c85200635c517021596da93ac9`) carries both discriminators:
+`ie=`/`iea=` SB_ISTERR readout (sticky-OR) + SHIMCRC per cart read
+(offline checker control-tested PASS in emulator). Operator: deploy,
+capture `phase5/hw-round4`, walk the same scenes. Record:
+`phase5-hardware.md` §Round 3 verdict / §Round 4 instrument.
+
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.
 

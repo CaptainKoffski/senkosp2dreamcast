@@ -24,8 +24,13 @@
 # release build must stay silent (serial-SD dongles drive SD over these pins).
 ifeq ($(SERIAL),1)
 DEFS += -DSHIM_SERIAL=1 -DLOADER_SERIAL=1
-export DEFS
 endif
+# CRC=1 (needs SERIAL=1 to be audible): SHIMCRC line per delivered cart read;
+# verify with scripts/check_stream_crc.py (texpatch caveat in its docstring).
+ifeq ($(CRC),1)
+DEFS += -DSHIM_CRC=1
+endif
+export DEFS
 
 CARD ?= /Volumes/GDEMU/03
 DISC_FILES = build/disc.gdi build/track01.iso build/track02.raw \

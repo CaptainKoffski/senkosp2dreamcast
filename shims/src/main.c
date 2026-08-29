@@ -495,6 +495,17 @@ static void texhud_tick(void) {
         else if (cur == 1) tex_c1++;
     }
     tex_prev = cur;
+    /* SB_ISTERR (0xa05f6908), passive read (write-1-clears, we never write):
+     * PVR error-interrupt latches. Round-4 hypothesis rows: bit 2 = TA
+     * ISP/TSP parameter overflow, bit 3 = TA object list pointer overflow
+     * (holly_intc.h:52-53) -- real TA drops geometry when these fire;
+     * Flycast does not model the limits, which would explain hardware-only
+     * missing/flickering objects with a clean KAMUI2 error cell (round 3b).
+     * ie_acc ORs every per-kick sample: the game's ISR may write-1-clear the
+     * register between our samples, so only the sticky mask is trustworthy. */
+    static u32 ie_acc = 0;
+    u32 isterr = *(volatile u32 *)0xa05f6908;
+    ie_acc |= isterr;
     /* Serial mirror (SERIAL=1 builds; scif_putc is a no-op otherwise): one
      * TEXERR line per 0->nonzero transition (event-exact), one TEXHUD
      * summary every 512 kicks (~8.5 s) so a quiet log still proves liveness. */
@@ -508,8 +519,11 @@ static void texhud_tick(void) {
         scif_puts(" gd=");  scif_puthex(gd_diag[0]);
         scif_puts(" a4=");  scif_puthex(*(volatile u32 *)0x8c170ebc);
         scif_puts(" a18="); scif_puthex(*(volatile u32 *)0x8c170ed0);
+        scif_puts(" ie=");  scif_puthex(isterr);
+        scif_puts(" iea="); scif_puthex(ie_acc);
         scif_puts("\n");
     }
+    hex_paint(20, 352, ie_acc);
     hex_paint(20, 240, cur);
     hex_paint(20, 254, tex_trans);
     hex_paint(20, 268, tex_c6);

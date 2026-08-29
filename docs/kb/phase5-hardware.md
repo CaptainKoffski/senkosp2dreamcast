@@ -2964,3 +2964,64 @@ the log. Uploading builds over the cable (dc-tool/dcload) is possible in
 principle via a two-stage GDEMU image-swap trick but unproven here and
 saves little over `make deploy` — deferred unless SD shuffling becomes
 the bottleneck.
+
+### Round 3 verdict — KAMUI2 never errors; both round-2 families dead (2026-08-29)
+
+Operator leg `captures/phase5/hw-round3b.log` — first hardware serial
+capture (the first attempt `hw-round3.log`, 795 B of baud garbage, is
+the macOS termios reset-on-close lesson — tooling.md §Coder's cable).
+Full boot chatter (KOS banner, 60-entry patch table, staging, HANDOFF)
+then **30 TEXHUD summaries ≈ 4.3 min** spanning the defective scenes:
+
+- `cur=0, tr=0, c6=c7=c8=c1=0` the ENTIRE session. The game's KAMUI2
+  error cell **never fires on hardware** while assets are visibly
+  missing. Per the pre-registered reading guide: **neither round-2
+  family**. The "texture-error handler skips failed loads" mechanism —
+  the working theory since round 2 — is dead for this defect. Also:
+  c6/c7=0 means the F-2u VQ arena fix HOLDS on real hardware.
+- `a4=00800000 a18=00800000` — arena armed correctly (DC 8 MB), so no
+  mis-sizing either.
+- `gd=` climbed 0→9: **nine GDEMU idle-gap recoveries** during one
+  session — the round-1 fix engages routinely (each engagement is a
+  read the old code would have died on; distribution 0,1,2,2,…,7,8,9
+  across the 30 summaries — recoveries happen mid-scene, i.e. during
+  in-game streaming, not just boot).
+
+**Surviving hypothesis space** (hardware-only, systematic-with-flicker,
+2D unaffected, KAMUI2 clean):
+
+- **(c) render-side geometry drop** — real TA enforces ISP/TSP
+  parameter and object-list-pointer limits and silently drops geometry
+  past them; Flycast does not model exhaustion (no raise path in
+  practice — r5-smoke baseline `ie=00000000` throughout). Fits the
+  flicker (per-frame budget, borderline objects), the systematic
+  victims (biggest/latest-submitted objects), and the emulator gap.
+- **(d) delivery/pixel-payload corruption below KAMUI2 visibility** —
+  a texture whose header parses but whose payload is garbage "loads"
+  fine (no error code). Matches the garbled VQ pilot cut-in; weaker fit
+  for wholly missing objects.
+
+### Round 4 instrument — ISTERR + delivered-bytes CRC (build F-2u-r6)
+
+**Build F-2u-r6, track04 md5 `93a5a0c85200635c517021596da93ac9`** =
+`make gdi SERIAL=1 CRC=1` (new `CRC=1` knob → `-DSHIM_CRC=1`; r4/r5
+superseded, never deployed r5). Two discriminators in one session:
+
+- **`ie=`/`iea=` fields + paint row y352**: `SB_ISTERR` (`0xa05f6908`),
+  passive read (write-1-clears; we never write). Bit 2 = TA ISP/TSP
+  parameter overflow, bit 3 = TA object-list-pointer overflow
+  (holly_intc.h:52-53). `iea=` ORs every per-kick sample — the game's
+  ISR may clear the register between samples, so only the sticky mask
+  is trustworthy. Nonzero bits 2/3 on hardware with the emulator
+  baseline clean → hypothesis (c) confirmed.
+- **SHIMCRC line per delivered cart read**: verify with
+  `check_stream_crc.py --dat <texpatch-applied cart>` (= `track04.iso`
+  minus the first 3,538,944-byte boot region — `dd bs=4096 skip=864`).
+  All-match on hardware → delivery is byte-perfect, (d) dead at the
+  delivery layer (VRAM-side corruption would remain). Pipeline
+  control-tested in emulator (`phase5/r5-smoke`): 74/74 SHIMCRC + 270
+  GD reads PASS, exit 0.
+
+Serial cost: ~45 B/line at 115200 ≈ 4 ms per cart read + CRC compute
+over uncached P2 (~10 ms per 128 KB) — diagnostics-only build; timing
+skew is acceptable and recoveries are counted anyway.
