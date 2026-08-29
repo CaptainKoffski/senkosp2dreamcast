@@ -2,7 +2,8 @@
 """pktx_vq.py [senkosp.dat] — config F-2 (docs/kb/arena-fit-options.md §7,
 operator 2026-08-26): re-encode the 512² pilot cut-ins and the shared
 glow-ring sheets as same-size VQ; the 256² cockpit illustrations stay RAW
-(art-gate rule — VQ'd cockpits rejected). Ring sheets are identified by
+(art-gate rule — VQ'd cockpits rejected). r8 extends the set with the 4
+textless COMMON.PAK effect atlases (COMMON_TARGETS below). Ring sheets are identified by
 PVRT content md5: any 256² whose content also appears in P10.PAK/P11.PAK
 (the pure ring PAKs) is a ring; the per-character 256² is the cockpit.
 MODESEL untouched. The manifest this writes REPLACES build/texpatch/
@@ -47,6 +48,18 @@ dec = sv.dec
 sv.PSNR_FLOOR = 20.0
 
 PAK_RE = re.compile(r"^P(0[1-9][A-F]?|1[01])\.PAK$")
+
+# r8 (docs/kb/phase5-hardware.md §Round 6 prep): the 4 textless COMMON.PAK
+# effect atlases -> same-size VQ (previews approved 2026-08-27, 30.0-33.8 dB,
+# captures/phase5/textures/common-modesel/). Identified by PVRT content md5;
+# the fifth 256² raw (d54f6330..., button icons + SP logo) stays raw under
+# the no-text-compression rule. -112,640 B each, always resident.
+COMMON_TARGETS = {
+    "818eebda61ccea48782427feab565767",   # chunk 0xc000014 local e0
+    "5c7cf059d48644a41b9ca9486530bd09",   # chunk 0xc000014 local e1
+    "ccc80400b49392a7631ced16872d6ad9",   # chunk 0xc0141e4 local e2
+    "619b6ac455358f871d450717f1e89916",   # chunk 0xc0141e4 local e3
+}
 
 
 # ---- ISO walk (same mapping as texerrsave_postmortem.py) ----
@@ -151,6 +164,7 @@ def main():
         old.unlink()
 
     paks = sorted(n for n in files if PAK_RE.match(n))
+    paks.append("COMMON.PAK")            # r8: 4 effect atlases (COMMON_TARGETS)
 
     # F-2 ring identification: content md5s of every raw square in the pure
     # ring PAKs. A 256² elsewhere with a matching md5 is a shared ring copy;
@@ -189,7 +203,10 @@ def main():
 
         # ---- encode (dedup on PVRT content) ----
             key = hashlib.md5(rec[o:]).hexdigest()
-            if w == 256 and key not in ring_keys:
+            if pak == "COMMON.PAK":
+                if key not in COMMON_TARGETS:
+                    continue             # SP-logo sheet + everything else: raw
+            elif w == 256 and key not in ring_keys:
                 cockpits += 1            # cockpit sheet — stays raw (F-2)
                 continue
             if key not in encode_cache:
@@ -268,7 +285,8 @@ def main():
           "%d VQ / %d raw squares remain (F-2 expects the %d cockpit "
           "entries raw)" % (len(paks), vq, raw, cockpits))
     assert vq == len(manifest), "VQ entry count != manifest"
-    assert raw == cockpits, "raw squares != the cockpit entries F-2 skips"
+    # +1: COMMON's SP-logo sheet (d54f6330..., not in COMMON_TARGETS) stays raw
+    assert raw == cockpits + 1, "raw squares != cockpits + COMMON logo sheet"
 
 
 if __name__ == "__main__":

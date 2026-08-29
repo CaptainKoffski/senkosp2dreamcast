@@ -53,6 +53,29 @@ void shim_reboot(void) {
     ((void (*)(void))0xa0000000)();
 }
 
+/* G-CARVE (r8, docs/kb/phase5-hardware.md §Round 6 prep). The patch table
+ * repoints the KAMUI2 init chain's stage-7 pool word (FUN_8c02e300, dat
+ * 0xe4ec -> FUN_8c031af0) here. Reloc entry 4's -0x11A000 TA total would let
+ * the library's own carve (ispl = olb*3/4) set ISP to 0x5a4e0 = 369,888 --
+ * below the measured demand max 0x664e0 -- so after running the original
+ * stage this stomps the ispl/oll dev words (base 0x8c19e4bc, +0x844/+0x848)
+ * and their absolute frame-descriptor copies (bank A 0x8c1a18bc/c0, bank B
+ * 0x8c1a1948/4c, located via the rndreg-dc2 RAM dump) to the operator-
+ * accepted +10%-over-demand layout: ispl=0x711e0, oll=0x712e0. olb/nopbi are
+ * per-bank-size-derived and stay library-computed. One serial line so both
+ * emulator and hardware legs can confirm the hook fired. */
+void shim_g_carve(void);
+void shim_g_carve(void) {
+    ((void (*)(void))0x8c031af0)();       /* original init-chain stage 7 */
+    *(volatile unsigned int *)0x8c19ed00 = 0x000711e0;  /* dev+0x844 ispl */
+    *(volatile unsigned int *)0x8c19ed04 = 0x000712e0;  /* dev+0x848 oll  */
+    *(volatile unsigned int *)0x8c1a18bc = 0x000711e0;  /* desc bank A ispl */
+    *(volatile unsigned int *)0x8c1a18c0 = 0x000712e0;  /* desc bank A oll  */
+    *(volatile unsigned int *)0x8c1a1948 = 0x004711e0;  /* desc bank B ispl */
+    *(volatile unsigned int *)0x8c1a194c = 0x004712e0;  /* desc bank B oll  */
+    { void scif_puts(const char *); scif_puts("GCARVE\n"); }
+}
+
 /* ======================================================================
  * Maple/MIE service (Task 11) -- the shim half of the maple mirror.
  *
@@ -538,9 +561,35 @@ static void texhud_tick(void) {
 #define texhud_tick() ((void)0)
 #endif /* SHIM_TEXHUD */
 
+/* G-CARVE per-frame re-stomp (r8b). The init-thunk stomp (shim_g_carve)
+ * verifiably lands and is then reverted to the library carve by a writer no
+ * static path explains (r8a leg: all six words back to 0x5a4e0-family by
+ * render 1500; those six are the ONLY RAM cells that ever hold carve values
+ * -- whole-dump search). So re-assert per maple kick (~per frame), guarded
+ * on the exact library value so it can never fire pre-init, in test mode,
+ * or in any unexpected state, and count reverts: rv=1 means a one-shot
+ * post-init rewriter (converged); a growing rv means a per-frame fight
+ * (would show as register flapping in RNDREG). */
+static unsigned int gcarve_reverts;
+static void gcarve_tick(void) {
+    if (*(volatile u32 *)0x8c19ed00 != 0x0005a4e0u)
+        return;                          /* not the library-carve state */
+    *(volatile u32 *)0x8c19ed00 = 0x000711e0u;  /* dev+0x844 ispl */
+    *(volatile u32 *)0x8c19ed04 = 0x000712e0u;  /* dev+0x848 oll  */
+    *(volatile u32 *)0x8c1a18bc = 0x000711e0u;  /* desc bank A ispl */
+    *(volatile u32 *)0x8c1a18c0 = 0x000712e0u;  /* desc bank A oll  */
+    *(volatile u32 *)0x8c1a1948 = 0x004711e0u;  /* desc bank B ispl */
+    *(volatile u32 *)0x8c1a194c = 0x004712e0u;  /* desc bank B oll  */
+    gcarve_reverts++;
+    if (gcarve_reverts <= 4u) {
+        scif_puts("GCARVE rv="); scif_puthex(gcarve_reverts); scif_puts("\n");
+    }
+}
+
 int shim_maple_service(void);
 int shim_maple_service(void) {
     maple_service();
+    gcarve_tick();
     texhud_tick();
     if (SHIM_TRACE && (maple_count & 0x1ffu) == 0u) {   /* ~8 s heartbeat */
         scif_puts("MS n="); scif_puthex(maple_count & 0xffffu); scif_puts("\n");

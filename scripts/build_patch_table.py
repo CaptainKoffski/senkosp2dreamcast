@@ -470,6 +470,17 @@ for _site, _main, _test, _hw in MAPLE_BOOT_SITES:
 ptr(0x047e4c, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH main: restart -> DC reboot")
 ptr(0x1a4678, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH test: restart -> DC reboot")
 
+# ---- G-CARVE (r8, docs/kb/phase5-hardware.md §Round 6 prep) ---------------
+# Reloc entry 4's -0x11A000 TA total makes the library's own 3/4 carve set
+# ISP to 0x5a4e0 = 369,888 -- below the measured demand max 0x664e0 -- so the
+# KAMUI2 init chain's stage-7 pool word (FUN_8c02e300, dat 0xe4ec ->
+# FUN_8c031af0) is repointed at shim_g_carve, which runs the original stage
+# then stomps ispl/oll dev words + descriptor copies to the operator-accepted
+# +10% layout (ispl=0x711e0, oll=0x712e0). Main image only: the test image
+# has no reloc-entry-4 twin (it keeps stock -0x40000 TA, where the stock
+# carve is correct).
+ptr(0x00e4ec, 0x8C031AF0, sym("shim_g_carve"), "G-CARVE main: KAMUI2 carve stomp")
+
 # ---- emit -------------------------------------------------------------
 def _row(dat_off, img, old, new, what):
     old_b = list(old) + [0] * (12 - len(old))
