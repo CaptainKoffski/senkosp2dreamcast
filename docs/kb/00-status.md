@@ -777,3 +777,20 @@ inside a ±100KB variance band — **not shippable without one art
 concession**. Cockpit VQ retry (+225,280, tuned encoder + preview
 re-review) or hero 512² (+196,608, vetoed) closes it. Awaiting operator
 decision; E and G go into r8 either way.
+
+**Round-6 r8 BUILT, emulator legs green (2026-08-30, `phase5-hardware.md`
+§Round 6 build):** operator chose razor-thin r8 (no art change). T →
+−0x11A000; G verified live (init thunk + per-frame guarded re-stomp,
+`rv=1` — one-shot rewriter, registers hold ispl=0x711e0 both banks);
+COMMON's 4 atlases VQ'd at the approved 30.0–33.8 dB (manifest 69
+records); E implemented as a shim hook (MODESEL loader pool word →
+prefree wrapper calling the game's own unloader on the match resource
+array 0x8c1cfb50, idempotent). r8a–r8d legs: model holds to the byte
+(r8a died without COMMON exactly as predicted; r8b/c/d clear the
+round-5 fatal — `free=0x7c3e0` at the demo bundle, `c6=0`, `iea=0`).
+NOT yet verified: E functionally (needs an input-driven match →
+mode-select leg, expect `EPREFREE` on serial); the **Ernula+Lili
+stage-8 2P gate** (margin ~29KB before ±100KB variance — make-or-break;
+reserve = the vetoed art levers); ISP +10% on real silicon (watch
+`iea`). Next: operator legs — emulator Ernula+Lili first, then
+hardware round 6 with the diagnostic build.
