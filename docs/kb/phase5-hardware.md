@@ -3225,3 +3225,92 @@ binding-scene working set, target ≥1.2 MB savings (≈820 KB overflow +
 the emulator soak must **survive past the `o=0b496800` bundle parse**
 (SHIMCRC continues after it, `c6` stays 0) and the binding-scene VS
 leg must show ARENAHW min free ≥ ~0x60000.
+
+## Round 6 prep — carve dig, free-path status, corrected budget (2026-08-30)
+
+### 1. ISP:pool carve — formula pinned exactly (lever G feasible)
+
+Two independent layout data points pin the KAMUI2 per-bank carve to the
+byte (`captures/phase5/rndreg-dc.log` RNDREG lines, stock T=0x40000;
+`r7-smoke.log`, T=0x180000). P = per-bank TA area = T/2 (dev+0x840):
+
+| word | formula | stock (P=0x20000) | r7 (P=0xc0000) |
+|---|---|---|---|
+| olb (dev+0x850 → TA_OL_BASE) | P − 0x14980 | 0xb680 ✓ | 0xab680 ✓ |
+| ispl (dev+0x844 → TA_ISP_LIMIT) | olb × 3/4 | 0x88e0 ✓ exact | 0x808e0 ✓ exact |
+| oll (dev+0x848 → TA_OL_LIMIT) | ispl + 0x100 | 0x89e0 ✓ | 0x4809e0 (bank B) ✓ |
+
+0x14980 = static per-tile OPB array (0x12d48) + region array (0x1c38),
+both fixed by the 40×30 tile grid + TA_ALLOC_CTRL=0x100303 —
+scale-invariant across T. The 0x100 gap after ispl holds the background
+params. OPB spill pool = olb − oll (dynamic blocks carve downward from
+TA_NEXT_OPB_INIT = olb toward the oll floor); **never consumed** —
+`nopb==nopbi` in all 120 RNDREG samples across the rndreg-dc, r7-smoke
+and rndreg-naomi legs.
+
+Provenance: dev struct base 0x8c19e4bc (kmInitDevice, entry-3 patch
+note), layout words decoded from the `rndreg-dc2.log.ram.bin` dump
+(session scratchpad `find_layout_words.py`; also confirms dev+0x7f8
+vram size, +0x7fc tex area, +0x800 T, +0x840 P, and absolute per-bank
+copies in the frame-descriptor block 0x8c1a18b4–dc / 0x8c1a1940–68,
+descriptor pointers at dev+0x7d4/7d8/7dc). The carve is computed once at
+init by `FUN_8c031560` (float-ratio, config-fed) — stage 4 of
+`FUN_8c02e300`'s init chain (ptr pool 0x8c02e4d4–e8; the `FUN_8c031b60`
+stage computes only the T total, per reloc entry 4). Decomps via
+`scripts/ghidra/run.sh script Decomp.java`; pool→function mapping via
+new `WhichFuncArgs.java`.
+
+Patch strategy (avoids touching the float code): every post-carve value
+is a build-time constant once T is chosen, so lever G = a constant-store
+thunk stomping the dev words + descriptor copies after the init chain
+(or idempotently per frame). Injection toolchain exists (Cleopatra
+shim). Keep pool ≥ ~32KB/bank: spill was never observed, but deleting it
+entirely converts any future spill into silent dropped geometry.
+
+### 2. Free path — option E needs no fork leg
+
+The round-6 "log caller PC when arena free jumps" instrumentation is
+**dropped as unnecessary**: Task 19 already located the whole free path
+statically (§"The free path and the post-match mechanism" above) —
+arena free `FUN_8c03749c` (public wrapper `FUN_8c037440`), PAK unloader
+`FUN_8c0b5cf4(resources, mask)`, per-scene teardown at coroutine-task
+exit tails, PAK-slot command manager 0x8c087780 (load `FUN_8c087484` /
+free `FUN_8c08750c`). The +362,496 transition term is the mode-select
+task loading `MODESEL.PAK` before the match task's teardown tail runs;
+E = task-ordering patch (hoist teardown / delay successor load), as
+priced there.
+
+### 3. Budget correction — G and the ISP trim were double-counted
+
+Error found while re-deriving the round-6 arithmetic: **pool bytes
+reach the texture arena only through shrinking T.** The type-0x43 TA
+reservation node spans the whole per-bank area; re-carving ispl/oll
+inside it moves internal boundaries but frees nothing to the arena. So
+"G ≈ 350K + trim ≈ 131K" summed two views of the same bytes. Honest
+recovery = 0x180000 − T_r8, where T_r8 = 2×(ISP + 0x100 + pool +
+0x14980), pool ≈ 32KB/bank:
+
+| ISP/bank | vs demand max 0x664e0 | T_r8 | recovery vs r7 | worst-pair mid-match margin, +COMMON |
+|---|---|---|---|---|
+| 0x7b2a0 (504,480) | +20% | 0x130000 | 327,680 | **−61,056** |
+| 0x74a00 (477,696) | +14% | 0x122000 | 385,024 | **−3,712** |
+| 0x711e0 (463,328) | +10% | 0x11a000 | 417,792 | **+29,056** |
+
+margin = measured VS-peak free 489,856 (F-2u binding leg, stock T)
+− (T_r8 − 0x40000) + COMMON 450,560 − census worst-pair allowance
+18,432. All rows sit inside the ±100KB residency variance band, and the
+single round-5 hw `iea` latch argues against the +10% row. **The
+rule-respecting stack (G + COMMON + E) tops out at ~0–30KB of worst-pair
+margin — not shippable arithmetic.** The operator's fresh hardware data
+point (stage-8 2P Ernula-vs-Lili on r7, mid-match TEXTURE LOAD ERROR,
+no serial) is consistent with all of this — mid-match was over by
+~820KB under r7 regardless.
+
+What closes it: one art concession. Cockpit VQ (+225,280; the F-zero
+rejection was at default encoder settings — a vq_tuner re-encode +
+preview re-review is possible) lifts every row by 225,280 → margin
++164K to +254K, above the variance band even at conservative ISP.
+Hero 1024²→512² (+196,608 each, vetoed) is the equivalent alternative.
+MODESEL/text art is mid-match-irrelevant (E already removes its term).
+E stays mandatory regardless. Decision is the operator's — both
+concessions are their standing vetoes.

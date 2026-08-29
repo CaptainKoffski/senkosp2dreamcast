@@ -760,3 +760,20 @@ more hardware time on it. Round 6 (pending go): extend same-size VQ
 binding-scene set, ≥1.2 MB target, TA untouched; gate now requires
 surviving past the bundle parse + binding-scene ARENAHW free ≥
 0x60000.
+
+**Round-6 prep (2026-08-30, `phase5-hardware.md` §Round 6 prep):** the
+"extend same-size VQ ≥1.2MB" wording above is dead — no rule-respecting
+candidates of that size exist (portraits/rings already shipped VQ,
+stage art already VQ). Carve dig done: KAMUI2 per-bank TA split pinned
+exactly (ispl = olb×3/4, olb = P−0x14980, oll = ispl+0x100; OPB spill
+pool never consumed in 120 samples incl. Naomi arm) — lever G = a
+constant-store thunk, feasible. Option E's free path was already fully
+located by Task 19 (arena free FUN_8c03749c, PAK unloader FUN_8c0b5cf4,
+teardown at task exit; E = task-ordering patch) — no fork leg needed.
+But the round-6 budget had G and the ISP trim double-counted (same
+bytes): honest recovery caps at ~328–418KB, and the rule-respecting
+stack (G + COMMON + E) leaves only ~0–30KB worst-pair mid-match margin
+inside a ±100KB variance band — **not shippable without one art
+concession**. Cockpit VQ retry (+225,280, tuned encoder + preview
+re-review) or hero 512² (+196,608, vetoed) closes it. Awaiting operator
+decision; E and G go into r8 either way.
