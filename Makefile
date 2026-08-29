@@ -69,7 +69,10 @@ deploy: gdi
 	cp $(DISC_FILES) "$(CARD)/"
 	dot_clean -m "$(CARD)"
 	@ls -a "$(CARD)" | grep '^\._' && { echo "AppleDouble junk survived!"; exit 1; } || true
-	@echo "deployed to $(CARD) -- eject the card cleanly before pulling it"
+	@# ponytail: eject the whole volume, not the slot dir -- diskutil wants a
+	@# mount point. NOEJECT=1 to stage several slots in one card session.
+	$(if $(NOEJECT),@echo "deployed to $(CARD) -- NOT ejected",\
+	  diskutil eject "$$(df '$(CARD)' | tail -1 | awk '{print $$NF}')")
 
 clean:
 	$(MAKE) -C shims clean

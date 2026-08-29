@@ -556,6 +556,26 @@ buffer), not chip capacity. Next: PVR render-config register diff
 arm vs DC arm), then patch the DC arm. Record: `phase5-hardware.md`
 §Round 4 verdict.
 
+**Round 5 (2026-08-29, solo recon + fix build): ROOT CAUSE FOUND AND
+PATCHED — awaiting hardware confirmation.** The fork register diff
+(RNDREG legs, original Naomi vs DC port) exonerated every round-4
+candidate register — `FPU_PARAM_CFG`/`ISP_FEED_CFG`/`TA_ALLOC_CTRL`
+identical on both arms. The real diff: the 8 MB arm's per-frame TA
+budget — ISP param buffer 35 KB and OPB spill pool 11 KB per bank vs
+Naomi's 2.23 MB + 743 KB (65×) for the same scenes; real silicon drops
+per-tile geometry beyond these budgets (= the missing/flickering
+assets + the ISTERR bit-0 latch), while Flycast enforces no TA limits.
+Naomi-leg demand: peak 419 KB/frame (PARAMHW). Provenance: KAMUI2
+budget calculator `FUN_8c031b60` — one pool constant (P1 `0x8c031c14`
+= −0x40000) is the whole DC TA reservation. **Fix F-2u-r7**: patchset
+entry `0x11c14` → −0x180000 (768 KB/bank ⇒ ISP 527 KB = demand +26%,
+pool 175 KB); emulator gate PASS (layout re-derives coherently incl.
+FB move to 0xC0000, arena min free 236 KB, 89/89 + 420 CRC PASS, one
+non-gating `code=6` watch item). track04 md5
+`d50602fea6a9944dd5513ff6151a264c`. Next: operator round-5 hardware
+leg (`hw-round5`) — success = assets present + `iea=0`. Record:
+`phase5-hardware.md` §Round 5.
+
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.
 

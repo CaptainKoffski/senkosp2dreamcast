@@ -1192,3 +1192,46 @@ scenes. 204 SHIMCRC lines, `check_stream_crc.py` vs texpatch-applied
 track04 slice: **204/204 PASS, 0 mismatches** (coverage FAIL expected —
 no drive-log on hardware). 0 TEXERR, 0 SHIMERR, `gd=` → 0xc. Verdict:
 `phase5-hardware.md` §Round 4 verdict.
+
+### Legs: phase5/rndreg-dc, rndreg-naomi (2026-08-29, round-5 register diff)
+
+Two ~5.5-min unattended legs on the round-5 fork build (`RNDREG`
+render/TA register snapshot at every STARTRENDER, dedupe-by-layout —
+fork `INSTRUMENTATION.md`): the DC port (`capture_dc_leg.sh`,
+build/disc.gdi, F-2u-r6-era layout) vs the Naomi original
+(`capture_leg.sh`, roms/senkosp.zip). 18,432 renders each, both reach
+attract gameplay (DC: ARENAHW → alloc 0x747c20, 503 GD reads). One
+game layout each (double-banked ±0x400000), `fpu`/`feed`/`alloc`
+identical — the diff is the buffer budgets (ISP 0x88e0 vs 0x2200e0,
+OPB pool 0x2ca0 vs 0xb54a0). Verdict: `phase5-hardware.md` §Round 5.
+
+### Leg: phase5/paramhw-naomi (2026-08-29, TA-feed demand)
+
+~5.5-min Naomi-original leg on the `PARAMHW` fork probe (per-frame raw
+TA feed bytes, running max at context pop). 246 max-update lines,
+gradual growth to **peak 0x664e0 (419 KB/frame)** — the demand number
+that sized the round-5 patch. Growth curve is a creep, not a lone
+spike: many frames near max.
+
+### Leg: phase5/rndreg-dc2 (2026-08-29, RAM-dump poke-site hunt)
+
+130-s DC-port leg; one-shot full 16 MB main-RAM dump at render 1500
+(`captures/phase5/rndreg-dc2.log.ram.bin`, gitignored — ROM-derived).
+Offline search (`find_layout_words.py`, scratchpad) located every RAM
+copy of the DC-arm layout words: frame descriptors A/B at
+0x8c1a1890/0x8c1a191c (pointed to by KAMUI2 device 0x8c19e4bc +0x7d8/
++0x7dc) and the device budget block +0x7f8..+0x854 — which decoded the
+budget calculator inputs and led to the one-word patch (FUN_8c031b60
+pool constant, `scripts/reloc_patchset.json` entry 0x11c14).
+
+### Leg: phase5/r7-smoke (2026-08-29, F-2u-r7 fix gate)
+
+~5.5-min unattended Flycast leg of **F-2u-r7** (round-5 TA-budget
+patch, `reloc_patchset.json` 0x11c14: −0x40000 → −0x180000; `make gdi
+SERIAL=1 CRC=1`, track04 md5 `d50602fea6a9944dd5513ff6151a264c`).
+Layout re-derived live (`ispl=0x808e0`, pool 175 KB, FB → 0xC0000),
+stable 18,432 renders; ARENAHW min free 0x39be0; `check_stream_crc.py`
+89/89 SHIMCRC + 420 drive reads PASS (cart slice regenerated from the
+r7 track04 — the reloc patch is inside the cart region, old slices go
+stale); one non-gating `TEXERR code=6` (watch item). Verdict:
+`phase5-hardware.md` §Round 5.

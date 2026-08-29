@@ -3066,3 +3066,103 @@ depends on. Next step (solo, no operator): register-level diff — Ghidra
 (0x5f8000-0x5f80ff) + arm-dependence analysis, cross-checked in the
 fork by dumping the registers in a Naomi-mode run of the original vs
 our DC port at scene time. Then patch the DC arm's value.
+
+## Round 5 — the DC arm's TA budget: found, measured, patched (2026-08-29)
+
+The round-4 plan executed in one sitting, and the "config difference"
+turned out not to be a mis-programmed register at all but a **buffer
+budget**: the 8 MB arm gives the TA/CORE a per-frame geometry budget
+65× smaller than the Naomi arm running the same scenes.
+
+### The register diff (legs rndreg-dc / rndreg-naomi)
+
+`FindMmioXrefs` widened to the whole CORE block (0x5f8000–0x5f814f)
+showed the game reaches CORE registers through one KAMUI2 setter
+(`FUN_8c032140` = `*(0xa05f8000 + off) = val`, pool word `8c032160`),
+so the register truth was taken at runtime instead: fork probe `RNDREG`
+(one line per distinct render/TA register tuple at STARTRENDER — fork
+`INSTRUMENTATION.md`), original Naomi romset vs our DC port, 18,432
+renders each, same attract scenes. Result: `FPU_PARAM_CFG` =
+`0x0027df77`, `ISP_FEED_CFG` = `0x00800408`, `TA_ALLOC_CTRL` =
+`0x00100303`, span/scaler/clip — **identical on both arms** (all the
+round-4 candidate registers are exonerated). The only difference:
+
+| per bank | ISP param buffer | OPB spill pool |
+|---|---|---|
+| Naomi arm | 0 → `0x2200e0` (2.23 MB) | `0x2201e0` → `0x2d5680` (743 KB) |
+| DC arm | 0 → `0x88e0` (35 KB) | `0x89e0` → `0xb680` (11 KB) |
+
+Mechanism on real silicon: the TA parks per-tile object references in
+32-entry OPBs and spills into the pool; params beyond the ISP buffer /
+pool have nowhere to go and the tile renders without them — missing
+and flickering objects, and the CORE latches ISTERR bit 0 chewing on
+the truncated/overrun lists. Flycast builds host-side lists with no
+budget at all (`ta_vtx.cpp` reads only `ISP_FEED_CFG` bit 0), which is
+why the emulator never reproduced it.
+
+### Demand measurement (leg paramhw-naomi)
+
+Fork probe `PARAMHW` (raw TA feed bytes per frame at context pop):
+peak **0x664e0 = 419 KB/frame** over 5.5 min of Naomi attract incl.
+gameplay, a creeping max (many frames near peak), so the budget must
+cover ~420 KB, not just a lone spike.
+
+### Provenance of the budget (RAM dump + statics)
+
+One-shot RAM dump (leg rndreg-dc2) + pool-word statics located the
+whole chain in the KAMUI2 device struct `0x8c19e4bc`:
+
+- `+0x7f8` VRAM size (`0x00800000`, the arm), `+0x7fc` texture area
+  (`0x694000`), `+0x800` **total TA area** (`0x40000`), `+0x804` FB
+  total (`0x12c000` = 2×0x96000). They reconcile exactly:
+  `vram − FB − tex = TA`.
+- Frame descriptors A/B at `0x8c1a1890`/`0x8c1a191c` (device
+  `+0x7d8`/`+0x7dc`) carry the per-bank register values the TA setup
+  (`FUN_8c03b7a0`) and render kick flush every frame; the game reads
+  the same layout back via kmGetSystemStatus (`FUN_8c030f80`,
+  device `+0x82c..+0x854`) for its own arena reservations.
+- **The computation:** `FUN_8c031b60` (called from the km display
+  config path) sets `tex = request; if (tex + FB >= vram) tex = vram −
+  FB + C; TA = vram − FB − tex`. The game statically requests a 9 MB
+  texture area (fits the Naomi 16 MB arm, granted, TA gets the
+  leftover 0x5d4000); on the 8 MB arm the clamp always fires and the
+  pool constant `C` at **P1 `0x8c031c14` = `0xfffc0000` (−0x40000) IS
+  the entire DC TA budget** — 128 KB per bank for ISP + pool + static
+  OPBs + region array.
+
+### The fix (build F-2u-r7) and its emulator gate (leg r7-smoke)
+
+`scripts/reloc_patchset.json` entry `dat_offset 0x11c14`:
+`0xfffc0000 → 0xffe80000` (TA total 0x40000 → **0x180000**, 768 KB per
+bank). One word; every downstream value re-derives at init because the
+game queries the library for the layout. r7-smoke (5.5 min, SERIAL=1
+CRC=1, track04 md5 `d50602fea6a9944dd5513ff6151a264c`):
+
+- New layout confirmed live: `ispl=0x808e0` (**527 KB ISP per bank,
+  26% over measured peak demand**), OPB pool `0x2aca0` (175 KB),
+  `rb=0xbe3c8`, FB auto-moved to `0xC0000`/`0x4C0000` (SOFWR),
+  background tag re-derived (`bgt=0117c590`), bank B all +0x400000.
+  Stable for all 18,432 renders.
+- Texture arena still fits: peak `alloc=0x7c6420`, **min free
+  `0x39be0` (236 KB), nfree=1** — thinner than the unpatched leg's
+  753 KB but positive with the same scene coverage. If a heavier
+  scene ever exhausts it, the TEXHUD c7/c8/c1 counters catch it and
+  the F-2u VQ shrink list is the relief valve.
+- Delivery chain intact: `check_stream_crc.py` **89/89 SHIMCRC + 420
+  drive reads PASS** against the r7 cart (patch changes cart bytes —
+  the checker slice must be regenerated from the r7 track04).
+- One `TEXERR code=6` (T4 header-check, data-integrity family) fired
+  once (`c6=1`, no recurrence, no visual correlate examined). Code 6
+  has pre-patch precedent (Task 5 control leg, `idx=2`); the unpatched
+  5.5-min A/B legs did not show it, so it stays an open watch item for
+  the hardware leg (c6 counter is on the TEXHUD serial line), not a
+  gate failure.
+
+**Round-5 operator card:** deploy F-2u-r7 (`make deploy`), serial
+capture as `hw-round5`, drive to the round-2 defective scenes.
+Success = assets present where round 2 lost them; `ie=`/`iea=` stays
+`00000000` (or at least stops latching per-frame); `tr=/c6=` stay ~0;
+`gd=` free to tick (round-1 fix). Failure modes are separable by
+instrument: assets still missing with `iea=0` = budget helped but
+something else too small (raise to −0x1c0000 needs VQ relief);
+`c7/c8/c1` nonzero = arena exhausted (extend VQ list).

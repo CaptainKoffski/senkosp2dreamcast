@@ -14,12 +14,15 @@ public class FindMmioXrefs extends GhidraScript {
         {0x005f7000L, 0x005f7014L}, // cart ROM-board regs
         {0x005f7400L, 0x005f74ffL}, // G1 GD-ROM DMA channel
         {0x005f6c00L, 0x005f6cffL}, // Maple bus controller
-        {0x005f8050L, 0x005f8067L}, // PVR FB_R_SOF1/2 + FB_W_SOF1/2 (VRAM/FB placement)
+        // Phase 5 round-4: widened from FB_SOF-only (0 hits) to the whole CORE
+        // render-config block INCLUDING the 0x5f8000 base itself — the game
+        // reaches these regs via base+disp, so only the base constant pools.
+        {0x005f8000L, 0x005f814fL}, // PVR CORE render config (ISP_FEED_CFG etc.)
         {0x00710000L, 0x0071ffffL}, // Naomi RTC (guts scan: 3 refs to trace)
         {0x1fe80000L, 0x1fe8ffffL}, // SH-4 SCIF (0xffe80000 & 0x1fffffff)
         {0x1fc00000L, 0x1fc000ffL}, // SH-4 WDT (WTCNT/WTCSR) — expect zero
     };
-    private static final String[] LABELS = {"cart", "g1dma", "maple", "pvr_fb", "rtc", "scif", "wdt"};
+    private static final String[] LABELS = {"cart", "g1dma", "maple", "pvr_core", "rtc", "scif", "wdt"};
 
     @Override
     public void run() throws Exception {
