@@ -586,6 +586,26 @@ static void gcarve_tick(void) {
     }
 }
 
+/* E-PREFREE (r8, docs/kb/phase5-hardware.md §Round 6 prep + §2 free path).
+ * The mode-select scene loads MODESEL.PAK at task entry BEFORE the match
+ * task's teardown tail has freed the match textures -- the +362,496
+ * transition spike that is the T1 binding term. The patch table repoints the
+ * scene's loader pool word (dat 0x13930c -> by-name loader FUN_8c0b5be8)
+ * here: free the match scene's VRAM texture list first, then run the load.
+ * Safe by construction: FUN_8c0b5cf4 skips null slots and NULLS each slot it
+ * frees (Decomp), so from-boot entries (slot still 0) are no-ops and the
+ * real teardown's later 0x19-mask call finds bit-0 already null. Mask 1
+ * (textures only): the teardown's unguarded inline heap-frees read the +4/+8
+ * slots, which mask 1 never touches. Args passed through untouched (by-name
+ * loader takes (name[, flags]) in r4/r5; r6/r7 forwarded for safety). */
+int shim_e_prefree(int a, int b, int c, int d);
+int shim_e_prefree(int a, int b, int c, int d) {
+    ((void (*)(unsigned int *, unsigned int))0x8c0b5cf4)
+        ((unsigned int *)0x8c1cfb50, 1u);
+    scif_puts("EPREFREE\n");
+    return ((int (*)(int, int, int, int))0x8c0b5be8)(a, b, c, d);
+}
+
 int shim_maple_service(void);
 int shim_maple_service(void) {
     maple_service();

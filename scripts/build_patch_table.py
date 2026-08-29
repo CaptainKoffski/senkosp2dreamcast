@@ -481,6 +481,16 @@ ptr(0x1a4678, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH test: restart -> DC r
 # carve is correct).
 ptr(0x00e4ec, 0x8C031AF0, sym("shim_g_carve"), "G-CARVE main: KAMUI2 carve stomp")
 
+# ---- E-PREFREE (r8, docs/kb/phase5-hardware.md §Round 6 prep) -------------
+# Mode-select's task entry loads MODESEL.PAK before the match task's teardown
+# tail has freed the match textures (+362,496 transition spike = the T1
+# binding term). Repoint the scene's by-name-loader pool word at the shim
+# wrapper, which first calls the game's own PAK unloader FUN_8c0b5cf4 on the
+# match scene's static resource array (0x8c1cfb50, teardown site 0x8c08498e)
+# with mask 1 (VRAM textures only), then runs the original load. Idempotent:
+# the unloader nulls slots it frees and skips null slots.
+ptr(0x13930c, 0x8C0B5BE8, sym("shim_e_prefree"), "E-PREFREE main: MODESEL load frees match textures first")
+
 # ---- emit -------------------------------------------------------------
 def _row(dat_off, img, old, new, what):
     old_b = list(old) + [0] * (12 - len(old))
