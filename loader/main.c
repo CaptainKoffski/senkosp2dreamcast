@@ -67,8 +67,10 @@ extern uint8 splash_bin[];      /* objcopy-embedded 640x480 RGB565 (Makefile) */
  * overriding it with a no-op means no dbgio device is ever selected and
  * dbgio_enabled stays 0, killing all dbglog/printf output from before the
  * KOS boot banner (every dbgio_write_* is guarded, dbgio.c:162-169). Flip to
- * 1 for serial diagnostics (debug builds). */
+ * 1 for serial diagnostics (debug builds): make gdi SERIAL=1 (top Makefile). */
+#ifndef LOADER_SERIAL
 #define LOADER_SERIAL 0
+#endif
 #if !LOADER_SERIAL
 int dbgio_init(void) { return 0; }   /* strong override of KOS weak symbol */
 #endif

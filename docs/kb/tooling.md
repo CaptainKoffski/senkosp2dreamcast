@@ -1103,3 +1103,44 @@ campaign scene.
 the grabbed frame — the fix is behavior-neutral under Flycast, as the
 race analysis predicts (Flycast's status transitions are synchronous
 with the data-register read; the GDEMU idle window cannot occur there).
+
+### Leg: phase5/r3-smoke (2026-08-28, round-3 instrument regression)
+
+`captures/phase5/r3-smoke.log` (3.2 MB) — 90 s unattended
+`capture_dc_leg.sh` run of the **F-2u-r3** build (SHIM_TEXHUD paints,
+`phase5-hardware.md` §Hardware rounds Round 2). 140 GDPIO reads,
+0 SHIMERR, attract reached. Texhud rows invisible under Flycast by
+design (GL present replaces VRAM paints — §HUD kit); the instrument's
+emulator gate here was "boots and behaves identically", nothing more.
+
+### Coder's cable + serial capture (2026-08-29, hardware round 3)
+
+Operator-assembled coder's cable (DC serial port ↔ USB serial adapter,
+shows up as `/dev/cu.usbserial*`). Line settings **115200 8N1** — the
+KOS dbgio scif default (`kos/kernel/arch/dreamcast/include/dc/scif.h:38`,
+`DEFAULT_SERIAL_BAUD 115200`); the shim inherits the loader's SCIF state
+(`shims/src/scif.c` header). Verified by the operator with `screen`
+against a `LOADER_SERIAL 1` build before any tooling was written.
+
+- **Debug build knob:** `make gdi SERIAL=1` (top Makefile) →
+  `-DSHIM_SERIAL=1 -DLOADER_SERIAL=1` into both shim and loader
+  sub-makes. Both flags verified on the compiler command lines; release
+  default stays silent (serial-SD dongles own the SCIF pins).
+- **Host capture:** `scripts/capture_serial.sh <leg> [dev] [baud]` —
+  stty raw + `tee` into `captures/<leg>.log`, live echo, refuses to
+  overwrite an existing leg. Start before powering the console.
+- **Emulator equivalent:** Flycast `-config
+  config:Debug.SerialConsoleEnabled=yes` routes SCIF TX to stdout
+  (`core/cfg/option.cpp:132` in the fork) — serial legs and emulator
+  legs are now the same grep.
+
+### Leg: phase5/r4-smoke (2026-08-29, serial path end-to-end)
+
+`captures/phase5/r4-smoke.log` (3.3 MB) + `.stdout.log` — ~110 s
+unattended `capture_dc_leg.sh` run of **F-2u-r4** (`make gdi SERIAL=1`,
+track04 md5 `c4d9a362eae8368f65ba846bfdf5d6df`) with
+`Debug.SerialConsoleEnabled=yes`. KOS boot banner (`KallistiOS v2.3.0`)
+in serial out = LOADER_SERIAL live; 11 `TEXHUD` summary lines, 0
+`TEXERR`, all counters zero, arena words `a4=00800000 a18=00800000`
+(correct DC 8 MB arm); 162 GDPIO reads, 0 SHIMERR. This log is the
+emulator baseline to diff hardware round-3 captures against.

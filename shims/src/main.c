@@ -486,7 +486,8 @@ static void texhud_tick(void) {
                tex_c8 = 0, tex_c1 = 0, tex_ever = 0;
     extern unsigned int gd_diag[8];
     u32 cur = *(volatile u32 *)0x8c1a20a8;
-    if (cur != 0 && tex_prev == 0) {
+    u32 fired = (cur != 0 && tex_prev == 0);
+    if (fired) {
         tex_trans++; tex_ever = 1;
         if (cur == 6) tex_c6++;
         else if (cur == 7) tex_c7++;
@@ -494,6 +495,21 @@ static void texhud_tick(void) {
         else if (cur == 1) tex_c1++;
     }
     tex_prev = cur;
+    /* Serial mirror (SERIAL=1 builds; scif_putc is a no-op otherwise): one
+     * TEXERR line per 0->nonzero transition (event-exact), one TEXHUD
+     * summary every 512 kicks (~8.5 s) so a quiet log still proves liveness. */
+    if (fired || (maple_count & 0x1ffu) == 0u) {
+        scif_puts(fired ? "TEXERR cur=" : "TEXHUD cur="); scif_puthex(cur);
+        scif_puts(" tr=");  scif_puthex(tex_trans);
+        scif_puts(" c6=");  scif_puthex(tex_c6);
+        scif_puts(" c7=");  scif_puthex(tex_c7);
+        scif_puts(" c8=");  scif_puthex(tex_c8);
+        scif_puts(" c1=");  scif_puthex(tex_c1);
+        scif_puts(" gd=");  scif_puthex(gd_diag[0]);
+        scif_puts(" a4=");  scif_puthex(*(volatile u32 *)0x8c170ebc);
+        scif_puts(" a18="); scif_puthex(*(volatile u32 *)0x8c170ed0);
+        scif_puts("\n");
+    }
     hex_paint(20, 240, cur);
     hex_paint(20, 254, tex_trans);
     hex_paint(20, 268, tex_c6);

@@ -3,6 +3,7 @@
 TARGET = loader.elf
 OBJS = main.o handoff.o gd.o shim_blob.o bios_data.o splash_blob.o
 CFLAGS += -I../shims/include -I../build
+CFLAGS += $(DEFS)   # debug toggles from the top Makefile (e.g. SERIAL=1)
 BIOS = ../bios/naomi/epr-21576h.ic27   # Naomi Japan bios0 (gitignored ROM)
 all: ../build/1ST_READ.BIN
 include $(KOS_BASE)/Makefile.rules

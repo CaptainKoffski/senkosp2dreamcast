@@ -19,6 +19,14 @@
 # Requires: sh-elf toolchain at /opt/toolchains/dc, KOS via
 # ../cleopatra/tools/kos, BIOS at bios/naomi/epr-21576h.ic27 (gitignored).
 
+# SERIAL=1 (e.g. make gdi SERIAL=1): debug build with the SCIF voice on --
+# shim SHIM_SERIAL + loader LOADER_SERIAL. Coder's-cable sessions only; a
+# release build must stay silent (serial-SD dongles drive SD over these pins).
+ifeq ($(SERIAL),1)
+DEFS += -DSHIM_SERIAL=1 -DLOADER_SERIAL=1
+export DEFS
+endif
+
 CARD ?= /Volumes/GDEMU/03
 DISC_FILES = build/disc.gdi build/track01.iso build/track02.raw \
              build/track03.iso build/track04.iso

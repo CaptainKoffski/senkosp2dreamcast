@@ -2924,3 +2924,43 @@ vanished; `shims/build/shim.map` is the ground truth for what ships).
 The §HUD kit slot table rows citing that region (slots 2-3, 8-14 and the
 per-trigger 16-20) describe NEVER-PAINTED legacy slots — table audit
 pending. Live slots in the shipping shim: 0 (ee), 1, 4-7, 15, 21-26.
+
+### Round 3 goes serial-first — coder's cable live (2026-08-29)
+
+Operator assembled a coder's cable, verified it end-to-end (loader
+rebuilt with `LOADER_SERIAL 1`, KOS boot output seen in `screen`).
+Photos are now the backup channel, not the primary one.
+
+**Build F-2u-r4 (track04 md5 `c4d9a362eae8368f65ba846bfdf5d6df`)** —
+supersedes r3; one-command debug build: **`make gdi SERIAL=1`** (top
+Makefile knob → `-DSHIM_SERIAL=1 -DLOADER_SERIAL=1` into both sub-makes;
+`LOADER_SERIAL` is now `#ifndef`-guarded in `loader/main.c`, no more
+hand-edits). Release builds stay silent by default — serial-SD dongles
+own the SCIF pins (`shims/src/scif.c` header). Additions over r3:
+
+- **texhud serial mirror** (`texhud_tick`): one `TEXERR cur=… tr=… c6=…
+  c7=… c8=… c1=… gd=… a4=… a18=…` line per 0→nonzero error-cell
+  transition (event-exact), plus the same fields as a `TEXHUD` summary
+  every 512 kicks (~8.5 s) so a quiet log still proves liveness.
+  `a4`/`a18` = the two arena-config words (y324/y338 of the paint rows).
+  `SHIMERR` (death), `SHIMCRC`/`SHIM_TRACE` (opt-in `DEFS`) also speak
+  now that `SHIM_SERIAL=1`.
+- **`scripts/capture_serial.sh <leg> [dev] [baud]`** — host capture:
+  auto-detects `/dev/cu.usbserial*`, 115200 8N1 raw (KOS dbgio default,
+  `kos/.../include/dc/scif.h:38`), `tee` into `captures/<leg>.log`,
+  refuses to overwrite an existing leg. Start it BEFORE booting the
+  console so the loader banner lands in the log.
+
+Emulator control (`phase5/r4-smoke`, Flycast
+`Debug.SerialConsoleEnabled=yes` routes SCIF to stdout): see tooling.md
+leg row — the same TEXHUD lines are the emulator baseline (expected all
+zeros there), so hardware-vs-emulator becomes a log diff, not a photo
+comparison.
+
+**Round-3 operator flow:** `make deploy SERIAL=1 CARD=…` → in another
+terminal `scripts/capture_serial.sh phase5/hw-round3` → boot, walk the
+defective scenes (attract demo, char select, a match) → ctrl-C → send
+the log. Uploading builds over the cable (dc-tool/dcload) is possible in
+principle via a two-stage GDEMU image-swap trick but unproven here and
+saves little over `make deploy` — deferred unless SD shuffling becomes
+the bottleneck.

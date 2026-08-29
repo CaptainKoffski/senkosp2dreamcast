@@ -511,6 +511,22 @@ Round 2 (operator): re-deploy, boot, expect reliability + slot-25
 yellow; if it still dies, photograph the 9-row death screen. Full
 round record: `phase5-hardware.md` §Hardware rounds.
 
+**Round 2 verdict + serial debugging live (2026-08-29).** Boot fix
+HARDWARE-CONFIRMED (reliable boots to gameplay). New defect, systematic
+not stochastic: whole asset classes missing/flickering (stage
+backgrounds, opponent model, meter fills) while 2D art renders — the
+game's texture-error handler silently skipping failed loads. Round-3
+instrument = `SHIM_TEXHUD` (live KAMUI2 error-cell rows + counters +
+arena-config words). Operator assembled a **coder's cable** (verified
+with `screen`): debugging is now serial-first — `make gdi SERIAL=1`
+(new knob: shim `SHIM_SERIAL` + loader `LOADER_SERIAL`), host capture
+`scripts/capture_serial.sh <leg>`, texhud mirrored as grep-able
+`TEXERR`/`TEXHUD` lines. Current build **F-2u-r4**, track04 md5
+`c4d9a362eae8368f65ba846bfdf5d6df` (supersedes r3 `57ab322e…`).
+Round 3 (operator): deploy r4, capture serial through the defective
+scenes, send the log. Record: `phase5-hardware.md` §Hardware rounds
+§Round 3 goes serial-first.
+
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.
 
