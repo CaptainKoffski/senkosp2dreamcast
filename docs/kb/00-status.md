@@ -743,3 +743,20 @@ Each is argued where it is cited; this is the index, not the argument.
 
 Real hardware is Phase 5. ARAM fits (u 0.643, confirmed) and asset cutting is
 not triggered — all content fits as volume.
+
+**Round 5 hardware verdict (2026-08-30, leg `phase5/hw-round5`).**
+Geometry side WON: intro/tutorial 3D models render on hardware and
+`iea` latched once all run (vs every 3D frame in round 4) — the TA
+budget patch is correct and must stay at −0x180000 (ISP margin is
+adequate, not generous). Fatal regression: the patch's 0x140000 arena
+cost re-opened the Task-5/6/7 T1 arena-exhaustion hang — game halts on
+its own TEXTURE LOAD ERROR screen (code 6, the T1 signature) at the
+attract demo-battle bundle (`o=0b496800`), 3 blocks / ~556 KB short;
+binding-scene VS predicted ~820 KB over. The r7-smoke emulator gate
+had actually failed at the same freeze (call corrected in
+`phase5-hardware.md` §Round 5 hardware verdict). r7 unshippable, no
+more hardware time on it. Round 6 (pending go): extend same-size VQ
+(accepted Task-16/17 technique) to the demo-battle/2p-stages bundle +
+binding-scene set, ≥1.2 MB target, TA untouched; gate now requires
+surviving past the bundle parse + binding-scene ARENAHW free ≥
+0x60000.

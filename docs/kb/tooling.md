@@ -1235,3 +1235,4 @@ stable 18,432 renders; ARENAHW min free 0x39be0; `check_stream_crc.py`
 r7 track04 — the reloc patch is inside the cart region, old slices go
 stale); one non-gating `TEXERR code=6` (watch item). Verdict:
 `phase5-hardware.md` §Round 5.
+| `phase5/hw-round5` | hardware serial, F-2u-r7 (operator, 2026-08-29) | round-5 verdict: geometry fixed (`iea` latched once), fatal `TEXERR cur=6` after `o=0b496800` demo-battle bundle = T1 arena exhaustion regression (TA patch cost 0x140000); on-screen error photo `A65F808F-…_1_102_o.jpeg` = TEXHUD mirror |

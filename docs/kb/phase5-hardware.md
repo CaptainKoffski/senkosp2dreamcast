@@ -3166,3 +3166,62 @@ Success = assets present where round 2 lost them; `ie=`/`iea=` stays
 instrument: assets still missing with `iea=0` = budget helped but
 something else too small (raise to −0x1c0000 needs VQ relief);
 `c7/c8/c1` nonzero = arena exhausted (extend VQ list).
+
+## Round 5 hardware verdict — geometry FIXED, arena regression fatal (2026-08-30)
+
+**Leg `captures/phase5/hw-round5.log` (F-2u-r7, operator, 2026-08-29).**
+Operator report: intro 3D models render, demo tutorial renders, then the
+game halts on its own "ERROR !! TEXTURE LOAD ERROR !" screen at the
+tutorial→demo-battle transition (photo `A65F808F-…_1_102_o.jpeg`; the
+on-screen number grid is the shim TEXHUD mirror).
+
+**Half a win: the TA-budget patch works.** 3D geometry that round 2/4
+lost is present, and `iea` (SB_ISTERR bit-0 accumulator) latched **once
+in the whole run** (log line 184, mid-attract) versus round 4's
+every-3D-frame latch. Corollary: ISP 527 KB/bank is adequate but *not*
+generous — one transient still peaked over it. **The TA reservation
+must not be shrunk to buy arena back** (a −0x140000 total would carve
+ISP ≈438 KB, 4.6% over the still-creeping Naomi-leg max 0x664e0).
+
+**The fatal is the OLD bug back: T1 VRAM-arena exhaustion.** Evidence
+chain, all primary (leg logs):
+
+- `TEXERR cur=6 tr=1 c6=1 c7=c8=c1=0` (hw-round5.log:216) after the
+  read sequence `o=077d5000, o=07e43000, o=0b496800 (l=0x3be800)` — the
+  attract demo-battle bundle (`cart-streaming-map.csv`: char/2p-stages
+  bundle). Identical sequence → identical `code=6` → frozen heartbeats
+  in the *emulator* leg `r7-smoke.stdout.log:315-327` — the r7 smoke
+  gate had actually FAILED here (game froze at the same error screen;
+  only TEXHUD heartbeats follow, zero further SHIMCRC). The prior
+  section's "one code=6, non-gating, same scene coverage" call is
+  **withdrawn** — coverage ended at the freeze.
+- Same event pre-dates every fix: Task-5 control leg
+  (`instrument-ctl.stdout.log` ends at the same read, line 186/186) and
+  Task-6 `soak-1` (auto-savestate fired there; Task-7 autopsy verdict:
+  arena exhaustion) died at the same bundle on stock textures. The
+  F-2u VQ fix cured it (rndreg-dc r6 leg parses the bundle and
+  continues); the TA patch un-cured it.
+- ARENAHW line-by-line, r6 (`rndreg-dc.log`) vs r7 (`r7-smoke.log`),
+  same `tex=` sequence: r7 `alloc` runs exactly **+0x140000** (the TA
+  patch delta) above r6. r6 completes the bundle at `nblk=0x59,
+  tex=0x5dbc20, free=0xb83e0`; r7 dies at `nblk=0x56, tex=0x51a420,
+  free=0x39be0` — **three blocks short, needing 0xc1800 more with
+  0x39be0 free** (shortfall 0x87c20 ≈ 556 KB, nfree=1 so not
+  fragmentation). `code=6` is this game's arena-exhaustion signature
+  (Task 7), not a data error — delivery CRC of the bundle is identical
+  in stock, r6, r7 and hardware legs (`c=c98f990d`).
+- Prediction for play: F-2u's binding-scene min free was 0x77c00
+  (489,856; §Task 18) < 0x140000, so VS gameplay on r7 would overflow
+  by ≈0xC8400 (~820 KB). **r7 is unshippable; no further hardware
+  time on it** — the hw-round5 log already contains the full verdict
+  (gameplay leg not required).
+
+**Round-6 direction (pending go):** keep TA at −0x180000; recover the
+arena on the texture side — extend the *same-size VQ* conversion
+(Task-16 re-encoder, the technique the operator already accepted in
+the Task-17 A/B gate) to the demo-battle/2p-stages bundle and
+binding-scene working set, target ≥1.2 MB savings (≈820 KB overflow +
+~400 KB restored slack). Gate criterion fixed by this round's lesson:
+the emulator soak must **survive past the `o=0b496800` bundle parse**
+(SHIMCRC continues after it, `c6` stays 0) and the binding-scene VS
+leg must show ARENAHW min free ≥ ~0x60000.
