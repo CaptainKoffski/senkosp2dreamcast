@@ -3314,3 +3314,66 @@ Hero 1024²→512² (+196,608 each, vetoed) is the equivalent alternative.
 MODESEL/text art is mid-match-irrelevant (E already removes its term).
 E stays mandatory regardless. Decision is the operator's — both
 concessions are their standing vetoes.
+
+## Round 6 build — F-2u-r8 (G + COMMON + E), emulator legs green (2026-08-30)
+
+Operator decision: **razor-thin r8, no art change** — G + COMMON + E at
+ISP +10% over measured demand, everything gated on the Ernula+Lili leg.
+
+**Config** (commits 97e8ac2, ad3942e):
+- **T**: reloc entry 4 → `-0x11A000` (per-bank 0x8d000; arena cost
+  0xda000 vs stock, recovery 0x66000 = 417,792 vs r7).
+- **G**: target layout ispl=0x711e0 (463,328, +10.6% over demand max
+  0x664e0), oll=0x712e0, pool 29,600/bank. Implemented twice over:
+  `shim_g_carve` init thunk (patch table repoints init-chain stage-7
+  pool word dat 0xe4ec) **plus** `gcarve_tick` in the per-frame maple
+  service — the init stomp verifiably lands and is then reverted once
+  by a writer no static path explains (r8a; the six stomped words are
+  the only carve-value cells in the whole RAM dump, and FindRefsTo
+  shows single callers for every chain stage). The tick re-stomps
+  guarded on the exact library value 0x5a4e0 (can never fire pre-init
+  or in test mode) and counts reverts. **r8c: rv=1 for the whole run**
+  — one-shot rewriter, converged from RNDREG n=543 onward, holds
+  through n=27136. One init-era frame renders on the library carve.
+- **COMMON**: `pktx_vq.py` extended (`COMMON_TARGETS`, 4 md5-pinned
+  textless atlases; SP-logo sheet d54f6330… stays raw). Encoder output
+  30.0/30.0/33.8/33.7 dB — byte-class-identical to the approved
+  previews. Manifest now 69 records.
+- **E**: `shim_e_prefree` — MODESEL scene's by-name-loader pool word
+  (dat 0x13930c → FUN_8c0b5be8) repointed; wrapper calls the game's own
+  PAK unloader `FUN_8c0b5cf4((u32*)0x8c1cfb50, 1)` (match scene's
+  static resource array, found at teardown site 0x8c08498e inside the
+  match mega-function FUN_8c0828c0 body 0x8c0828c0..0x8c0849d5, mask
+  0x19 there) then runs the original load. Mask 1 = VRAM textures only.
+  Safety: the unloader NULLS each slot it frees and skips null slots
+  (Decomp) — from-boot entries no-op, the real teardown's bit-0 pass
+  no-ops after us, and its unguarded inline heap-frees read the +4/+8
+  slots mask 1 never touches. Serial marker `EPREFREE`.
+
+**Emulator gate results** (r8b data config / r8c full config):
+demo-battle bundle `o=0b496800` parsed with ARENAHW `free=0x7c3e0` at
+`nblk=0x59` (model-exact: r6 alloc + 0xda000 − texture savings), `c6=0`,
+`iea=0`, reads continue deep past (to `o=05fc1800`). First builds to
+clear the round-5 fatal with the big TA reservation. r8a (old manifest,
+no COMMON) died at the bundle exactly as predicted (−138 KB) — the
+arithmetic model is holding to the byte.
+
+**ISPLW probe** (fork a444fabf7/b34f4c4f4): per-frame TA_ISP_LIMIT is
+written only by reg-poke FUN_8c032140, caller FUN_8c03b7a0 (pr
+8c03b7f4), descriptor-fed; the game only ever generates the library
+value — confirming the stomp targets and that no second writer fights
+the tick (rv stays 1).
+
+**What is NOT yet verified** (next legs, §4 suite):
+1. E functionally — attract never enters mode-select, so no unattended
+   leg exercises EPREFREE; needs an input-driven leg (operator or
+   savestate-assisted): match → mode-select transition, expect
+   `EPREFREE` on serial and no TEXERR.
+2. The binding worst-pair numbers: **Ernula+Lili stage-8 2P match
+   through mode-select** (emulator first, then hardware) — margins are
+   ~29 KB before residency variance by the corrected model; this leg is
+   the make-or-break gate. If it trips code=6, the reserve levers are
+   the operator-vetoed art options (cockpit VQ 225,280 / hero 512²).
+3. Hardware round 6: ISP +10% must hold on real silicon (round-5's
+   single iea latch happened at ISP 526,560; r8 runs 463,328 — watch
+   `iea` and visible geometry on the hardware leg).
