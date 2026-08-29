@@ -3025,3 +3025,44 @@ superseded, never deployed r5). Two discriminators in one session:
 Serial cost: ~45 B/line at 115200 ≈ 4 ms per cart read + CRC compute
 over uncached P2 (~10 ms per 128 KB) — diagnostics-only build; timing
 skew is acceptable and recoveries are counted anyway.
+
+### Round 4 verdict — RENDER ISP overflow every frame; delivery byte-perfect (2026-08-29)
+
+Operator leg `captures/phase5/hw-round4.log` (19 KB, F-2u-r6 through
+the defective scenes). Three simultaneous verdicts:
+
+1. **Delivery is byte-perfect on hardware.** `check_stream_crc.py`:
+   **204/204 SHIMCRC records match** the on-disc truth (texpatch-applied
+   track04 slice), 0 mismatches. (coverage_nonzero FAILs by design —
+   hardware has no Flycast drive-log; drive=0.) Every byte the game
+   requested arrived intact through the raw-ATA path, idle-gaps and
+   all — hypothesis (d) is dead at the delivery layer. The garbled VQ
+   pilot cut-in must be explained VRAM-side or by the re-encode itself,
+   not by transport.
+2. **`SB_ISTERR` bit 0 — "RENDER: ISP out of Cache (Buffer overflow)"
+   (holly_intc.h:50 comment block) — latches and then reads LIVE `1` in
+   EVERY sample.** Clean for the first 10 summaries (~85 s: boot +
+   pre-3D screens), transitions once (`gd=4→5`, i.e. during a scene
+   load), then `ie=00000001` for all 21 remaining summaries. Not bits
+   2/3 (TA-side overflows never fire): the TILE ACCELERATOR accepts the
+   scene; the RENDER core overflows its ISP cache processing it,
+   per-frame, exactly in the 3D scenes where objects vanish/flicker.
+   Emulator baseline `ie=0` always (Flycast implements neither bit —
+   its header even notes "missing quite a few ehh?").
+3. KAMUI2 error cell still clean (`tr=0`); `gd=` reached 0xc — twelve
+   idle-gap recoveries this session.
+
+**Verdict: hypothesis (c) confirmed in its render-side variant.** The
+missing/flickering assets are geometry dropped by the real CORE when
+the per-tile ISP cache overflows — a limit Flycast does not model.
+Naomi is the same CLX2 silicon rendering the same scenes, so the chip
+can do it: the difference must be CONFIG — something the DC arm of the
+game's init programs differently (render/param registers, region-array
+or param-buffer layout — candidates: `ISP_FEED_CFG` 0x5f8098 cache
+sizing, `FPU_PARAM_CFG` 0x5f807c burst/pointer config, region header
+type) or a buffer the 8 MB arm placed/shrank that the render path
+depends on. Next step (solo, no operator): register-level diff — Ghidra
+`FindMmioXrefs` over MAIN for writes to the PVR render-config block
+(0x5f8000-0x5f80ff) + arm-dependence analysis, cross-checked in the
+fork by dumping the registers in a Naomi-mode run of the original vs
+our DC port at scene time. Then patch the DC arm's value.

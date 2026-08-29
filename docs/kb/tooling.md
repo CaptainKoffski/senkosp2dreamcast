@@ -1181,3 +1181,14 @@ not kept in-repo).
 SB_ISTERR accumulator; the round-4 hardware build, track04 md5
 `93a5a0c85200635c517021596da93ac9`). `ie=00000000 iea=00000000`
 throughout, 67 SHIMCRC lines, 0 SHIMERR — emulator baseline clean.
+
+### Leg: phase5/hw-round4 (2026-08-29, ISTERR + CRC verdict)
+
+`captures/phase5/hw-round4.log` (19 KB) — operator coder's-cable
+capture of **F-2u-r6** through the defective scenes. 31 TEXHUD
+summaries: first 10 `ie=0`, then `ie=1` LIVE in all 21 remaining =
+SB_ISTERR bit 0 "RENDER: ISP out of Cache" firing every frame in 3D
+scenes. 204 SHIMCRC lines, `check_stream_crc.py` vs texpatch-applied
+track04 slice: **204/204 PASS, 0 mismatches** (coverage FAIL expected —
+no drive-log on hardware). 0 TEXERR, 0 SHIMERR, `gd=` → 0xc. Verdict:
+`phase5-hardware.md` §Round 4 verdict.
