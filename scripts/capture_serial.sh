@@ -14,6 +14,8 @@ baud="${3:-115200}"
 log="$repo/captures/$leg.log"
 mkdir -p "$(dirname "$log")"
 [ -e "$log" ] && { echo "refusing to overwrite existing $log" >&2; exit 1; }
-stty -f "$dev" raw "$baud" cs8 -parenb -cstopb clocal
+stty -f "$dev" raw "$baud" cs8 -parenb -cstopb clocal || {
+    echo "port busy -- close whatever holds it (screen?). Holder:" >&2
+    lsof "$dev" >&2 || true; exit 1; }
 echo "capturing $dev @ $baud -> $log  (ctrl-C to stop)"
 exec tee "$log" < "$dev"
