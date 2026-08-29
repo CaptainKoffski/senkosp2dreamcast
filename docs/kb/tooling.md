@@ -1129,6 +1129,14 @@ against a `LOADER_SERIAL 1` build before any tooling was written.
 - **Host capture:** `scripts/capture_serial.sh <leg> [dev] [baud]` —
   stty raw + `tee` into `captures/<leg>.log`, live echo, refuses to
   overwrite an existing leg. Start before powering the console.
+  **macOS termios gotcha (hw-round3 lesson):** the tty driver resets
+  settings when the last fd closes, so a bare `stty -f` before a
+  separate reader open is silently undone → capture runs at the 9600
+  driver default → baud garbage (`captures/phase5/hw-round3.log`,
+  795 B, kept as evidence). The script now holds fd 3 open across the
+  stty and the read; verified on the real adapter (old pattern reads
+  back 9600, held-fd pattern 115200). `screen` never hit this because
+  it sets the baud on its own held fd.
 - **Emulator equivalent:** Flycast `-config
   config:Debug.SerialConsoleEnabled=yes` routes SCIF TX to stdout
   (`core/cfg/option.cpp:132` in the fork) — serial legs and emulator

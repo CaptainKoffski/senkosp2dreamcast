@@ -14,8 +14,15 @@ baud="${3:-115200}"
 log="$repo/captures/$leg.log"
 mkdir -p "$(dirname "$log")"
 [ -e "$log" ] && { echo "refusing to overwrite existing $log" >&2; exit 1; }
-stty -f "$dev" raw "$baud" cs8 -parenb -cstopb clocal || {
+if lsof "$dev" >/dev/null 2>&1; then
     echo "port busy -- close whatever holds it (screen?). Holder:" >&2
-    lsof "$dev" >&2 || true; exit 1; }
+    lsof "$dev" >&2; exit 1
+fi
+# macOS resets termios when the LAST fd on the device closes, so a bare
+# `stty -f` (open-set-close) is silently undone before the capture opens the
+# port -- that reverts to the 9600 driver default and logs baud garbage
+# (hw-round3 lesson). Hold fd 3 open across the stty AND the read.
+exec 3< "$dev"
+stty -f "$dev" raw "$baud" cs8 -parenb -cstopb clocal
 echo "capturing $dev @ $baud -> $log  (ctrl-C to stop)"
-exec tee "$log" < "$dev"
+exec tee "$log" <&3
