@@ -543,6 +543,19 @@ Round 4 build **F-2u-r6** (`make gdi SERIAL=1 CRC=1`, track04 md5
 capture `phase5/hw-round4`, walk the same scenes. Record:
 `phase5-hardware.md` §Round 3 verdict / §Round 4 instrument.
 
+**Round 4 verdict (2026-08-29, leg `phase5/hw-round4`): ROOT AREA
+FOUND.** Delivery is byte-perfect (204/204 SHIMCRC vs on-disc truth) —
+transport exonerated end-to-end. `SB_ISTERR` bit 0 — "RENDER: ISP out
+of Cache (buffer overflow)" — latches at the first 3D scene and reads
+live `1` every frame thereafter; TA-side bits never fire; Flycast
+models neither. The missing/flickering assets are geometry dropped by
+the real CORE's per-tile ISP cache overflow. Same CLX2 as Naomi ⇒ a
+DC-arm CONFIG difference (render/param registers or a shrunk/moved
+buffer), not chip capacity. Next: PVR render-config register diff
+(Ghidra `FindMmioXrefs` 0x5f8000-0x5f80ff + fork register dump, Naomi
+arm vs DC arm), then patch the DC arm. Record: `phase5-hardware.md`
+§Round 4 verdict.
+
 **Historical: Phase 4 build narrative (Tasks 1–13, superseded framing below
 kept for citations).** Spec + plan: `docs/superpowers/specs/` and `plans/`.
 
