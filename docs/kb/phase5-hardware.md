@@ -3536,3 +3536,9 @@ swallowed. Logger upgrade queued (detail-print on any never-seen mask
 bit-2 rate and fill state for free. If it stays ~once-per-session
 with no artifact: record and close. If frequent: ISP headroom levers
 remain (the pool's 29,600/bank spill is still never-consumed).
+
+**L-trigger verdict (operator, 2026-08-30, verbatim):** "Yes, the left
+trigger blocks fine, feels much better to play, I cannot imagine
+beating the final boss without it." — the round-7 layout change is
+confirmed on hardware; the input-map.md row stands as the approved
+layout for the Task-11 criteria session. Round 7 closed (Task #23).
