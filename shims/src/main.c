@@ -551,10 +551,20 @@ static void texhud_tick(void) {
      * not a point-in-time capture. First 16 occurrences get a detail line;
      * the count keeps flowing in the TEXHUD summary (iee=). Diagnostic
      * builds only (whole fn is SHIM_TEXHUD; release stays hands-off). */
-    static u32 ie_edges = 0;
+    /* hw-soak1 upgrade: the 16-line cap was exhausted inside the first bit-0
+     * burst (33,033 bit-0 latches/session -- saturated in attract-demo and
+     * credits scenes, itp at 22% of lim, characterized-benign), which
+     * swallowed the ONE interesting event: a bit-2 TA param overflow (iea
+     * 1->5, ~24 min in). So: always detail-print a mask containing a bit
+     * never detailed before, and count bit 2 separately (ie2= in the
+     * summary) -- the bit-2 rate vs the razor-thin ISP limit is the open
+     * question (docs/kb/phase5-hardware.md SS Round 7 soak verdict). */
+    static u32 ie_edges = 0, ie_bit2 = 0, ie_detailed = 0;
     if (isterr != 0) {
         ie_edges++;
-        if (ie_edges <= 16u) {
+        if (isterr & 4u) ie_bit2++;
+        if (ie_edges <= 16u || (isterr & ~ie_detailed)) {
+            ie_detailed |= isterr;
             scif_puts("IEE cnt=");  scif_puthex(ie_edges);
             scif_puts(" ie=");      scif_puthex(isterr);
             scif_puts(" itp=");     scif_puthex(*(volatile u32 *)0xa05f8138);
@@ -583,6 +593,7 @@ static void texhud_tick(void) {
         scif_puts(" ie=");  scif_puthex(isterr);
         scif_puts(" iea="); scif_puthex(ie_acc);
         scif_puts(" iee="); scif_puthex(ie_edges);
+        scif_puts(" ie2="); scif_puthex(ie_bit2);
         scif_puts("\n");
     }
     shim_hex(20, 352, ie_acc);
