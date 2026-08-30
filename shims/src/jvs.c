@@ -20,7 +20,8 @@
 #define CONT_DPAD_RIGHT (1u << 7)
 #define CONT_Y          (1u << 9)
 #define CONT_X          (1u << 10)
-#define CONT_RTRIG      (1u << 16)  /* synthetic: rtrig>128, not a real KOS button bit */
+#define CONT_RTRIG      (1u << 16)  /* synthetic: rtrig>=128, not a real KOS button bit */
+#define CONT_LTRIG      (1u << 17)  /* synthetic: ltrig>=128, same scheme as CONT_RTRIG */
 
 /* DC pad -> senkosp JVS P1 digital word (input-map.md §DC pad layout, measured bits) */
 #define JVS_START  0x8000
@@ -52,6 +53,9 @@ unsigned dc_to_jvs(unsigned dc_buttons) {
     if (dc_buttons & CONT_B)             w |= JVS_A;
     if (dc_buttons & CONT_Y)             w |= JVS_BARRAGE;
     if (dc_buttons & CONT_RTRIG)         w |= JVS_OD;   /* R as digital: see dc_cond_to_pressed */
+    if (dc_buttons & CONT_LTRIG)         w |= JVS_A;    /* L duplicates B (Action/block) --
+                                                         * operator request 2026-08-30, barrier-shot
+                                                         * ease; input-map.md §DC pad layout */
     return w;
 }
 
@@ -120,8 +124,11 @@ unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned *test_bit) {
  *       maple_jvs.cpp:2224-2228  the same rule on the active-high JVS word:
  *                             `if ((button & (UP|DOWN)) == (UP|DOWN))
  *                                  button &= ~(UP|DOWN);`
- * L trigger is deliberately unmapped -- input-map.md §DC pad layout: "L
- * trigger | unbound (Phase 4 may duplicate Barrage if playtest wants it)". */
+ * L trigger duplicates B (JVS Action = block/barrier): operator request
+ * 2026-08-30 after hardware play -- barrier-shots need block held while the
+ * face buttons fire. Same threshold-128 digital scheme as R/OverDrive.
+ * (input-map.md §DC pad layout row updated; the old "unbound, may duplicate
+ * Barrage" reservation is superseded.) */
 #define DC_TRIG_ON  128     /* R trigger digital threshold, 0-255 */
 #define DC_AXIS_LO  0x40    /* analog neutral band (maple_devs.cpp:1494-1512) */
 #define DC_AXIS_HI  0xc0
@@ -129,6 +136,7 @@ unsigned dc_cond_to_pressed(unsigned w2, unsigned w3) {
     unsigned p = (~w2) & 0xffffu;                       /* active-low -> pressed */
     unsigned x = w3 & 0xffu, y = (w3 >> 8) & 0xffu;
     if (((w2 >> 16) & 0xffu) >= DC_TRIG_ON) p |= CONT_RTRIG;
+    if (((w2 >> 24) & 0xffu) >= DC_TRIG_ON) p |= CONT_LTRIG;
     if (y < DC_AXIS_LO) p |= CONT_DPAD_UP;
     if (y > DC_AXIS_HI) p |= CONT_DPAD_DOWN;
     if (x < DC_AXIS_LO) p |= CONT_DPAD_LEFT;

@@ -806,3 +806,20 @@ hardware.** Watch item: single early-attract `iea` latch (benign,
 round-5 signature). Remaining phase-5 items: Task 11 (play criteria +
 pad-poll disposition), Task 12 (cyan splash), Task 13 (gate audit +
 status advance), full §4 campaign leg if the audit demands it.
+
+**ROUND 7 PREP — soak build (2026-08-30, `phase5-hardware.md` §Round 7
+prep, Task #23).** Operator wants an extended-play hardware soak with
+logs before trusting the build, plus L trigger duplicating B
+(Action/block — barrier-shot ease; `jvs.c` CONT_LTRIG, input-map.md
+updated, host-tested) and an IEE edge logger for the intermittent ISP
+errors (SB_ISTERR now logged with TA fill state + carve word per
+occurrence, then write-1-cleared so recurrence counts; bit-0
+tile-complexity vs bit-2 param-overflow vs stale-carve window is the
+question it answers). Also per operator: on-screen HUD digits removed — `SHIM_HUD` now
+defaults 0 (serial carries everything; fatal screens stay verbose;
+frees the uncached-VRAM paint cost on real HW). Diagnostic disc
+remastered; smoke legs `r9a-smoke` (clean) and `r9b-smoke` (final
+HUD-off build) for regression only (Flycast can't raise these latches).
+**Next step:** operator soak on hardware (free-form long play, serial
+capture on, L-trigger feel verdict) → then Task 11 play-criteria
+session against the final layout, Tasks 12–13.

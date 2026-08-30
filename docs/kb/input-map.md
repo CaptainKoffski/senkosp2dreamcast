@@ -55,7 +55,7 @@ measured one from the table above.
 | B | A — Action |
 | Y | Barrage |
 | R trigger | OverDrive |
-| L trigger | unbound (Phase 4 may duplicate Barrage if playtest wants it) |
+| L trigger | A — Action (duplicates B; operator request 2026-08-30 — block is held during barrier-shots, awkward on a face button. Supersedes the Phase-3 "unbound / may duplicate Barrage" reservation; `shims/src/jvs.c` CONT_LTRIG, threshold 128 like R) |
 | Start | Start |
 
 Coin needs no binding — free-play is baked in per the charter; Start alone

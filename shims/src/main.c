@@ -502,8 +502,13 @@ static void maple_service(void) {
  *   y296 cnt8<<16|cnt1     y310 gd_diag[0] (GD idle-gap recoveries)
  *   y324 arena-init VRAM size passed (config 0x8c170eb8+4: 0x800000 = DC
  *        8 MB arm, 0x1000000 = Naomi 16 MB arm)  y338 chosen size (+0x18)
- * Slot 26: green = error cell clean since boot; red sticky = fired. */
-void hex_paint(u32 x, u32 y, u32 val);                  /* util.c */
+ * Slot 26: green = error cell clean since boot; red sticky = fired.
+ * Painted via shim_hex (SHIM_HUD-gated): operator request 2026-08-30 --
+ * on-screen digits distract during play and the serial mirror below
+ * carries every value; SHIM_HUD now defaults 0 (shim_iface.h), which
+ * also removes the uncached-VRAM paint cost util.c:25-32 documents.
+ * shim_die's fatal screens stay verbose unconditionally. */
+void shim_hex(u32 x, u32 y, u32 val);                   /* util.c, HUD-gated */
 static void texhud_tick(void) {
     static u32 tex_prev = 0, tex_trans = 0, tex_c6 = 0, tex_c7 = 0,
                tex_c8 = 0, tex_c1 = 0, tex_ever = 0;
@@ -518,17 +523,50 @@ static void texhud_tick(void) {
         else if (cur == 1) tex_c1++;
     }
     tex_prev = cur;
-    /* SB_ISTERR (0xa05f6908), passive read (write-1-clears, we never write):
-     * PVR error-interrupt latches. Round-4 hypothesis rows: bit 2 = TA
-     * ISP/TSP parameter overflow, bit 3 = TA object list pointer overflow
-     * (holly_intc.h:52-53) -- real TA drops geometry when these fire;
-     * Flycast does not model the limits, which would explain hardware-only
-     * missing/flickering objects with a clean KAMUI2 error cell (round 3b).
-     * ie_acc ORs every per-kick sample: the game's ISR may write-1-clear the
-     * register between our samples, so only the sticky mask is trustworthy. */
+    /* SB_ISTERR (0xa05f6908): PVR error-interrupt latches. Round-4
+     * hypothesis rows: bit 2 = TA ISP/TSP parameter overflow, bit 3 = TA
+     * object list pointer overflow (holly_intc.h:52-53) -- real TA drops
+     * geometry when these fire; Flycast does not model the limits, which
+     * would explain hardware-only missing/flickering objects with a clean
+     * KAMUI2 error cell (round 3b). ie_acc ORs every per-kick sample = the
+     * all-time sticky mask (kept meaningful even now that the IEE block
+     * below write-1-clears the live register after logging each edge). */
     static u32 ie_acc = 0;
     u32 isterr = *(volatile u32 *)0xa05f6908;
     ie_acc |= isterr;
+    /* IEE edge logger (soak build, operator request 2026-08-30: "isp errors
+     * from time to time -- catch the reason"). The latch is sticky and the
+     * game never clears it (hw-round8: iea constant from sample 11 on), so a
+     * passive read only ever shows the FIRST occurrence. Instead: whenever
+     * any error bit is latched at a kick, log it with the TA fill state --
+     * TA_ITP_CURRENT vs TA_ISP_LIMIT (pvr_regs.h:480-483; a genuine
+     * parameter-space overflow, bit 2, lands at/over the limit; bit 0 "ISP
+     * out of cache" is PER-TILE complexity, holly_intc.h:50-53, and shows
+     * itp well under lim), TA_NEXT_OPB vs TA_OL_LIMIT (OPB pool draw), and
+     * the carve word (0x5a4e0 = inside the stale library-carve window that
+     * gcarve_tick closes) -- then WRITE-1-CLEAR exactly the observed bits
+     * (holly_intc.cpp:144-146: SB_ISTERR &= ~data) so the NEXT occurrence
+     * latches fresh and recurrence becomes countable. Registers are sampled
+     * at the maple kick, up to ~1 frame after the actual latch -- conditions,
+     * not a point-in-time capture. First 16 occurrences get a detail line;
+     * the count keeps flowing in the TEXHUD summary (iee=). Diagnostic
+     * builds only (whole fn is SHIM_TEXHUD; release stays hands-off). */
+    static u32 ie_edges = 0;
+    if (isterr != 0) {
+        ie_edges++;
+        if (ie_edges <= 16u) {
+            scif_puts("IEE cnt=");  scif_puthex(ie_edges);
+            scif_puts(" ie=");      scif_puthex(isterr);
+            scif_puts(" itp=");     scif_puthex(*(volatile u32 *)0xa05f8138);
+            scif_puts(" lim=");     scif_puthex(*(volatile u32 *)0xa05f8130);
+            scif_puts(" opb=");     scif_puthex(*(volatile u32 *)0xa05f8134);
+            scif_puts(" oll=");     scif_puthex(*(volatile u32 *)0xa05f812c);
+            scif_puts(" carve=");   scif_puthex(*(volatile u32 *)0x8c19ed00);
+            scif_puts(" ms=");      scif_puthex(maple_count & 0xffffffu);
+            scif_puts("\n");
+        }
+        *(volatile u32 *)0xa05f6908 = isterr;   /* W1C the observed bits only */
+    }
     /* Serial mirror (SERIAL=1 builds; scif_putc is a no-op otherwise): one
      * TEXERR line per 0->nonzero transition (event-exact), one TEXHUD
      * summary every 512 kicks (~8.5 s) so a quiet log still proves liveness. */
@@ -544,17 +582,18 @@ static void texhud_tick(void) {
         scif_puts(" a18="); scif_puthex(*(volatile u32 *)0x8c170ed0);
         scif_puts(" ie=");  scif_puthex(isterr);
         scif_puts(" iea="); scif_puthex(ie_acc);
+        scif_puts(" iee="); scif_puthex(ie_edges);
         scif_puts("\n");
     }
-    hex_paint(20, 352, ie_acc);
-    hex_paint(20, 240, cur);
-    hex_paint(20, 254, tex_trans);
-    hex_paint(20, 268, tex_c6);
-    hex_paint(20, 282, tex_c7);
-    hex_paint(20, 296, (tex_c8 << 16) | (tex_c1 & 0xffffu));
-    hex_paint(20, 310, gd_diag[0]);
-    hex_paint(20, 324, *(volatile u32 *)0x8c170ebc);
-    hex_paint(20, 338, *(volatile u32 *)0x8c170ed0);
+    shim_hex(20, 352, ie_acc);
+    shim_hex(20, 240, cur);
+    shim_hex(20, 254, tex_trans);
+    shim_hex(20, 268, tex_c6);
+    shim_hex(20, 282, tex_c7);
+    shim_hex(20, 296, (tex_c8 << 16) | (tex_c1 & 0xffffu));
+    shim_hex(20, 310, gd_diag[0]);
+    shim_hex(20, 324, *(volatile u32 *)0x8c170ebc);
+    shim_hex(20, 338, *(volatile u32 *)0x8c170ed0);
     shim_mark(26, tex_ever ? 0xf800 : 0x07e0);
 }
 #else

@@ -26,6 +26,8 @@ int main(void) {
     assert(dc_to_jvs(CONT_Y) == JVS_BARRAGE);
     assert(dc_to_jvs(CONT_B) == JVS_A);
     assert(dc_to_jvs(CONT_RTRIG) == JVS_OD);
+    assert(dc_to_jvs(CONT_LTRIG) == JVS_A);                      /* L duplicates B (block) */
+    assert(dc_to_jvs(CONT_LTRIG | CONT_B) == JVS_A);             /* both held: still one bit */
     assert(dc_to_jvs(CONT_START | CONT_DPAD_UP) == (JVS_START | JVS_UP));   /* chord */
     assert(dc_to_jvs(CONT_C) == 0);                              /* C has no JVS mapping */
 
@@ -46,8 +48,12 @@ int main(void) {
                == JVS_OD);
         assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (255u << 16), NEUTRAL3))
                == JVS_OD);
-        /* L trigger (bits 24-31) is unbound -- a full press changes nothing */
-        assert(dc_cond_to_pressed(0xffff | (255u << 24), NEUTRAL3) == 0);
+        /* L trigger (bits 24-31) duplicates B/Action: same 128 threshold as R */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (127u << 24), NEUTRAL3)) == 0);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (128u << 24), NEUTRAL3))
+               == JVS_A);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (255u << 24), NEUTRAL3))
+               == JVS_A);
         /* analog stick drives the same 8-way as the D-pad; neutral band
            0x40..0xc0 inclusive stays idle */
         assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x8080803fu)) == JVS_LEFT);

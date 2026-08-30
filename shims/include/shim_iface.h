@@ -78,7 +78,12 @@
 
 /* HUD/diag toggles — same semantics as Cleopatra (util.c) */
 #ifndef SHIM_HUD
-#define SHIM_HUD 1              /* breadcrumbs on-screen; 0 for release */
+#define SHIM_HUD 0              /* on-screen breadcrumbs+digits OFF (operator
+                                 * request 2026-08-30: distracting during play;
+                                 * serial carries the same data, and each paint
+                                 * is a slow uncached VRAM write -- util.c:25).
+                                 * shim_die fatal screens stay unconditional.
+                                 * Re-enable per-build with -DSHIM_HUD=1. */
 #endif
 #ifndef SHIM_TEXHUD
 #define SHIM_TEXHUD 1           /* HW round 3: live texture-error autopsy rows

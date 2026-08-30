@@ -3408,3 +3408,75 @@ carried as a watch item, not a gate.
 stack (T −0x11A000 + G carve re-stomp + COMMON 4-atlas VQ + E prefree)
 survives the binding worst-pair scene and both menu transitions on
 real silicon with zero allocator errors.
+
+## Round 7 prep — L-trigger block dup + IEE edge logger, soak build (2026-08-30)
+
+Operator-driven round, before the Task-11 play-criteria session (its
+criterion-3 evidence must be against the *final* pad layout):
+
+1. **Operator does not yet trust stability** — wants a long free-form
+   hardware session with the serial log running, so any fault carries
+   its conditions. The r8 diagnostic build already logs everything
+   relevant (TEXHUD/TEXERR, GCARVE, EPREFREE, gd heartbeat, SHIMCRC);
+   the soak is that build plus the two changes below.
+2. **L trigger now duplicates B (JVS Action = block/barrier)** —
+   operator: block on a face button is awkward for barrier-shots
+   (block held while face buttons fire), required for later levels.
+   `shims/src/jvs.c`: synthetic `CONT_LTRIG` (1<<17) from the ltrig
+   analog byte (`w2>>24`, KOS `cont_cond_t` via controller.c:28-36 —
+   same reply word as the proven-on-HW rtrig byte at `w2>>16`),
+   threshold 128 like R/OverDrive, OR'd into `JVS_A`. Host tests
+   extended (`shims/test/test_host.c`: threshold edge 127/128/255,
+   L+B chord). `input-map.md` §DC pad layout row updated; supersedes
+   the Phase-3 "unbound / may duplicate Barrage" reservation.
+3. **IEE edge logger** — operator sees intermittent ISP errors in the
+   logs; the old instrument couldn't explain them: SB_ISTERR is sticky,
+   nothing in the game clears it (hw-round8), so `iea=` only ever
+   showed the *first* latch. New behavior in `texhud_tick`
+   (SHIM_TEXHUD diagnostic builds only): whenever any error bit is
+   latched at a maple kick, print
+   `IEE cnt= ie= itp= lim= opb= oll= carve= ms=`
+   (TA fill state: `TA_ITP_CURRENT`/`TA_ISP_LIMIT`/`TA_NEXT_OPB`/
+   `TA_OL_LIMIT`, pvr_regs.h:479-483; `carve` = dev ispl word, 0x5a4e0
+   = inside the stale library-carve window gcarve_tick closes; `ms` =
+   kick count), then **write-1-clear exactly the observed bits**
+   (holly_intc.cpp:144-146 `SB_ISTERR &= ~data`) so the next
+   occurrence latches fresh and recurrence is countable. First 16
+   occurrences get detail lines; running count `iee=` added to the
+   periodic TEXHUD summary. `iea=` keeps its all-time-sticky meaning
+   (OR'd before the clear). Caveat recorded in-source: registers are
+   sampled at the kick, up to ~1 frame after the latch — conditions,
+   not a point-in-time capture.
+
+**What the IEE lines will distinguish** (holly_intc.h:50-53): bit 0
+"RENDER: ISP out of cache" is *per-tile* complexity — recurring bit-0
+lines with `itp` well under `lim` mean scene content overflows one
+tile's parameter cache (content-dependent, at worst a per-tile visual
+artifact, not a carve problem). Bit 2 "TA: ISP/TSP parameter overflow"
+with `itp` at/over `lim` would be genuine parameter-space exhaustion —
+that WOULD indict the razor-thin ISP budget. `carve=0x5a4e0` on an IEE
+line would pin the latch inside the one-shot rewriter window (the round-6
+benign-latch hypothesis).
+
+Build: `make -C shims test` green (incl. new L-trigger asserts),
+`make gdi SERIAL=1 CRC=1`, 69-record manifest unchanged. Emulator
+smoke leg `r9a-smoke` (unattended): boot/attract regression check only
+— Flycast models neither TA limits nor SB_ISTERR error latches, so
+IEE stays silent there by construction; the logger's real data comes
+from the hardware soak.
+
+4. **On-screen HUD off** (same operator message, follow-up): the nine
+   TEXHUD hex rows distract during play and every value is mirrored on
+   serial. `texhud_tick` digit paints rerouted through the
+   `SHIM_HUD`-gated `shim_hex`, and `SHIM_HUD` now **defaults 0**
+   (`shim_iface.h` — the flip util.c:25-32 already recommended for
+   release: each paint is a slow uncached VRAM write, milliseconds per
+   frame on real HW, the documented 2P-slowdown suspect; killing it is
+   a free perf win). The colored `shim_mark` breadcrumb slots go dark
+   with it (shim_mark's body is gated). `shim_die` fatal screens stay
+   unconditional, so a hard crash still paints its autopsy on the TV.
+   Re-enable per-build with `-DSHIM_HUD=1`.
+
+Smoke legs: `r9a-smoke` (L-trigger + IEE build) — clean: `GCARVE` +
+`rv=1`, 34 TEXHUD samples, all counters 0 incl. the new `iee=` field;
+`r9b-smoke` = same check on the final HUD-off soak build.
