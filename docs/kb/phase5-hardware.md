@@ -3638,3 +3638,133 @@ into a hands-off disc; diagnostic builds re-enable it via SERIAL=1):
 | track02.raw | 03c796f60db2e9ef0b65a42a47a9d321 |
 | track03.iso | b05c578ec5bbe6e39731848b99df73e8 |
 | track04.iso | e3b702b0c98815de307a16c066cfc00d |
+
+## Round 10 — release-build perf A/B (Task #24, operator report 2026-08-31)
+
+Operator deployed the release disc (§Release md5s above — card copy
+verified against the recorded set before the session) and re-timed the
+round-9 symptoms **by feel, no capture** — the release build is
+serial-silent by design, so there is no log leg for this round; the
+evidence is the operator report, quoted below per item.
+
+| Round-9 symptom | Release verdict | Disposition |
+|---|---|---|
+| Attract story-slides → 3D-model showcase pause | "there was significant pause, now it is not" — **GONE** | Serial-cost hypothesis (§Round 9 findings) confirmed by direct A/B. Closed. |
+| Attract tutorial→fight-demo gap | "it is here, but seems to be shorter, OK" | Residual = real disc read for the demo bundle. Accepted. |
+| "Select Character" title lingering into the timer | "I double-checked in Naomi, it is just slightly better in Naomi, so it is OK" | **Reclassified game-native** (operator control-tested the Naomi original in Flycast — the overlap exists there too, marginally shorter). Not a port bug. Closed. |
+| Stage-8 base-rotation micro-stutter | "veeeery little freezes, barely observable" | Residual cause: real GD-ROM I/O for the ADX stream refill (see analysis below). Characterized, accepted; read-ahead lever documented as reserve. |
+| Round-start ~0.5 s hang before music | "it is here … more obvious because there is like music sample with music tone that goes down … let it be" | Inherent: the ~270 KB music prime streams from disc before the track starts (RAM-instant on Naomi). Accepted. |
+| Projectile-heavy slowdown | Not re-reported this session | Earlier assessment stands ("not very annoying", plausibly intrinsic — same CPU/GPU as the arcade's own slowdowns). Not banked as resolved; re-raise if felt. |
+
+**New observation — 2P mid-match join load hang:** joining 2P during a
+Beginner-mode battle blocks for several seconds with the rotating-circles
+loading animation frozen. Same nature as the other loads: the second
+character's asset paks stream from disc mid-match and the load is
+blocking (frame loop stalls, so the animation freezes with it). On Naomi
+this is DIMM-RAM-instant. Accepted as inherent to the streaming
+architecture; the Phase-6 loading-screen task (below) does not cover
+mid-match joins (it targets the loader/boot path).
+
+**Residual stutter analysis (stage-8 base rotation).** The diagnostic
+build's stutter was dominated by SHIMCRC serial (3.7 ms/read — §Round 9
+findings); the release residual is the read path itself: each ADX
+refill is a burst of 2 KB cart reads through the shim's raw-ATA driver
+to the GDEMU, and each burst costs real milliseconds the Naomi version
+never pays (the arcade preloads everything to DIMM RAM at power-on —
+zero in-game disc I/O). Operator control-test note: the Naomi profile
+in Flycast shows no such freezes but feels *less* smooth overall
+("a lot of much smaller freezes happening more often") — that is
+emulator frame pacing on the host machine, not evidence about the real
+arcade, and is recorded as non-actionable. **Reserve lever if it ever
+worsens:** a shim-side read-ahead cache (prefetch the next sequential
+cart chunk during idle) — real complexity, not built, not needed at
+"barely observable".
+
+**Ernula barrier hang — watch item stays open, postponed.** Happened
+once this session, under maximum stress (Fabian in BOSS mode: heavy
+projectiles + body push). Operator: postpone; next step when picked up
+is the same scenario on the Flycast Naomi profile (the prior recall
+that it also happened in emulator DC-build runs predating the L-trigger
+dup already argues the trigger mapping is innocent).
+
+**Task #24 verdict: PASS — release build is the shipping experience.**
+All four round-9 perf symptoms are resolved, diminished-to-accepted, or
+reclassified game-native; nothing regressed; no new port bugs. Operator
+follow-ups queued as Phase-6 tasks: Cleopatra-parity loading screen
+(progress bar over the black-screen loads), `0GDTEX.pvr` disc art for
+GDEMU/GDmenu, and an Event-mode smoke test (test-menu setting, low
+risk, untested path).
+
+## Gate audit — the nine exit criteria (Task 13, 2026-08-31)
+
+Mirrors `docs/superpowers/specs/2026-08-23-phase5-hardware-design.md`
+§Exit criteria, one row per criterion, each with the evidence that
+earns it. **All nine are `[x]`.** The spec's honest limit stands
+verbatim: single-rig evidence (one console, one GDEMU, one SD card);
+broader hardware coverage is explicitly not claimed.
+
+- [x] **1 — Texture hang closed: root cause named, fixed, verified.**
+      Root cause: T1 VRAM texture-arena exhaustion, named from
+      savestate forensics with the arena walked block-by-block
+      (§Texture-error hang verdict — 87 blocks, zero gaps, one free
+      block 144,352 B vs a 264,192 B request). Fix: the round-6 F-2u-r8
+      stack (TA trim −0x11A000 + G carve re-stomp + COMMON 4-atlas VQ +
+      E prefree hook, §Round 6 build). Verified on hardware three
+      times over: `hw-round8` (worst-pair 2P matches), `hw-soak1`
+      (45-min full campaign, `c6-c1=0` across 316 samples), `hw-round9`
+      (47 min incl. Score Attack). KB writeup: this file.
+- [x] **2 — The GDI boots on the bench DC + GDEMU to attract.** Every
+      hardware round since the round-1 idle-gap fix cold-boots to
+      attract (rounds 2–10, operator-attested each time; round 9 twice
+      in one session across the test-menu reboot). Photo evidence in
+      `docs/kb/img/`: the round-1/2 on-TV series documents first
+      contact (`phase5-round1-nowloading.jpeg` through
+      `phase5-round2-demo-nobg.jpeg`), and the final build is
+      photographed live in `phase5-hw-round9-test-menu.jpeg` +
+      `phase5-hw-round9-2p-join.jpeg` — states only reachable through
+      a hardware boot + attract on this rig.
+- [x] **3 — Full 1P match with the approved pad layout.** §Round 9
+      criteria table row 3 (every control exercised deliberately incl.
+      the L-trigger block dup; match to a finish; double-checked later
+      in-session). Layout = `input-map.md` §DC pad layout as amended
+      round 7, hardware-confirmed ("cannot imagine beating the final
+      boss without it").
+- [x] **4 — 2P match incl. mid-game join on port B.** §Round 9 row 4:
+      join into a running match on round 3, Ernula-vs-Lili stage 8,
+      photo `img/phase5-hw-round9-2p-join.jpeg`; P2 won a round; a
+      second 2P game played.
+- [x] **5 — Test-menu round trip.** §Round 9 row 5: A+Start combo
+      boot → GAME TEST MENU (photo) → setting changed → SYSTEM MENU
+      EXIT → console reboot → attract.
+- [x] **6 — Free-play.** §Round 9 row 6: Start alone credits and
+      starts from attract; continues used liberally through Score
+      Attack ("solid proof that Free Play works properly").
+- [x] **7 — Pad-poll latency dispositioned: no-lag observed and
+      recorded.** §Round 9 row 7. The staged TCNT0 poll cache
+      (`shims/src/main.c` `#if 0`) stays staged, not enabled.
+- [x] **8 — Cyan splash reclassified, hardware observation recorded.**
+      §Round 9 — absent in every hardware boot ever watched under
+      every build; present ~1 s on every Flycast boot. Emulator-side
+      rendering artifact of the boot video-mode window; no fix owed.
+- [x] **9 — This file written; 00-status.md advanced to Phase 6.**
+      Closed by this audit and the 00-status.md update of the same
+      date.
+
+**Reproducibility re-check (Phase-4 criterion-7 parity, this
+checkout):** `make clean` → `make gdi` → all five disc files
+md5-identical to §Release md5s (disc.gdi `c527f1ec…`, track04
+`e3b702b0…`) → `make test` green (shims host tests incl. the L-trigger
+asserts, `test_build_patch_table.py`, `test_maple_literals.py` — 82+1
+literals classified, zero unclassified loader references). One build
+quirk found and recorded: the `test` target needs `shims` built first
+(`test_build_patch_table.py` reads `shims/build/shim.map`), so after a
+`clean` run `make gdi` before `make test`.
+
+**Carried open items (Phase 6 queue, none gate-blocking):** Ernula
+barrier-hang watch item (once per long session under boss stress;
+next step = same scenario on the Flycast Naomi profile); Task #25
+dcload/dc-tool serial control test (before trusting the DreamShell
+serial-SD dongle); Task #26 loading screen w/ progress bar (Cleopatra
+parity); Task #27 Event-mode smoke test; Task #28 `0GDTEX.pvr` disc
+art. Tasks #26/#28 change disc bytes → re-record §Release md5s when
+they land.

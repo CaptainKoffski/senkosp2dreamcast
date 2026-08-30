@@ -1,15 +1,15 @@
 # Project status
 
-**Updated:** 2026-08-23 (Phase 4 Task 14 — **gate closed, all eight exit
-criteria evidenced.** Criteria 1-5 (attract, 1P, 2P, test-menu round trip,
-free-play) banked by the 2026-08-23 operator session (§Phase 4 checklist);
-criterion 6 (VMU-safety static scan) closed this task with every literal
-hit individually classified (82 + 1, three buckets, zero write-class finds
-outside the already-patched-and-mirrored set); criterion 7 (clean-checkout
-build) closed with a fresh `git clone` + documented gitignored inputs +
-`make gdi` producing byte-identical disc tracks to the main checkout;
-criterion 8 (this file, advanced to Phase 5) closed by this update. Phase
-4 — **DONE**. Real hardware (Phase 5) is untested — see §Honest limit.)
+**Updated:** 2026-08-31 (Phase 5 Task 13 — **gate closed, all nine exit
+criteria evidenced** (`docs/kb/phase5-hardware.md` §Gate audit). The game
+boots, plays and soaks on the real bench Dreamcast + GDEMU: texture hang
+root-caused and fixed (T1 arena exhaustion → F-2u-r8 stack, verified over
+three hardware sessions), all five play criteria operator-attested with
+photos, pad-poll no-lag recorded, cyan splash reclassified emulator-only,
+release build A/B'd (perf symptoms = diagnostic serial cost; release
+PASS) and reproducible (`make clean` → `make gdi` → md5-identical to the
+recorded release set; `make test` green). Phase 5 — **DONE**. Honest
+limit: single-rig evidence — one console, one GDEMU, one SD card.)
 
 ## What this is
 
@@ -46,7 +46,7 @@ Charter + Phase 1 spec:
 2. **Instrumented analysis — DONE 2026-08-19** (streaming/input/memory ground truth; the high-address DMA map)
 3. **Reverse engineering — DONE 2026-08-22** (touchpoint addresses; relocation strategy proven by dry run)
 4. **Conversion — DONE 2026-08-23** (loader + shim + patch table → bootable GDI; gate green, all eight criteria)
-5. Real-hardware testing & fit
+5. **Real-hardware testing & fit — DONE 2026-08-31** (boots/plays/soaks on real DC + GDEMU; gate green, all nine criteria)
 6. Safety tripwires & release
 
 ## Phase 1 checklist
@@ -271,6 +271,51 @@ already sitting `#if 0`'d, `phase4-conversion.md` §Steady input finding 5)
 and the once-observed texture-load-error hang (intermittent, uncharacterized
 root cause). Full Phase 5 findings list: `phase4-conversion.md` §Findings
 for Phase 5.
+
+*(2026-08-31: this limit is discharged — Phase 5 ran everything above on
+the real rig; both flagged findings were root-caused and dispositioned.
+See the Phase 5 checklist below.)*
+
+## Phase 5 checklist (gate — all nine spec exit criteria, audited 2026-08-31)
+
+Mirrors `docs/superpowers/specs/2026-08-23-phase5-hardware-design.md`
+§Exit criteria; the full audit with per-criterion evidence lives in
+`docs/kb/phase5-hardware.md` §Gate audit — this is the index.
+
+- [x] **1 — Texture hang closed:** T1 VRAM arena exhaustion named from
+      savestate forensics, fixed by the F-2u-r8 stack (TA trim + carve
+      re-stomp + COMMON VQ + prefree hook), verified on hardware across
+      `hw-round8`/`hw-soak1`/`hw-round9` (zero arena errors, 45-min
+      campaign incl. ending).
+- [x] **2 — Boots on bench DC + GDEMU to attract** (every round since
+      the round-1 idle-gap fix; photos `img/phase5-hw-round9-*.jpeg` +
+      the round-1/2 first-contact series).
+- [x] **3 — Full 1P match, approved layout** (round 9; layout incl. the
+      round-7 L-trigger block dup, hardware-confirmed).
+- [x] **4 — 2P match incl. mid-game port-B join** (round 9, photo).
+- [x] **5 — Test-menu round trip** (round 9: combo boot → menu → exit →
+      reboot → attract, photo).
+- [x] **6 — Free-play: Start alone credits and starts** (round 9).
+- [x] **7 — Pad-poll latency dispositioned: no lag; TCNT0 cache stays
+      staged** (round 9).
+- [x] **8 — Cyan splash reclassified emulator-only** (absent in every
+      hardware boot under every build; no fix owed).
+- [x] **9 — phase5-hardware.md written; this file advanced to Phase 6**
+      (this update).
+
+Plus: release perf A/B PASS (round 10 — diagnostic-serial cost
+confirmed as the perf culprit; release = shipping experience) and
+build reproducibility re-checked (clean rebuild md5-identical to the
+recorded release set; `make test` green).
+
+**Phase 6 queue (carried open items, none gate-blocking):** #25
+dcload/dc-tool serial control test (before trusting the serial-SD
+dongle); #26 loading screen w/ progress bar (Cleopatra parity); #27
+Event-mode smoke test; #28 `0GDTEX.pvr` disc art; Ernula barrier-hang
+watch item (once per long session under boss stress; next step =
+Flycast Naomi-profile comparison). #26/#28 change disc bytes →
+re-record the release md5s when they land. Plus Phase 6's own charter
+scope: safety tripwires & release.
 
 ## Key facts so far
 
@@ -851,3 +896,22 @@ serial-builds-only so release is hands-off). **Next step:** operator
 release-build perf A/B (Task #24) → Task 13 gate audit → Phase 6.
 Serial-link control test (dcload/dc-tool) queued as Task #25 per
 operator, after GDEMU work.
+
+**ROUND 10 + GATE CLOSED — PHASE 5 DONE (2026-08-31,
+`phase5-hardware.md` §Round 10, §Gate audit).** Release perf A/B
+(Task #24) PASS: the attract 3D-showcase pause is GONE (serial-cost
+hypothesis confirmed by direct A/B), remaining loads shorter/accepted,
+the "Select Character" title overlap reclassified game-native (operator
+control-tested the Naomi original), stage-8 stutter down to barely
+observable (residual = real ADX-refill disc I/O — the arcade preloads
+to DIMM RAM, the port streams; read-ahead cache documented as reserve
+lever), round-start hang and 2P mid-match-join load accepted as
+inherent to streaming. Barrier-hang watch item stays open (once, under
+Fabian-boss stress; postponed, next step Flycast Naomi-profile
+comparison). Task 13 gate audit: **all nine exit criteria `[x]`**
+(§Phase 5 checklist above), reproducibility re-checked (clean rebuild
+md5-identical to the recorded release set, `make test` green — build
+quirk recorded: run `make gdi` before `make test` after a clean).
+**Phase 5 — DONE. Next: Phase 6** (safety tripwires & release), queue
+in §Phase 5 checklist: #25 serial control test, #26 loading screen,
+#27 Event-mode smoke, #28 0GDTEX.pvr, barrier watch item.
