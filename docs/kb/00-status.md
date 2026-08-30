@@ -915,3 +915,11 @@ quirk recorded: run `make gdi` before `make test` after a clean).
 **Phase 5 — DONE. Next: Phase 6** (safety tripwires & release), queue
 in §Phase 5 checklist: #25 serial control test, #26 loading screen,
 #27 Event-mode smoke, #28 0GDTEX.pvr, barrier watch item.
+
+**#28 landed same day (2026-08-31):** operator supplied `0GDTEX.pvr`
+(gitignored, branded art); `patch_gdtex` extended to take a ready-made
+PVR, donor extent overwritten in place, delta byte-verified confined
+to the art pixels, detwiddle round-trip exact. Only track03's md5
+changes (`244ae7e5…` — `phase5-hardware.md` §Release md5s v2); the art
+input joins the gitignored-inputs list for clean-checkout builds.
+Redeploy (`make deploy`) to see it in the GDEMU menu.

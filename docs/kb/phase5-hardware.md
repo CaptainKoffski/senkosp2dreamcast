@@ -3766,5 +3766,48 @@ next step = same scenario on the Flycast Naomi profile); Task #25
 dcload/dc-tool serial control test (before trusting the DreamShell
 serial-SD dongle); Task #26 loading screen w/ progress bar (Cleopatra
 parity); Task #27 Event-mode smoke test; Task #28 `0GDTEX.pvr` disc
-art. Tasks #26/#28 change disc bytes → re-record §Release md5s when
-they land.
+art (landed same day — next section). Tasks #26/#28 change disc bytes
+→ re-record §Release md5s when they land (#28's re-record: below).
+
+## 0GDTEX disc art incorporated (Task #28, 2026-08-31)
+
+Operator supplied a ready-made `0GDTEX.pvr` at repo root (bare PVRT
+header, RGB565, 256×256, rectangle layout `0x09` — cover-style SP art
+with the Dreamcast/NAOMI/G.rev marks; **gitignored**, branded art is
+never committed, same rule as all extracted assets). `make_gdi.py`'s
+`patch_gdtex` — carried from Cleopatra and dormant until now — was
+extended to accept the `.pvr` directly (pixel payload at +16 fed into
+the existing Morton twiddle; the PNG→sips→bmp2rgb565 path stays as the
+alternative input). Mechanism unchanged from Cleopatra's HW-verified
+implementation: the donor's own `0GDTEX.PVR` extent in track03 is
+overwritten **in place behind its verbatim 32-byte GBIX+PVRT header**
+— directory records, extent layout, bootstrap all stay donor bytes.
+
+Verification (this build): byte-diff of pre/post track03 shows **all
+130,469 differing bytes inside the art-pixel payload**
+(`[0xa820,0x2a81f]` ⊂ extent @ `0xa800`+32, LBA 45021, 131,104 B);
+detwiddling the on-disc bytes reproduces the input `.pvr` pixel data
+**exactly**; the rendered image eyeballed correct (right-side-up,
+colors sane). No game-read bytes changed — the game never touches
+`0GDTEX.PVR` (BIOS menu/ODE only), and track04 (loader+cart) is
+md5-unchanged.
+
+### Release md5s v2 — with disc art (supersedes §Release md5s for deploys)
+
+Only track03 differs from the round-9 table; the other four files are
+byte-identical (same md5s).
+
+| file | md5 |
+|---|---|
+| disc.gdi | c527f1ec937b56caa65084d436f8c0a0 |
+| track01.iso | 681fa4c8daa058ce2df8ea1b604d6e91 |
+| track02.raw | 03c796f60db2e9ef0b65a42a47a9d321 |
+| track03.iso | **244ae7e5a321345e995edc4793fcbdd5** |
+| track04.iso | e3b702b0c98815de307a16c066cfc00d |
+
+Reproducibility caveat recorded: a checkout **without** `0GDTEX.pvr`
+(or `.png`) masters the donor's Dolphin Blue art and reproduces the
+round-9 track03 (`b05c578e…`) — the art input joins the documented
+gitignored-inputs list. Deploy: `make deploy` copies the new track03
+to the card (the game content is unchanged; no re-verification owed
+beyond seeing the art in the GDEMU menu).

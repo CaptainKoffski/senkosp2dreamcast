@@ -94,23 +94,38 @@ def brand_ip(track03: pathlib.Path):
 
 
 GDTEX_PNG = pathlib.Path("0GDTEX.png")   # repo root, gitignored (fan cover art)
+GDTEX_PVR = pathlib.Path("0GDTEX.pvr")   # repo root, gitignored (ready-made
+                                         # PVR, operator-supplied 2026-08-31;
+                                         # wins over the PNG if both exist)
 
 
 def patch_gdtex(track03: pathlib.Path, build: pathlib.Path):
     """Replace the donor's 0GDTEX.PVR — the disc art the DC BIOS disc menu and
-    the GDEMU on-device menu display — in place. Not exercised by senkosp yet
-    (no 0GDTEX.png in this repo): disc art stays the donor's (Dolphin Blue)
-    until someone supplies art. Kept identical to Cleopatra's implementation
-    so it is ready the day art shows up. Twiddle order per Flycast
+    the GDEMU on-device menu display — in place. Two accepted inputs, either
+    at repo root: a ready-made 0GDTEX.pvr (bare PVRT header, RGB565, 256x256,
+    rectangle layout 0x09 — pixel payload used directly) or a 0GDTEX.png
+    (encoded via sips + bmp2rgb565.py, Cleopatra's original path). Both feed
+    the same twiddle + in-place extent overwrite. Twiddle order per Flycast
     core/rend/texconv.cpp twiddle_slow(): Morton, y bits in even positions,
     x bits in odd."""
-    if not GDTEX_PNG.exists():
-        print("note: 0GDTEX.png absent -> disc art stays the donor's (Dolphin Blue)")
+    if GDTEX_PVR.exists():
+        pvr = GDTEX_PVR.read_bytes()
+        # bare PVRT: attrs at +8 = pixfmt 0x01 (RGB565), imgfmt 0x09
+        # (rectangle = raw scanline order); u16 LE width/height at +12/+14;
+        # pixels at +16. A square-twiddled input (imgfmt 0x01) would need no
+        # re-twiddle -- error loudly rather than guess.
+        assert pvr[:4] == b"PVRT", "0GDTEX.pvr: no PVRT signature"
+        assert pvr[8:10] == b"\x01\x09", "0GDTEX.pvr not RGB565 rectangle (fmt %s)" % pvr[8:10].hex()
+        assert pvr[12:16] == b"\x00\x01\x00\x01", "0GDTEX.pvr not 256x256"
+        src = pvr[16:16 + 256 * 256 * 2]
+    elif GDTEX_PNG.exists():
+        bmp, raw = build / "gdtex.bmp", build / "gdtex.rgb565"
+        run(["sips", "-s", "format", "bmp", str(GDTEX_PNG), "--out", str(bmp)])
+        run([sys.executable, "scripts/bmp2rgb565.py", str(bmp), str(raw), "256", "256"])
+        src = raw.read_bytes()
+    else:
+        print("note: 0GDTEX.pvr/.png absent -> disc art stays the donor's (Dolphin Blue)")
         return
-    bmp, raw = build / "gdtex.bmp", build / "gdtex.rgb565"
-    run(["sips", "-s", "format", "bmp", str(GDTEX_PNG), "--out", str(bmp)])
-    run([sys.executable, "scripts/bmp2rgb565.py", str(bmp), str(raw), "256", "256"])
-    src = raw.read_bytes()
     assert len(src) == 256 * 256 * 2
     spread = [sum(((v >> b) & 1) << (2 * b) for b in range(8)) for v in range(256)]
     dst = bytearray(len(src))
@@ -138,7 +153,8 @@ def patch_gdtex(track03: pathlib.Path, build: pathlib.Path):
         assert 32 + len(dst) == size, "encoded PVR size != donor extent size"
         f.seek(off + 32)                # keep the donor's 32-byte header verbatim
         f.write(dst)
-    print("0GDTEX.PVR: disc art replaced from 0GDTEX.png")
+    print("0GDTEX.PVR: disc art replaced from " +
+          ("0GDTEX.pvr" if GDTEX_PVR.exists() else "0GDTEX.png"))
 
 
 DONOR_7Z = pathlib.Path("[GDI] Dolphin Blue.7z")   # repo root, gitignored

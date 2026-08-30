@@ -24,3 +24,7 @@ loader/splash.png
 
 # Phase 5 Task 9: extracted control disc + card staging (commercial data)
 /deploy/
+
+# disc art inputs (branded/ROM-derived -- never commit)
+/0GDTEX.pvr
+/0GDTEX.png
