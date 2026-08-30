@@ -794,3 +794,15 @@ stage-8 2P gate** (margin ~29KB before ±100KB variance — make-or-break;
 reserve = the vetoed art levers); ISP +10% on real silicon (watch
 `iea`). Next: operator legs — emulator Ernula+Lili first, then
 hardware round 6 with the diagnostic build.
+
+**ROUND 6 VERDICT — ALL GATES PASS, HARDWARE INCLUDED (2026-08-30,
+`phase5-hardware.md` §Round 6 verdict).** Operator legs `f2u-r8-1/-2/-2-2`
+(emulator, incl. the Ernula-vs-Lili make-or-break gate: min free 243,072
+— predicted ~29KB, model conservative) and `hw-round8` (hardware: full
+attract + both 2P worst-pair matches through mode-select + Beginner
+Mode): `EPREFREE` fires exactly per transition, `GCARVE rv=1` on
+silicon, `c6=0` everywhere. **T1 texture-arena exhaustion CLOSED on
+hardware.** Watch item: single early-attract `iea` latch (benign,
+round-5 signature). Remaining phase-5 items: Task 11 (play criteria +
+pad-poll disposition), Task 12 (cyan splash), Task 13 (gate audit +
+status advance), full §4 campaign leg if the audit demands it.

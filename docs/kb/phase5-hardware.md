@@ -3377,3 +3377,34 @@ the tick (rv stays 1).
 3. Hardware round 6: ISP +10% must hold on real silicon (round-5's
    single iea latch happened at ISP 526,560; r8 runs 463,328 — watch
    `iea` and visible geometry on the hardware leg).
+
+## Round 6 verdict — ALL GATES PASS, emulator and hardware (2026-08-30)
+
+Operator legs, all on the r8d build (`disc.gdi`, SERIAL=1 CRC=1):
+
+| Leg | What | Result |
+|---|---|---|
+| `f2u-r8-1` | emulator, match → mode-select (E functional test) | PASS — `EPREFREE`×1, `rv=1`, `c6=0` |
+| `f2u-r8-2` | emulator, **Ernula-vs-Lili stage-8 2P** (census-worst pair, the make-or-break gate) → mode-select | PASS — `EPREFREE`×1, `c6=0`; **peak alloc 0x7c4680, min free 0x3b980 = 243,072** |
+| `f2u-r8-2-2` | emulator, Ernula mirror (measured-worst-scene control) → mode-select | PASS — `c6=0`; peak alloc 0x7abc00, min free 0x54400 = 344,064 |
+| `hw-round8` | **hardware**: full attract cycle (intro/tutorial/demo fight/scores), 2P Ernula-vs-Lili stage 8 → mode-select, 2P Ernula mirror → mode-select, Beginner Mode one match + exit | PASS — `GCARVE rv=1` on silicon, `EPREFREE`×2 (exactly the two transitions), `c6=0` on all 78 TEXHUD samples, `gd=0x15` |
+
+**Margin verdict:** the corrected model predicted ~29KB worst-pair margin;
+measured is **243,072** for Ernula+Lili (mirror 344,064) — ~5× above
+the ±100KB residency variance band. The model's baseline peak
+(the r6-era binding VS figure, free 489,856 at stock T) evidently
+carried transition-era residue that E now removes plus census
+variance; the corrected model was conservative in our favor. Census
+confirmed: Ernula+Lili runs ~100KB heavier than the mirror.
+
+**Watch item unchanged:** hardware `iea` (SB_ISTERR bit 0) latched once
+early in attract (sample 11 of 78, before any match) and never again —
+same signature as round 5 at ISP 526,560, now at 463,328. Sticky-bit
+semantics (nothing clears it), no visible geometry loss reported, no
+growth across two matches + beginner mode. Classified: benign one-shot,
+carried as a watch item, not a gate.
+
+**T1 texture-arena exhaustion is CLOSED on hardware.** The round-6
+stack (T −0x11A000 + G carve re-stomp + COMMON 4-atlas VQ + E prefree)
+survives the binding worst-pair scene and both menu transitions on
+real silicon with zero allocator errors.
