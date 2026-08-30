@@ -3480,3 +3480,59 @@ from the hardware soak.
 Smoke legs: `r9a-smoke` (L-trigger + IEE build) — clean: `GCARVE` +
 `rv=1`, 34 TEXHUD samples, all counters 0 incl. the new `iee=` field;
 `r9b-smoke` = same check on the final HUD-off soak build.
+
+## Round 7 soak verdict — stable 45-min campaign; ISP error DEMYSTIFIED, watch item reclassified (2026-08-30)
+
+Operator leg `hw-soak1` (coder's cable, ~45 min = 316 TEXHUD samples ×
+512 kicks): full attract cycle (all demos, to the intro movie again),
+then Ernula through the ENTIRE Beginner Mode campaign — every stage,
+final boss beaten, congratulations splash, credits, back to attract.
+Operator: "Everything seem to be working fine."
+
+**Stability: fully green, longest hardware session yet.** `c6/c7/c8/c1
+= 0` across all 316 samples (zero texture-arena errors through a whole
+campaign incl. ending/credits — the strongest T1 evidence to date), no
+`TEXERR` transitions, `GCARVE rv=1`, `EPREFREE`×1 (exactly the one
+attract→mode-select entry; Beginner Mode never revisits mode-select),
+`gd` idle-gap recoveries 0x24 over 45 min (rate consistent with
+hw-round8's 0x15), no fatals.
+
+**The ISP error, explained by the IEE logger — the round-6 "single
+benign one-shot latch" classification was an OBSERVATION ARTIFACT of
+the sticky bit.** With write-1-clear active, the truth: **iee = 33,033
+latches** (0x8109) in 45 min, and the bit is almost always **bit 0 =
+"RENDER: ISP out of cache"** (holly_intc.h:50 — per-tile render-side
+parameter-cache overflow), NOT a space problem:
+
+- Every captured detail line: `ie=00000001`, `itp` ≈ 0x189d0/bank ≈
+  **22% of the 463,328 limit** (bank A 0x189d0, bank B 0x18e20 — live
+  mid-frame TA pointers, both far from `lim`). ISP parameter *space*
+  is never near exhaustion when bit 0 latches.
+- Rate profile: quiet for ~85 s (attract intro) → **saturated burst,
+  ~every kick, samples 10–26** (attract tutorial + demo fight — the
+  operator's "appeared once during the attract demo" impression = this
+  first burst) → low continuous trickle through the whole campaign
+  (tens/sample; it never fully stops during gameplay, the operator
+  just can't see it) → **second saturation burst samples 247–272**
+  (ending/congratulations/credits sequence) → modest after attract
+  return. No visible artifact reported at ANY of it, including the
+  every-frame bursts.
+- Verdict: bit 0 is a per-tile scene-complexity latch — some tiles in
+  the heavy scenes carry more ISP/TSP parameters than the render
+  core's internal cache; the hardware recovers invisibly. Cosmetic at
+  absolute worst, unrelated to the razor-thin ISP budget. Reclassified
+  from "watch item" to **characterized-benign**.
+
+**New, genuinely interesting finding: bit 2 latched once.** `iea` 1→5
+between samples 167–168 (~24 min in, mid-campaign, gd=0x18): at least
+one **TA ISP/TSP Parameter Overflow** (holly_intc.h:52) — the ONE bit
+that would implicate the ISP budget (it means a frame's TA write hit
+`lim`). Frequency: ≥1 in a 45-min session; consequence: TA drops the
+overflowing geometry for that frame — a one-frame partial draw nobody
+saw. NOT yet characterized: the 16-line detail cap was exhausted in
+the first bit-0 burst, so the bit-2 event's `itp`/`lim` line was
+swallowed. Logger upgrade queued (detail-print on any never-seen mask
++ separate `ie2=` counter) so the next hardware session measures the
+bit-2 rate and fill state for free. If it stays ~once-per-session
+with no artifact: record and close. If frequent: ISP headroom levers
+remain (the pool's 29,600/bank spill is still never-consumed).

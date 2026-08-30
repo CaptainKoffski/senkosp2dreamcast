@@ -823,3 +823,16 @@ HUD-off build) for regression only (Flycast can't raise these latches).
 **Next step:** operator soak on hardware (free-form long play, serial
 capture on, L-trigger feel verdict) → then Task 11 play-criteria
 session against the final layout, Tasks 12–13.
+
+**ROUND 7 SOAK VERDICT (2026-08-30, `phase5-hardware.md` §Round 7 soak
+verdict, leg `hw-soak1`).** 45-min hardware session, full Beginner Mode
+campaign + attract: **fully stable** — zero texture-arena errors, no
+fatals, all instruments nominal. The ISP error is demystified: bit 0
+render per-tile cache latch, 33K occurrences/session, itp at 22% of
+limit, invisible — the round-6 "single benign latch" was a sticky-bit
+observation artifact; reclassified characterized-benign. NEW: bit 2
+(TA param overflow — the bit that would implicate the razor-thin ISP
+budget) latched ≥once mid-campaign, uncharacterized (detail-cap
+swallowed its registers); IEE logger upgraded (never-seen-mask detail
+print + `ie2=` counter) so the Task-11 session measures it for free.
+Pending from operator: explicit L-trigger block feel verdict.
