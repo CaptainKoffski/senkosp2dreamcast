@@ -23,7 +23,7 @@
 # shim SHIM_SERIAL + loader LOADER_SERIAL. Coder's-cable sessions only; a
 # release build must stay silent (serial-SD dongles drive SD over these pins).
 ifeq ($(SERIAL),1)
-DEFS += -DSHIM_SERIAL=1 -DLOADER_SERIAL=1
+DEFS += -DSHIM_SERIAL=1 -DLOADER_SERIAL=1 -DSHIM_TEXHUD=1
 endif
 # CRC=1 (needs SERIAL=1 to be audible): SHIMCRC line per delivered cart read;
 # verify with scripts/check_stream_crc.py (texpatch caveat in its docstring).

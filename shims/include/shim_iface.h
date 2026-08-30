@@ -86,9 +86,13 @@
                                  * Re-enable per-build with -DSHIM_HUD=1. */
 #endif
 #ifndef SHIM_TEXHUD
-#define SHIM_TEXHUD 1           /* HW round 3: live texture-error autopsy rows
-                                 * (main.c texhud block). 0 once the missing-
-                                 * asset defect is dispositioned. */
+#define SHIM_TEXHUD 0           /* HW round 3 texture autopsy + IEE edge logger
+                                 * (main.c texhud block). Default OFF: with the
+                                 * screen HUD dark it is a pure serial
+                                 * instrument, and its SB_ISTERR write-1-clear
+                                 * must not leak into silent release builds
+                                 * (release = hands-off). SERIAL=1 builds turn
+                                 * it back on via the top-level Makefile. */
 #endif
 
 #endif

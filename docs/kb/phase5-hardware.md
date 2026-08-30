@@ -3542,3 +3542,99 @@ trigger blocks fine, feels much better to play, I cannot imagine
 beating the final boss without it." — the round-7 layout change is
 confirmed on hardware; the input-map.md row stands as the approved
 layout for the Task-11 criteria session. Round 7 closed (Task #23).
+
+## Round 9 — Task 11 play criteria BANKED, cyan splash reclassified, bit-2 caught in the act (2026-08-30)
+
+Operator session, leg `hw-round9` (coder's cable, ~47 min / 332
+samples, r9c diagnostic build, capture spanning the test-menu reboot).
+
+### Play criteria (spec §Exit criteria 3–7)
+
+| # | Criterion | Evidence (operator verbatim + artifacts) |
+|---|---|---|
+| 3 | Full 1P match, approved layout | "The 1P controls run as expected, no issues found" — every control exercised deliberately (D-pad + analog 8-way separately, A/X/B/Y, L(block dup)/R triggers, Start); match played to a finish; later "Double-checked 1st player controls - work perfectly." |
+| 4 | 2P match, mid-game port-B join | "on 3rd [round] pressed start on the B controller … 2nd player controls work correctly. (Ernula-vs-Lily, 8th stage)" — join into a RUNNING match; photo `img/phase5-hw-round9-2p-join.jpeg` (both HUDs live, START overlay visible). P2 won round 1; a second 2P game played and won as P1. |
+| 5 | Test-menu round trip | A+Start combo boot → GAME TEST MENU (photo `img/phase5-hw-round9-test-menu.jpeg`) → setting changed → SYSTEM MENU EXIT → "works as expected, with console reboot" → attract. |
+| 6 | Free-play | Start alone from attract credits and starts; "I took continue a lot of time during the whole play … a solid proof that Free Play works properly." |
+| 7 | Pad-poll latency disposition | **No lag observed** — "No additional sluggishness felt besides described below" (the described items are load/render-side, not input; see §Round 9 findings). The staged TCNT0 cache (`shims/src/main.c` `#if 0`) STAYS STAGED, not enabled. |
+
+Also in-session: full Score Attack run to the final boss, beaten first
+attempt, ending + credits + attract return — "During the whole run I
+saw no graphical issues."
+
+### Cyan splash — RECLASSIFIED emulator-only (exit criterion 8, Task 12)
+
+Hardware observation: **absent in every hardware boot ever watched** —
+rounds 8/soak1/round9 (round9 = two boots in one session incl. the
+test-menu reboot, watched deliberately): "No cyan splash seen…During
+loading I saw no cyan splash…No cyan splashes." Emulator observation
+(Phase 4 record): present ~1 s on EVERY Flycast boot. The operator's
+guess (debug-HUD related) is ruled out: the splash predates every HUD
+instrument and was still present in emulator boots after HUD-off
+builds; hardware never showed it under any build. Verdict per spec
+(cosmetic, explain-or-reclassify): **emulator-side rendering artifact
+of the boot video-mode window; no fix owed.** Fork-side suspicion
+stays on record (Phase 4 §Findings item 2).
+
+### Bit-2 (TA ISP/TSP parameter overflow) — caught in the act, characterized
+
+The upgraded logger delivered:
+`IEE cnt=683 ie=00000004 itp=004711e0 lim=004711e0 opb=0011d1a0 …`
+— **`itp == lim` exactly**: the TA parameter pointer pinned at the
+463,328-byte limit, bank B. Genuine parameter-space exhaustion, mask
+bit 2 ALONE at that kick. Session totals: **ie2=7**, all seven inside
+ONE TEXHUD interval (≤8.5 s) ~11–14 min in (match play; the census-
+worst Ernula-vs-Lili pair was on screen in that era), **zero during
+the 33-min Score Attack**. Consequence: those frames dropped the
+overflowing geometry; operator saw nothing across the whole session.
+**Disposition: characterized, benign-in-practice, carve UNCHANGED.**
+Rationale: one sub-9-second burst per ~47 min, invisible; spending the
+OPB spill pool (+29,600/bank = +6.4%, empirically never consumed but
+not proven safe) or texture margin buys nothing observable. The
+donation lever stays documented as the response IF a visible artifact
+ever appears (§Round 7 prep #IEE + this section are the recipe).
+
+### Round 9 findings — perf symptoms, all load/serial-correlated (hypothesis: CRC=1 diagnostic cost)
+
+New operator observations, none seen in emulator legs:
+1. **~5 s black screen** attract→character-select (+short hang at
+   appear, + "Select Character" title lingering into the timer).
+2. **~0.5 s hang at round start**, resolving exactly when music starts
+   (track title pops).
+3. **Background-base rotation micro-stutter** every couple of seconds
+   (2P stage 8), barely noticeable.
+4. **Projectile-heavy slowdown** — "not very annoying"; plausibly
+   intrinsic (same CPU/GPU as Naomi) and possibly serial-worsened.
+
+The arithmetic indicts the diagnostic build's SHIMCRC stream (CRC=1):
+each 2 KB cart read prints a ~42-char line at 115200 baud ≈ **3.7 ms
+of blocking serial per read** (`shims/src/scif.c` drop-on-timeout
+notwithstanding, the FIFO drains at line rate). A ~2.5–3 MB scene
+load = 1,300–1,500 reads ≈ **4.8–5.6 s** — the black screen. A
+~270 KB music-buffer prime ≈ 135 reads ≈ **0.5 s** — the round-start
+hang. Periodic ADX stream refills = tens of ms every couple seconds —
+the base stutter. (2,539 SHIMCRC lines total this session.) Naomi
+comparison caveat for expectations: the arcade preloads the entire
+game into DIMM RAM at power-on, so its in-game "loads" are RAM-speed;
+the DC port streams from disc — release-build loads will beat the
+diagnostic build but not the Naomi memory-resident behavior.
+**Next leg: release-build A/B** (`make gdi`, serial-silent — md5s
+recorded in §Release md5s below) re-timing items 1–4. Also carried:
+**Ernula barrier occasionally holds after release** (operator recalls
+the same in emulator DC-build runs, which PREdate the L-trigger dup —
+so unlikely the trigger; possibly game behavior. A/B leg re-checks;
+if it persists, compare the Naomi profile in Flycast before treating
+as a port bug.)
+
+### Release md5s (release parity prep, 2026-08-30, post round-7/9 stack)
+
+`make gdi` from committed defaults (serial-silent; SHIM_TEXHUD now
+compiles out of release builds so the IEE write-1-clear cannot leak
+into a hands-off disc; diagnostic builds re-enable it via SERIAL=1):
+| file | md5 |
+|---|---|
+| disc.gdi | c527f1ec937b56caa65084d436f8c0a0 |
+| track01.iso | 681fa4c8daa058ce2df8ea1b604d6e91 |
+| track02.raw | 03c796f60db2e9ef0b65a42a47a9d321 |
+| track03.iso | b05c578ec5bbe6e39731848b99df73e8 |
+| track04.iso | e3b702b0c98815de307a16c066cfc00d |

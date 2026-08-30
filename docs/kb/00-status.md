@@ -836,3 +836,18 @@ budget) latched ≥once mid-campaign, uncharacterized (detail-cap
 swallowed its registers); IEE logger upgraded (never-seen-mask detail
 print + `ie2=` counter) so the Task-11 session measures it for free.
 Pending from operator: explicit L-trigger block feel verdict.
+
+**ROUND 9 — TASK 11 & 12 CLOSED (2026-08-30, `phase5-hardware.md`
+§Round 9, leg `hw-round9`).** Exit criteria 3–7 banked with operator
+attestations + photos (no-lag verdict → TCNT0 cache stays staged);
+criterion 8 closed — cyan splash absent on hardware in every boot ever
+watched → reclassified emulator-only. Bit-2 caught in the act
+(`itp==lim`, 7 events in one ≤8.5 s burst, invisible) → characterized
+benign-in-practice, carve unchanged, pool-donation lever documented as
+reserve. Perf symptoms (5 s loads, round-start hang, base stutter) all
+load/serial-correlated — arithmetic indicts the CRC=1 diagnostic
+serial stream; release build mastered (md5s recorded; SHIM_TEXHUD now
+serial-builds-only so release is hands-off). **Next step:** operator
+release-build perf A/B (Task #24) → Task 13 gate audit → Phase 6.
+Serial-link control test (dcload/dc-tool) queued as Task #25 per
+operator, after GDEMU work.
