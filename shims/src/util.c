@@ -84,46 +84,40 @@ void hex_paint(unsigned int x, unsigned int y, unsigned int val) {
 }
 
 #if SHIM_LOADBAR
-/* Boot-preload progress bar over the loader's Naomi splash: 320x6 px orange
+/* Boot-preload progress bar (Task 26, Cleopatra parity): 320x6 px orange
  * fill + black track in a black 1-px outline, centered, low on screen. Same
  * live-scanout idiom as hex_paint_c (unblank + FB_R_SOF1 base).
- * COLOR: the game scans the FB as RGB0555 (FB_R_CTRL=1 -- HW round-15
- * register photo 2026-08-16), and the LOADER now displays the splash in that
- * same format (loader/main.c PM_RGB555), so the splash bytes are already
- * right at takeover and this function touches only the bar's own pixels.
- * (The first cut repacked the whole buffer 565->0555 here instead: 307k
- * uncached 16-bit VRAM reads inside the takeover blank window = ~1.2 s of
- * solid black, Flycast CLEO-SPG timestamps + HW 2026-08-18. Never read
- * VRAM in the blank window.) Bar colors are 0555 literals; black/white are
- * format-invariant. fill is the lit width in px; cost irrelevant during load. */
+ * COLOR: THIS game scans the FB as RGB565 -- FB_R_CTRL settles at 0x00800005,
+ * fb_depth bits 3:2 = 01, written by the game's own KAMUI2 register writer
+ * (pc=8c032140, captures/attract-s2.stdout.log 21:52:15.628; Cleopatra was
+ * 0555, its literals do NOT carry). Bar colors are 565 literals; black is
+ * format-invariant. The loader displays the splash in this same format
+ * (loader/main.c PM_RGB565), so splash bytes scan right after takeover and
+ * this function touches only the bar's own pixels -- never repack the whole
+ * buffer here (Cleopatra HW 2026-08-18: ~1.2 s black; never read VRAM in
+ * the blank window). fill is the lit width in px; cost irrelevant during load. */
 void loadbar_paint(unsigned int fill) {
     if (fill > 320u) fill = 320u;
     unsigned int base = *(volatile unsigned int *)0xa05f8050 & 0x00fffffcu;
     volatile unsigned short *fb = (volatile unsigned short *)(0xa5000000u + base);
-    /* Bar row, all cables. The old per-cable row (200 on TV) modeled the
-     * deleted patch-#34 path's 240-line scan (ysize=236, modulus=1,
-     * SOF1==SOF2, measured 2026-08-02) and put the bar mid-screen on the
-     * game's REAL NTSC mode (HW composite 2026-08-17). That mode scans the
-     * FB as a full 480-line frame -- FB_R_SIZE=1413b53f: ysize=237,
-     * modulus=321 (skip-one-line interlace), SOF2=SOF1+0x500 (Flycast
-     * CLEO-SPG/SOFWR r30, Cable=3, 2026-08-17) -- so linear row N shows at
-     * screen line N on every cable. 417..428 = same ~10% bottom margin
-     * inside NTSC overscan that the old TV row aimed for. */
+    /* Bar row: senkosp's steady scan is FB_R_SIZE=0x0017753f (game writer
+     * pc=8c032140, attract-s2 capture, VGA) -- 640 wide, modulus 1, linear
+     * ~478-line frame, so linear row N is screen line N. 417..428 = ~10%
+     * bottom margin inside overscan (Cleopatra-proven row). TV-cable scan
+     * geometry (patch #37 NTSC path) is uncaptured -- if the bar sits wrong
+     * on composite, capture the game's TV FB_R_SIZE and re-derive. */
     unsigned int yb = 417u;
     /* Outline + track every paint, not one-shot: the game flips the scanout
-     * base between two buffers each vblank even during load (CLEO-SPG: SOF1
-     * 0xfd000<->0x4fd000 on TV cable), so a once-painted outline lives in
-     * one flip buffer and vanishes every other frame. Repainting converges
-     * both buffers; cost irrelevant during load. Black outline + track and
-     * orange fill (0x7984 = #F26522 in 0555) per the tester mockup; the
-     * splash-white rows between outline and track are left as the gap. */
+     * base between two buffers each vblank even during load (Cleopatra
+     * CLEO-SPG evidence; same converge-by-repaint idiom carried). Orange
+     * fill = #F26522 in 565 (0xf324), per the Cleopatra tester mockup. */
     for (unsigned int x = 158u; x < 483u; x++)              /* outline: top/bottom */
         fb[yb * 640u + x] = fb[(yb + 11u) * 640u + x] = 0x0000u;
     for (unsigned int y = yb + 1u; y < yb + 11u; y++)       /* outline: sides */
         fb[y * 640u + 158u] = fb[y * 640u + 482u] = 0x0000u;
     for (unsigned int y = yb + 3u; y < yb + 9u; y++)
         for (unsigned int x = 0; x < 320u; x++)             /* fill + black track */
-            fb[y * 640u + 160u + x] = x < fill ? 0x7984u : 0x0000u;
+            fb[y * 640u + 160u + x] = x < fill ? 0xf324u : 0x0000u;
     *(volatile unsigned int *)0xa05f80e8 &= ~8u;            /* unblank video */
 }
 #endif

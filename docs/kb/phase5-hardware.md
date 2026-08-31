@@ -3811,3 +3811,83 @@ round-9 track03 (`b05c578e…`) — the art input joins the documented
 gitignored-inputs list. Deploy: `make deploy` copies the new track03
 to the card (the game content is unchanged; no re-verification owed
 beyond seeing the art in the GDEMU menu).
+
+## Loading screen with progress bar (Task #26, 2026-08-31)
+
+Cleopatra-parity boot progress bar, ported with senkosp's own pins
+replacing every carried Cleopatra assumption:
+
+**Pin 1 — takeover FB format is RGB565, not Cleopatra's 0555.** The
+game's steady scan-out programs `FB_R_CTRL = 0x00800005` (fb_depth
+bits 3:2 = 01 = RGB565), written by its own KAMUI2 register writer
+`pc=8c032140` (`captures/attract-s2.stdout.log` 21:52:15.628 — primary
+evidence, fork SPG instrument). This retro-explains the round-1
+hardware photo's "cyan-white splash background": the loader displayed
+the splash repacked to 0555 (carried Cleopatra assumption, flagged in
+its own comment as an unpinned later task), and 0555-white `0x7fff`
+scanned as 565 is cyan-tinted. Fixed: `loader/main.c` now displays the
+splash `PM_RGB565` raw (repack macro deleted), so splash bytes scan
+correctly through takeover; `loadbar_paint`'s fill literal re-encoded
+`#F26522` → 565 `0xf324`.
+
+**Pin 2 — scan geometry.** Game steady `FB_R_SIZE = 0x0017753f` (same
+capture, VGA): 640 wide, modulus 1, linear ~478-line frame → linear
+row N = screen line N; Cleopatra's proven bar row y=417..428 carries.
+TV-cable geometry (patch #37 NTSC path) is uncaptured — if the bar
+sits wrong on composite, capture the game's TV `FB_R_SIZE` and
+re-derive (noted in the util.c comment).
+
+**Pin 3 — bar total from the measured boot burst.** The boot preload
+is **3,170,304 B in exactly 76 cart reads, byte-identical across four
+legs** (f2-splash + f2u-r8-1 fork logs, and this task's two smoke legs
+on the new build — `GDDMA fad>=CART_FAD` sums), then reads go idle
+while the title presents; the next burst (8.3 MiB attract assets) is
+post-title. `PB_TOTAL = 320<<13 = 2,621,440` deliberately undershoots
+(fill = bytes>>13, no divide): the bar pegs full and painting stops
+for good before the title — the Cleopatra rule, because an overshoot
+would leave the attract burst repainting a bar over live attract.
+
+**Mechanics (all carried Cleopatra idioms):** `shim_iface.h` gains
+`SHIM_LOADBAR 1` (release-default ON: pure VRAM writes, no serial);
+`cart.c` counts down `pb_left` and repaints per stream in
+`cart_stream` (steady path only — the never-observed boot-DMA/PIO
+hooks don't advance it); `util.c loadbar_paint` unchanged in shape
+(live FB_R_SOF1 base + unblank, outline+track+fill repaint converges
+both flip buffers); one-shot empty-bar paint at `shim_monitor_set`
+(earliest boot-scene hook, fires over the loader's splash pre-takeover
+— one-shot unlike Cleopatra's vid-init paint, because this writer can
+re-fire from the test menu's video settings).
+
+**Verification — emulator smoke (2 legs), visual verdict owed to
+hardware.** Legs `captures/phase6/loadbar-smoke(.log)` +
+`loadbar-smoke2(.log)`, release config, unattended: both boot to
+attract (BIOS → WARNING → logos → story slides frame-verified), **0
+SHIMERR**, first-76-read sums exactly 3,170,304 both legs (countdown
+provably exercised end-to-end). The bar itself is **not visually
+verifiable in this session's emulator**: continuous frame capture
+(FLYCAST_SHOT_EVERY=1, ~43 fps archived, 3,233 frames) shows the shot
+pipeline delivers only TA-rendered presents — the loader splash
+(on-screen for real seconds) and every FB-only frame produce zero
+presents (BIOS logo → black → WARNING fade, no splash frame in 3,810
+frames across both legs). Same session-class limitation tooling.md
+records for Task 8's stalled captures. Operator's next hardware
+session carries the visual verdict (folded into Task #27's checklist):
+splash should now stay white through takeover, bar track appears low
+on screen, fills left→right during NOW LOADING, gone by title.
+
+### Release md5s v3 — with loading bar (supersedes v2 for deploys)
+
+Only track04 (loader + shim home) differs from v2; art track03 keeps
+its v2 md5.
+
+| file | md5 |
+|---|---|
+| disc.gdi | c527f1ec937b56caa65084d436f8c0a0 |
+| track01.iso | 681fa4c8daa058ce2df8ea1b604d6e91 |
+| track02.raw | 03c796f60db2e9ef0b65a42a47a9d321 |
+| track03.iso | 244ae7e5a321345e995edc4793fcbdd5 |
+| track04.iso | **7a614c2f5af83006bcbbf022e24a5aca** |
+
+`make test` green after the change (same clean-order quirk: `make gdi`
+before `make test`). Deploy: `make deploy` (track03 from #28 + this
+track04 both pending on the card as of this entry).

@@ -60,6 +60,20 @@ void shim_mark(u32 slot, unsigned short color);   /* util.c: breadcrumb HUD */
  * counter's "never ran" value distinguishable from "ran zero times"). */
 u32 cart_count = 1;             /* streams completed + 1 (HUD slot 4/5 blinker) */
 
+#if SHIM_LOADBAR
+void loadbar_paint(unsigned int fill);                      /* util.c: 320-px bar */
+/* Boot-preload byte countdown (Task 26). The boot burst is 3,170,304 B --
+ * 76 cart reads, byte-identical across two emulator legs (f2-splash and
+ * f2u-r8-1 fork logs, GDDMA fad>=CART_FAD sums), then the title presents and
+ * reads go idle. 320 << 13 = 2,621,440 deliberately UNDERSHOOTS it (fill =
+ * bytes >> 13, no divide): the bar pegs full and painting stops for good
+ * BEFORE the title -- overshoot would leave the first attract-asset burst
+ * (8.3 MiB, post-title) repainting a bar over live attract.
+ * ponytail: knob -- retune only if the boot burst ever shrinks below 2.5 MiB. */
+#define PB_TOTAL (320u << 13)
+static u32 pb_left = PB_TOTAL;         /* .data non-zero init (house style) */
+#endif
+
 /* Request fence, on EVERY read path. gd_read_cart validates the cart offset
  * (gd.c:319-321) but never the destination, so this is the last line
  * protecting the shim window, its register mirrors and the pre-placed 0x60000
@@ -142,6 +156,13 @@ static void cart_stream(void) {
 
     if (gd_read_cart(off, (void *)(dest | 0xa0000000u), len) < 0)
         shim_die(4, off, gd_last_err);
+
+#if SHIM_LOADBAR
+    if (pb_left) {                      /* boot preload only; 0 = done forever */
+        pb_left = (len >= pb_left) ? 0 : pb_left - len;
+        loadbar_paint((PB_TOTAL - pb_left) >> 13);
+    }
+#endif
 
     /* Completion, in the order a poller can safely observe it: the transfer
      * counter first, then the busy flag the game spins on. SB_GDLEND is reset

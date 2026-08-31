@@ -923,3 +923,21 @@ to the art pixels, detwiddle round-trip exact. Only track03's md5
 changes (`244ae7e5…` — `phase5-hardware.md` §Release md5s v2); the art
 input joins the gitignored-inputs list for clean-checkout builds.
 Redeploy (`make deploy`) to see it in the GDEMU menu.
+
+**#26 landed (2026-08-31, `phase5-hardware.md` §Loading screen):**
+Cleopatra-parity boot progress bar, every carried assumption replaced
+by a senkosp pin — takeover FB format is **RGB565** (game
+`FB_R_CTRL=0x00800005`, attract-s2 capture; the loader's 0555 splash
+repack was wrong and explains round-1's cyan-white splash photo —
+splash now displayed raw 565), scan row carried (game `FB_R_SIZE`
+linear on VGA), bar total = measured 3,170,304 B boot burst (76 reads,
+identical across four legs), `PB_TOTAL 320<<13` undershoots it so the
+bar finishes before the title and never paints again. Two emulator
+smoke legs green (boots to attract, 0 SHIMERR); the bar itself is
+hardware-only evidence in this environment (shot pipeline delivers
+only TA-rendered presents — tooling.md leg rows), so the **visual
+verdict rides with Task #27's operator session**: splash stays white
+through takeover, bar fills during NOW LOADING, gone by title. New
+**Release md5s v3**: only track04 changes
+(`7a614c2f5af83006bcbbf022e24a5aca`). `make deploy` now ships #28's
+track03 + #26's track04 together.

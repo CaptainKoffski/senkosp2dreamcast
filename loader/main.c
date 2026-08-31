@@ -54,13 +54,6 @@ extern uint8 handoff_end[];     /* end-of-stub label in handoff.S (stub is PIC) 
 #define LOADER_QUIET 1
 extern uint8 splash_bin[];      /* objcopy-embedded 640x480 RGB565 (Makefile) */
 
-/* RGB565 -> RGB0555 repack (Cleopatra's loader/shim_iface.h, not in
- * senkosp's -- senkosp's own takeover FB format is an unpinned later task;
- * kept local here rather than added to the shared header, which must stay
- * the brief's content plus only the sanctioned kernel-piece additions).
- * R and the top 5 bits of G shift down one; B stays; bit 15 (K) lands 0. */
-#define RGB565_TO_0555(p) ((unsigned short)((((p) & 0xffc0u) >> 1) | ((p) & 0x1fu)))
-
 /* Serial kill-switch (release default 0): serial-SD dongles (DreamShell
  * isoldr) drive their SD card over the SCIF pins, so a release build must
  * never transmit. KOS's dbgio_init is weak (kernel/debug/dbgio.c:110);
@@ -134,14 +127,16 @@ int main(void) {
     /* Naomi BIOS splash (arcade boot feel): shown for the whole load. On the
      * real Naomi the BIOS draws this screen, not the game -- our conversion
      * bypasses that BIOS, so the loader stands in for it. Displayed as
-     * RGB0555, the format the GAME scans at takeover (Cleopatra HW round-15
-     * register photo, carried over -- senkosp's own takeover format is a
-     * later task's pin). KOS picks the cable-correct 640x480 variant. */
+     * RGB565: senkosp's OWN takeover format, pinned Task 26 (FB_R_CTRL
+     * settles 0x00800005, fb_depth=01=565, game writer pc=8c032140 --
+     * captures/attract-s2.stdout.log; replaces the carried Cleopatra 0555
+     * assumption, whose repack showed cyan-white after takeover, HW round-1
+     * photo). Splash bytes thus scan right through takeover, and the shim's
+     * loadbar paints over them in the same format (util.c loadbar_paint).
+     * KOS picks the cable-correct 640x480 variant. */
     if (LOADER_QUIET) {
-        vid_set_mode(DM_640x480, PM_RGB555);
-        const uint16 *s = (const uint16 *)splash_bin;   /* blob stays RGB565 */
-        for (unsigned i = 0; i < 640u * 480u; i++)
-            vram_s[i] = RGB565_TO_0555(s[i]);
+        vid_set_mode(DM_640x480, PM_RGB565);
+        memcpy(vram_s, splash_bin, 640 * 480 * 2);
     }
 
     say("SENKOSP LOADER PHASE4 TASK10");

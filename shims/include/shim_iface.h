@@ -85,6 +85,14 @@
                                  * shim_die fatal screens stay unconditional.
                                  * Re-enable per-build with -DSHIM_HUD=1. */
 #endif
+#ifndef SHIM_LOADBAR
+#define SHIM_LOADBAR 1          /* Task 26: boot-preload progress bar (Cleopatra
+                                 * parity). Paints util.c loadbar_paint from
+                                 * cart.c's stream service during the boot
+                                 * burst only (pb_left countdown), then never
+                                 * again. Unconditional in release: pure VRAM
+                                 * writes, no serial. */
+#endif
 #ifndef SHIM_TEXHUD
 #define SHIM_TEXHUD 0           /* HW round 3 texture autopsy + IEE edge logger
                                  * (main.c texhud block). Default OFF: with the
