@@ -83,10 +83,10 @@ void hex_paint(unsigned int x, unsigned int y, unsigned int val) {
     hex_paint_c(x, y, val, 0x07ff, 0x0000);                 /* cyan on black */
 }
 
-/* No loadbar_paint here anymore (Task 26 v2): the progress bar moved to
- * loader/main.c. The shim never has a screen it owns -- senkosp blanks and
- * reprograms video before its first cart read, and the boot burst lands under
- * the game's own NOW LOADING screen (cart.c note, HW 2026-08-31). */
+/* No loadbar_paint (Task 26, rolled back entirely 2026-09-01): the shim never
+ * has a screen it owns -- senkosp blanks and reprograms video before its first
+ * cart read, and the boot burst lands under the game's own NOW LOADING screen
+ * (cart.c note; docs/kb/phase5-hardware.md §Loading bar rollback). */
 
 void shim_hex(unsigned int x, unsigned int y, unsigned int val) {
 #if !SHIM_HUD

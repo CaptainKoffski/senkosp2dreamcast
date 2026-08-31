@@ -4039,9 +4039,42 @@ FB_R_CTRL, still returns 0); census says nothing calls it after boot.
 The BIOS-blob window and the TV/NTSC arm (possibly different blank
 sites, uncaptured) keep today's behaviour.
 
-### Release md5s v5 — BOOT-UNBLANK (supersedes v4 for deploys)
+### Release md5s v5 — BOOT-UNBLANK (superseded by v6 same day)
 
-Only track04 differs from v4.
+Only track04 differed from v4: `6d3273c4f27a8acc8cf5250446caf8a3`.
+Never deployed as a keeper — see §Loading bar rollback.
+
+## Loading bar rollback (operator verdict, 2026-09-01)
+
+Hardware verdict on v2 + BOOT-UNBLANK, operator's own setup: **"looks
+the same"** — plus a **glitch row of pixels flashing for a fraction of
+a second** (an unblanked transitional video state that the game's blank
+used to hide; the cosmetic risk class the BOOT-UNBLANK entry predicted,
+just at boot rather than in a later path). Why the bar never registered
+either: on GDEMU the loader's 1.5 MB disc read is near-instant, so the
+loader-side bar fills and vanishes within the splash blink; and the
+gap-splash return evidently did not present as such on the real
+setup (recon was the VGA emulator profile; the real cable's arm was a
+recorded unknown). Operator call: **not worth keeping — roll it all
+back.**
+
+Rolled back (commit this entry ships in): the loader bar + chunked
+read (single `cdrom_read_sectors` restored), the three BOOT-UNBLANK
+`op16` patches and the `op16` helper (patch table back to 63 main).
+**Kept:** the RGB565 splash fix (Task-26 pin 1 — cyan-splash root
+cause, operator-confirmed good), the shim-side bar deletion from v2
+(the shim stays paint-free), and every finding: burst timing, FB-write
+invisibility of the shot pipeline, gap anatomy, the three blank sites,
+the change-only-logging census lesson, and the recon instrument (fork
+044a2fb6c). Resurrection point if ever wanted: git commit `7476d47`.
+
+Verification: `rollback-smoke` leg — blank-set census back to the
+exact baseline (incl. `pr=8c036cea` once per boot), 0 SHIMERR, attract
+renders. `make test` green.
+
+### Release md5s v6 — bar rolled back (CURRENT for deploys)
+
+Only track04 differs from v5; tracks 1–3 unchanged since v2.
 
 | file | md5 |
 |---|---|
@@ -4049,7 +4082,6 @@ Only track04 differs from v4.
 | track01.iso | 681fa4c8daa058ce2df8ea1b604d6e91 |
 | track02.raw | 03c796f60db2e9ef0b65a42a47a9d321 |
 | track03.iso | 244ae7e5a321345e995edc4793fcbdd5 |
-| track04.iso | **6d3273c4f27a8acc8cf5250446caf8a3** |
+| track04.iso | **3460af24d9e21ab59d6bae88fb929ff2** |
 
-`make test` green. Card still stale: `make deploy` before the next
-hardware session.
+Card still stale: `make deploy` before the next hardware session.

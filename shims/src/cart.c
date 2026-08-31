@@ -65,8 +65,9 @@ u32 cart_count = 1;             /* streams completed + 1 (HUD slot 4/5 blinker) 
  * loadbar-smoke2 21:48:00.003; first cart stream 21:48:03.319), and the boot
  * burst then lands under the game's own FB-drawn NOW LOADING screen -- HW
  * 2026-08-31: per-read paints splat a bar on top of it. Cleopatra streamed its
- * preload before touching video; this game inverts the order, so the bar
- * lives in loader/main.c (the loader's own disc load), not in the shim. */
+ * preload before touching video; this game inverts the order. The bar was
+ * retried loader-side and rolled back too (operator 2026-09-01) -- full
+ * autopsy: docs/kb/phase5-hardware.md §Loading bar rollback. */
 
 /* Request fence, on EVERY read path. gd_read_cart validates the cart offset
  * (gd.c:319-321) but never the destination, so this is the last line

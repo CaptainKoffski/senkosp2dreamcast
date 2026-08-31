@@ -972,3 +972,14 @@ SHIMERR, attract normal. Expected HW boot now: splash+bar → ~2 s black
 attract. **Release md5s v5**: only track04
 (`6d3273c4f27a8acc8cf5250446caf8a3`). Ceiling: display-off no longer
 blanks anywhere — cosmetic-only risk on untested paths, census-clean.
+
+**Loading bar ROLLED BACK (2026-09-01, operator hardware verdict,
+`phase5-hardware.md` §Loading bar rollback):** on the real setup the
+BOOT-UNBLANK boot "looks the same" plus a glitch-row flash (an unblanked
+transitional state), and on GDEMU the loader-side bar fills too fast to
+read as a bar. All bar code and the three BOOT-UNBLANK patches removed
+(patch table back to 63 main; loader back to one cdrom_read_sectors).
+KEPT: the RGB565 splash fix (operator-confirmed), the shim's paint-free
+state, and all findings/instruments. **Release md5s v6 (CURRENT)**: only
+track04 (`3460af24d9e21ab59d6bae88fb929ff2`). Resurrection point:
+commit 7476d47.
