@@ -68,6 +68,28 @@ extern uint8 splash_bin[];      /* objcopy-embedded 640x480 RGB565 (Makefile) */
 int dbgio_init(void) { return 0; }   /* strong override of KOS weak symbol */
 #endif
 
+/* Progress bar under the splash (Task 26 v2, Cleopatra look): 320x6 px
+ * orange fill + black track in a 1-px outline, low on screen. Lives HERE,
+ * not in the shim: senkosp blanks + reprograms video BEFORE its first cart
+ * read, then runs its whole 3.17 MB boot burst under its own game-drawn
+ * NOW LOADING screen (captures/phase6/loadbar-smoke2.stdout.log: blank at
+ * 21:48:00.003 pc=8c032140, first cart stream 21:48:03.319) -- so shim-side
+ * per-read paints could only ever deface that screen (HW 2026-08-31), while
+ * the loader's own disc load below is the one honest window where we own the
+ * display. Geometry/colors match the Cleopatra bar (row 417, fill #F26522 =
+ * 0xf324 in the RGB565 the splash scans as). Single KOS framebuffer, no
+ * flips: outline repaint per call is cheap and keeps this one function. */
+static void loadbar(unsigned fill) {
+    if (fill > 320) fill = 320;
+    for (int x = 158; x < 483; x++)                 /* outline: top/bottom */
+        vram_s[417 * 640 + x] = vram_s[428 * 640 + x] = 0x0000;
+    for (int y = 418; y < 428; y++)                 /* outline: sides */
+        vram_s[y * 640 + 158] = vram_s[y * 640 + 482] = 0x0000;
+    for (int y = 420; y < 426; y++)
+        for (unsigned x = 0; x < 320; x++)          /* fill + black track */
+            vram_s[y * 640 + 160 + x] = x < fill ? 0xf324 : 0x0000;
+}
+
 static int say_row = 0;
 static void say(const char *s) {
     dbglog(DBG_INFO, "%s\n", s);
@@ -131,9 +153,9 @@ int main(void) {
      * settles 0x00800005, fb_depth=01=565, game writer pc=8c032140 --
      * captures/attract-s2.stdout.log; replaces the carried Cleopatra 0555
      * assumption, whose repack showed cyan-white after takeover, HW round-1
-     * photo). Splash bytes thus scan right through takeover, and the shim's
-     * loadbar paints over them in the same format (util.c loadbar_paint).
-     * KOS picks the cable-correct 640x480 variant. */
+     * photo). Splash bytes thus scan right through takeover until the game
+     * blanks for its own boot scene. KOS picks the cable-correct 640x480
+     * variant. */
     if (LOADER_QUIET) {
         vid_set_mode(DM_640x480, PM_RGB565);
         memcpy(vram_s, splash_bin, 640 * 480 * 2);
@@ -181,8 +203,17 @@ int main(void) {
     uint32 secs = (skip + img_len + 2047) / 2048;
     uint8 *buf   = (uint8 *)STAGING_ADDR;
     uint8 *stage = buf + skip;
-    if (cdrom_read_sectors(buf, fad, secs) != ERR_OK)
-        halt("KOS GD READ FAIL");
+    /* Chunked read so the bar advances with real bytes (64 sectors = 128 KB
+     * per step, ~12 steps for the main image). Same total read as the single
+     * call this replaces; the bar pegs full exactly when the image is in. */
+    loadbar(0);
+    for (uint32 done = 0; done < secs; ) {
+        uint32 n = (secs - done > 64) ? 64 : secs - done;
+        if (cdrom_read_sectors(buf + done * 2048, fad + done, n) != ERR_OK)
+            halt("KOS GD READ FAIL");
+        done += n;
+        loadbar(done * 320u / secs);
+    }
     /* Magic check only for the main image: the "NAOMI" header IS the first
      * bytes of the main load entry (ROM 0 -> RAM 0x8c020000, docs/kb/game.md
      * §Parsed .dat header). The test entry is raw code with no signature. */

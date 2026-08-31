@@ -3891,3 +3891,73 @@ its v2 md5.
 `make test` green after the change (same clean-order quirk: `make gdi`
 before `make test`). Deploy: `make deploy` (track03 from #28 + this
 track04 both pending on the card as of this entry).
+
+## Loading bar v2 — moved to the loader (Task #26 rework, 2026-09-01)
+
+**Hardware verdict on v1 (operator, 2026-08-31): wrong scene.** Observed
+boot: NAOMI splash (no bar) → black → game's own `NOW LOADING` screen →
+**bar splats on top of NOW LOADING for a moment** → attract. Disc art in
+the GDEMU menu OK.
+
+**Root cause — senkosp inverts Cleopatra's order: it seizes video BEFORE
+its first cart read.** Timeline (`captures/phase6/loadbar-smoke2.stdout.log`,
+fork SPG instrument, all same leg):
+
+- 21:47:47.05 loader video up (splash);
+- 21:47:57.5–59.7 game takeover: vid-init via the relocated BIOS blob
+  (`pc=8c019808`, 8c009xxx) toggling `FB_R_CTRL`/`VO_CONTROL`;
+- 21:48:00.003 game's KAMUI2 writer `pc=8c032140` reprograms SPG +
+  **sets the `VO_CONTROL` blank bit** → the black gap begins;
+- 21:48:03.319 **first unblank comes from `loadbar_paint` itself**
+  (`pc=8c0109c0`, inside 8c01095c per shim.map) — i.e. the *first cart
+  stream* is 3.3 s after the blank. No shim code executes in between:
+  the gap is game boot code running with the display blanked (arcade
+  behaviour), and nothing tied to cart reads can ever paint into it.
+- The 3.17 MB boot burst then lands under the game-drawn `NOW LOADING`
+  FB scene — so per-read paints can only deface it. Cleopatra's game
+  streamed its preload while the splash was still scanned out, which is
+  the property the carried design silently depended on and this game
+  lacks.
+
+**Redesign: the bar belongs to the loader's own disc load.** That is the
+one window where we own the display (splash up, KOS single framebuffer)
+and real bytes move: the 1.5 MB main-image read. `loader/main.c` now
+draws the same bar (row 417, orange `0xf324`, geometry identical to the
+old util.c paint) and chunks the image read into 64-sector (128 KB)
+steps, advancing the bar per chunk — pegs full exactly when the image is
+in, just before handoff. All shim-side painting is **deleted** (cart.c
+countdown, monitor_set one-shot, util.c `loadbar_paint`, the
+`SHIM_LOADBAR` flag); `NOW LOADING` and the black gap now play exactly
+as the game authored them, and the shim never touches VRAM outside
+`shim_die`.
+
+**Verification.** `make gdi` + `make test` green; shim.map has no
+loadbar/pb_left symbols. Emulator leg `captures/phase6/loadbar2-smoke`
+(release config, 150 s, unattended): 0 SHIMERR, game takeover signature
+unchanged (`FB_R_CTRL=00800005` `pc=8c032140` at +14.5 s from stdout
+start vs +13.8 s on smoke2 — the +0.7 s is 12 chunked reads' command
+overhead), renders after takeover. Chunk correctness is byte-proven by
+the loader's own gates: the NAOMI-magic check, the raw-ATA sector
+compare, and 63 patch-site `memcmp`s spread across the chunked image
+all passed (a chunk-offset bug halts at `PATCH ABORT` before handoff).
+Leg's `.log` cart trace is truncated at kill (buffered fork logging —
+known artifact, don't read absence of late GDDMA lines as evidence).
+The bar itself stays invisible to the shot pipeline (FB-only frames,
+tooling.md) — **visual verdict rides with the next hardware session**:
+splash white with bar filling beneath it during the initial load, bar
+full at handoff, black gap and NOW LOADING clean (no bar ever again).
+
+### Release md5s v4 — loader-side bar (supersedes v3 for deploys)
+
+Only track04 differs from v3.
+
+| file | md5 |
+|---|---|
+| disc.gdi | c527f1ec937b56caa65084d436f8c0a0 |
+| track01.iso | 681fa4c8daa058ce2df8ea1b604d6e91 |
+| track02.raw | 03c796f60db2e9ef0b65a42a47a9d321 |
+| track03.iso | 244ae7e5a321345e995edc4793fcbdd5 |
+| track04.iso | **9ad2828686a288523085f20fb0bcb7fb** |
+
+Card is still two tracks stale (#28 track03 + this track04): `make
+deploy` before the next hardware session.

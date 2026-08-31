@@ -941,3 +941,21 @@ through takeover, bar fills during NOW LOADING, gone by title. New
 **Release md5s v3**: only track04 changes
 (`7a614c2f5af83006bcbbf022e24a5aca`). `make deploy` now ships #28's
 track03 + #26's track04 together.
+
+**#26 reworked after hardware (2026-09-01, `phase5-hardware.md`
+§Loading bar v2):** operator saw the v1 bar in the wrong scene (black
+gap barless, bar splatting over the game's own NOW LOADING). Root
+cause: senkosp seizes + blanks video *before* its first cart read
+(blank 21:48:00.003 `pc=8c032140`; first cart stream +3.3 s, first
+unblank comes from `loadbar_paint` itself — loadbar-smoke2 SPG log),
+and runs the whole 3.17 MB burst under NOW LOADING — Cleopatra's game
+streamed its preload while the splash was still scanned, the property
+the carried design depended on. Bar moved to `loader/main.c` (chunked
+64-sector main-image read, same geometry/colors, pegs full at
+handoff); ALL shim-side painting deleted (`SHIM_LOADBAR` gone). The
+game-owned black gap stays black by design (arcade behaviour). Smoke
+leg loadbar2-smoke green (0 SHIMERR, takeover +14.5 s vs +13.8 s
+baseline; chunk bytes proven by the 63 patch-site memcmps). **Release
+md5s v4**: only track04 (`9ad2828686a288523085f20fb0bcb7fb`). Card
+still two tracks stale → `make deploy` before the #27 session; visual
+checklist updated (bar fills under the splash, NOW LOADING clean).

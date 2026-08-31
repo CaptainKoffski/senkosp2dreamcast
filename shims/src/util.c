@@ -83,44 +83,10 @@ void hex_paint(unsigned int x, unsigned int y, unsigned int val) {
     hex_paint_c(x, y, val, 0x07ff, 0x0000);                 /* cyan on black */
 }
 
-#if SHIM_LOADBAR
-/* Boot-preload progress bar (Task 26, Cleopatra parity): 320x6 px orange
- * fill + black track in a black 1-px outline, centered, low on screen. Same
- * live-scanout idiom as hex_paint_c (unblank + FB_R_SOF1 base).
- * COLOR: THIS game scans the FB as RGB565 -- FB_R_CTRL settles at 0x00800005,
- * fb_depth bits 3:2 = 01, written by the game's own KAMUI2 register writer
- * (pc=8c032140, captures/attract-s2.stdout.log 21:52:15.628; Cleopatra was
- * 0555, its literals do NOT carry). Bar colors are 565 literals; black is
- * format-invariant. The loader displays the splash in this same format
- * (loader/main.c PM_RGB565), so splash bytes scan right after takeover and
- * this function touches only the bar's own pixels -- never repack the whole
- * buffer here (Cleopatra HW 2026-08-18: ~1.2 s black; never read VRAM in
- * the blank window). fill is the lit width in px; cost irrelevant during load. */
-void loadbar_paint(unsigned int fill) {
-    if (fill > 320u) fill = 320u;
-    unsigned int base = *(volatile unsigned int *)0xa05f8050 & 0x00fffffcu;
-    volatile unsigned short *fb = (volatile unsigned short *)(0xa5000000u + base);
-    /* Bar row: senkosp's steady scan is FB_R_SIZE=0x0017753f (game writer
-     * pc=8c032140, attract-s2 capture, VGA) -- 640 wide, modulus 1, linear
-     * ~478-line frame, so linear row N is screen line N. 417..428 = ~10%
-     * bottom margin inside overscan (Cleopatra-proven row). TV-cable scan
-     * geometry (patch #37 NTSC path) is uncaptured -- if the bar sits wrong
-     * on composite, capture the game's TV FB_R_SIZE and re-derive. */
-    unsigned int yb = 417u;
-    /* Outline + track every paint, not one-shot: the game flips the scanout
-     * base between two buffers each vblank even during load (Cleopatra
-     * CLEO-SPG evidence; same converge-by-repaint idiom carried). Orange
-     * fill = #F26522 in 565 (0xf324), per the Cleopatra tester mockup. */
-    for (unsigned int x = 158u; x < 483u; x++)              /* outline: top/bottom */
-        fb[yb * 640u + x] = fb[(yb + 11u) * 640u + x] = 0x0000u;
-    for (unsigned int y = yb + 1u; y < yb + 11u; y++)       /* outline: sides */
-        fb[y * 640u + 158u] = fb[y * 640u + 482u] = 0x0000u;
-    for (unsigned int y = yb + 3u; y < yb + 9u; y++)
-        for (unsigned int x = 0; x < 320u; x++)             /* fill + black track */
-            fb[y * 640u + 160u + x] = x < fill ? 0xf324u : 0x0000u;
-    *(volatile unsigned int *)0xa05f80e8 &= ~8u;            /* unblank video */
-}
-#endif
+/* No loadbar_paint here anymore (Task 26 v2): the progress bar moved to
+ * loader/main.c. The shim never has a screen it owns -- senkosp blanks and
+ * reprograms video before its first cart read, and the boot burst lands under
+ * the game's own NOW LOADING screen (cart.c note, HW 2026-08-31). */
 
 void shim_hex(unsigned int x, unsigned int y, unsigned int val) {
 #if !SHIM_HUD
@@ -160,13 +126,6 @@ int shim_vid_init(unsigned int mode, unsigned int b, unsigned int c, unsigned in
         mode &= ~3u;               /* class 1 (VGA 31k) -> class 0 (NTSC 480i) */
     int r = ((int (*)(unsigned int, unsigned int, unsigned int, unsigned int))
              0x8c034020)(mode, b, c, d);
-#if SHIM_LOADBAR
-    /* Empty bar right at video takeover (the SDK init above just programmed
-     * the FB regs this paint reads), not at the first cart stream ~1 s later
-     * -- kills the splash->bar solid-black gap (HW round 3). Re-entry safe:
-     * the paint is stateless (bar pixels only). */
-    loadbar_paint(0);
-#endif
     return r;
 }
 #endif /* re-enabled per-task: see plan Tasks 10-12 */

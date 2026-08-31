@@ -1633,20 +1633,6 @@ int shim_monitor_set(void) {
     *(volatile u32 *)0x8c0c4524 = vga ? 0u : 1u;
     *(volatile u32 *)0x8c0c4520 = 0;
     *(volatile u32 *)0x8c0c4518 = 1;
-#if SHIM_LOADBAR
-    /* Task 26: empty bar at the earliest boot-scene hook, over the loader's
-     * splash (FB_R_SOF1 still points there pre-takeover), so the bar's track
-     * shows before the first cart stream instead of a black gap (Cleopatra's
-     * vid-init paint, same purpose). ONE-SHOT, unlike Cleopatra's: this
-     * writer can re-fire from the test menu's video settings, and a bar-0
-     * splat over live play would be the exact overshoot failure the cart.c
-     * undershoot rule guards against. .data non-zero init (house style). */
-    {
-        extern void loadbar_paint(unsigned int);
-        static u32 lb0_todo = 1;
-        if (lb0_todo) { lb0_todo = 0; loadbar_paint(0); }
-    }
-#endif
     return 0;
 }
 int shim_ee_lib_post(void);
