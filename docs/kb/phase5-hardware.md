@@ -3961,3 +3961,29 @@ Only track04 differs from v3.
 
 Card is still two tracks stale (#28 track03 + this track04): `make
 deploy` before the next hardware session.
+
+### Black-gap control test — the gap is authentic arcade behaviour (2026-09-01)
+
+Question (operator): what is the black screen between takeover and NOW
+LOADING for, and can it be decorated? Control leg
+`captures/phase6/blackgap-naomi` (unmodified original, Flycast Naomi
+profile, unattended 150 s) vs the conversion's `loadbar-smoke2`:
+
+| event | Naomi original | DC conversion |
+|---|---|---|
+| display off + SPG reprogram + **blank**, `pc=8c032140` | 00:21:25.96–.98 | 21:47:59.99–21:48:00.003 |
+| final config | `FB_R_SIZE=0017753f`, `FB_R_CTRL=00800005` | identical |
+| quiet interior (no PVR/GD/GPIO/ARM events) | **3.36 s** | **3.32 s** |
+| end of gap | game unblanks itself (`pc=8c032140`, 00:21:29.336) | v1 bar paint unblanked at +3.32 s; game FB toggles +0.05 s later |
+| immediately after | AICA ARM held+released with real driver `ram0=ea00003e` (00:21:29.76) | same instruction word (21:48:03.809) |
+
+Same writer pc, same register values, same quiet interior within 40 ms,
+same sound-driver upload ending — **the black gap is the unmodified
+game's own boot path, unchanged by the conversion** (KAMUI2 video-mode
+init blanks for the SPG reprogram; the interior is CPU/G2 work with
+zero logged I/O, most plausibly sound-RAM preparation given the driver
+upload that ends it — interior occupant inferred from bounds, not
+traced). On the cab this same black followed the Naomi BIOS screens.
+Decoration would mean suppressing the game's own blank or hooking an
+in-gap execution context (none exists among current patch sites) —
+recorded as possible-but-unpursued; see the v2 section's design note.
