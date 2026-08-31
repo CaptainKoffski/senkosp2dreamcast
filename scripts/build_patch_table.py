@@ -139,6 +139,15 @@ def ptr(dat_off, expect, target, comment=""):
     _append(dat_off, old, struct.pack("<I", target), comment)
 
 
+def op16(dat_off, expect, value, comment=""):
+    """Single SH-4 opcode rewrite: assert the current 16-bit instruction word,
+    write the replacement (same length, same guard discipline as pool/ptr)."""
+    old = rd(dat_off, 2)
+    got = struct.unpack("<H", old)[0]
+    assert got == expect, f"op16 @dat:{dat_off:#x}: found {got:#06x}, expected {expect:#06x}"
+    _append(dat_off, old, struct.pack("<H", value), comment)
+
+
 def hook(dat_off, expect, target, comment=""):
     """SH-4 entry thunk (Cleopatra's kind, math unchanged -- see module
     docstring point 1): mov.l @(disp,PC),r0 ; jmp @r0 ; nop ; [pad] ; .long target.
@@ -469,6 +478,36 @@ for _site, _main, _test, _hw in MAPLE_BOOT_SITES:
 # 0xadfff000) stays unpatched -- it is only CALL #1's argument.
 ptr(0x047e4c, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH main: restart -> DC reboot")
 ptr(0x1a4678, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH test: restart -> DC reboot")
+
+# ---- BOOT-UNBLANK (docs/kb/phase5-hardware.md §Black-gap decorate) --------
+# The boot black gap (~3.4 s) is ONLY the VO_CONTROL blank bit: the blankrecon
+# leg's blank-edge VRAM dumps show the loader's splash + full bar byte-exact
+# at the scanned base (SOF=0) for the whole gap, in the game's own final
+# 565/640 config. The KAMUI2 boot mode-set (8c036cde..) loads its VO_CONTROL
+# shadow global (8c1a00d4), then `or #8,r0` (8c036ce4) sets the blank bit
+# before the register-writer call (jsr @r14 -> 8c032140, pr=8c036cea -- the
+# exact once-per-boot write in every leg census: attract-s2, ab-a-tuned,
+# ernula-s2, modesel-probe, loadbar-smoke2, blankrecon; it NEVER refires in
+# attract/play/test-menu). `or #8` -> `or #0` keeps the shadow value verbatim
+# (0x00160000, unblanked): splash+bar stay visible through the gap, and the
+# game's own later unblank becomes a no-op rewrite. Main image only -- the
+# gap is the main boot path (test image inits video its own way; TV/NTSC arm
+# may use another site and simply keeps today's blank -- no harm).
+#
+# THREE sites, same `or #8,r0` idiom, found by iterating legs (each patch
+# unmasked the next -- redundant writes are invisible to the fork's
+# change-only SPG logger): (1) mode-set 8c036ce4, (2) FB-config 8c03628c,
+# (3) the display-off arm of the on/off routine 8c035360 (`cmp/eq #1` ->
+# blank branch, or#8 at 8c03537c; its blank/unblank pair pr=8c035398
+# brackets the whole 3.36 s gap -- blankrecon3 timestamps). Display-off is
+# never called after boot in any leg (attract-s2, ab-a-tuned, ernula-s2
+# gameplay, modesel-probe test menu: zero 00160008 change-writes from
+# pr=8c035398) -- boot-only in practice. Ceiling: an untested path calling
+# display-off would now show its transition instead of blanking -- cosmetic,
+# never a hang (the routine still runs and returns unchanged).
+op16(0x016ce4, 0xCB08, 0xCB00, "BOOT-UNBLANK main 1/3: KAMUI2 mode-set keeps display unblanked")
+op16(0x01628c, 0xCB08, 0xCB00, "BOOT-UNBLANK main 2/3: KAMUI2 FB-config keeps display unblanked")
+op16(0x01537c, 0xCB08, 0xCB00, "BOOT-UNBLANK main 3/3: display-off arm no longer blanks")
 
 # ---- G-CARVE (r8, docs/kb/phase5-hardware.md §Round 6 prep) ---------------
 # Reloc entry 4's -0x11A000 TA total makes the library's own 3/4 carve set

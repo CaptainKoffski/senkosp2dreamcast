@@ -3986,4 +3986,70 @@ upload that ends it — interior occupant inferred from bounds, not
 traced). On the cab this same black followed the Naomi BIOS screens.
 Decoration would mean suppressing the game's own blank or hooking an
 in-gap execution context (none exists among current patch sites) —
-recorded as possible-but-unpursued; see the v2 section's design note.
+pursued and landed the same day: see §Black-gap decorate below.
+
+## Black-gap decorate — BOOT-UNBLANK patches (2026-09-01)
+
+Operator asked to try the cheap route. Recon leg
+`captures/phase6/blankrecon` (fork instrument grown for it, commit
+044a2fb6c in the flycast tree: VRAM snapshot on every `VO_CONTROL`
+blank-bit *transition*, with FB/SOF register state; `SOFWR` cap
+800→4000) delivered a decisive surprise:
+
+**During the entire 3.36 s gap, the scan-out (SOF=0) points at the
+loader's final framebuffer — splash + full bar — byte-exact.** The
+mid-gap VRAM dump equals `splash.bin` on all 480 rows except 417–428,
+which hold exactly our painted bar
+(`captures/phase6/blankgap-splash-at-base0.png` is the decoded dump).
+The game's final scan config (565/640, `FB_R_SIZE=0017753f`) is set
+1 ms into the gap and matches the splash format (Task-26 pin 1). The
+game's only mid-gap FB writes touch rows 385–434 with splash-white +
+what look like first NOW-LOADING glyphs — invisible-to-harmless under
+the splash. **The black gap was the blank bit and nothing else.**
+
+**The patch: three `or #8,r0` sites, found by iterating legs** (each
+patch unmasked the next — a redundant blank-set write is invisible to
+the fork's change-only SPG logger, so no single census could see them
+all):
+
+| site | routine | evidence |
+|---|---|---|
+| `8c036ce4` (dat 0x16ce4) | KAMUI2 mode-set (SPG block writer, jsr pr=8c036cea) | six-leg census: fires once per boot, never in attract/play/test-menu |
+| `8c03628c` (dat 0x1628c) | FB-config routine (same one writing FB_R_SIZE, pr=8c036292) | unmasked by blankrecon2 |
+| `8c03537c` (dat 0x1537c) | display-off arm of the on/off routine at 8c035360 (`cmp/eq #1` selects blank branch); its blank/unblank pair pr=8c035398 brackets the whole gap | unmasked by blankrecon3, timestamps 00:51:31.838→35.193 |
+
+Each patched `or #8,r0`→`or #0,r0` (0xCB08→0xCB00, `op16` guard
+asserts old bytes; patch table now 66 main). Verification leg
+`blankrecon4`: **zero VO_CONTROL change-writes from game code for the
+whole leg** — only the untouched pre-gap BIOS-blob toggles remain — 0
+SHIMERR, attract renders normally.
+
+**Expected boot on hardware now:** splash+bar (loader) → ~2 s
+black/garble (BIOS-blob vid-init window, untouched — its own writers,
+different sites) → **splash+bar return for the ~3.4 s gap** (game's
+NOW LOADING text may begin appearing over the lower third near the
+end) → NOW LOADING → attract. Net: ~5.5 s of black reduced to ~2 s
+with the loading screen on both sides.
+
+**Ceiling (ponytail):** patch 3 defangs the *generic* display-off
+routine — an untested path calling it (event mode? some test-menu op?)
+would show its transition content instead of a blanked screen.
+Cosmetic-only by construction (the routine still runs, still writes
+FB_R_CTRL, still returns 0); census says nothing calls it after boot.
+The BIOS-blob window and the TV/NTSC arm (possibly different blank
+sites, uncaptured) keep today's behaviour.
+
+### Release md5s v5 — BOOT-UNBLANK (supersedes v4 for deploys)
+
+Only track04 differs from v4.
+
+| file | md5 |
+|---|---|
+| disc.gdi | c527f1ec937b56caa65084d436f8c0a0 |
+| track01.iso | 681fa4c8daa058ce2df8ea1b604d6e91 |
+| track02.raw | 03c796f60db2e9ef0b65a42a47a9d321 |
+| track03.iso | 244ae7e5a321345e995edc4793fcbdd5 |
+| track04.iso | **6d3273c4f27a8acc8cf5250446caf8a3** |
+
+`make test` green. Card still stale: `make deploy` before the next
+hardware session.

@@ -959,3 +959,16 @@ baseline; chunk bytes proven by the 63 patch-site memcmps). **Release
 md5s v4**: only track04 (`9ad2828686a288523085f20fb0bcb7fb`). Card
 still two tracks stale → `make deploy` before the #27 session; visual
 checklist updated (bar fills under the splash, NOW LOADING clean).
+
+**Black gap decorated — BOOT-UNBLANK (2026-09-01, `phase5-hardware.md`
+§Black-gap decorate):** recon leg with a new fork blank-edge VRAM-dump
+instrument proved the 3.36 s gap scans the loader's splash+bar the whole
+time — the black was ONLY the blank bit. Three `or #8,r0` blank-set
+sites patched to `or #0` (mode-set 8c036ce4, FB-config 8c03628c,
+display-off arm 8c03537c; each unmasked the next — change-only logging
+hides redundant writes). blankrecon4: zero game VO change-writes, 0
+SHIMERR, attract normal. Expected HW boot now: splash+bar → ~2 s black
+(BIOS-blob window, untouched) → splash+bar for the gap → NOW LOADING →
+attract. **Release md5s v5**: only track04
+(`6d3273c4f27a8acc8cf5250446caf8a3`). Ceiling: display-off no longer
+blanks anywhere — cosmetic-only risk on untested paths, census-clean.
