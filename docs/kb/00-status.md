@@ -1023,3 +1023,12 @@ hello.elf over the coder's cable: 201 KB in 27.8 s at 57600, executed,
 (`captures/phase6/dcload-hello.log`). We can now iterate test builds
 over serial without SD-card round-trips. Remaining queue: barrier-hang
 watch item (postponed).
+
+**Game boots via dcload (2026-09-02):** release loader.elf uploaded
+over the coder's cable into a dcload session, GDEMU button-swapped
+back to the game disc, attract reached on hardware
+(`captures/phase6/dcload-game.log`). Loader/shim iteration is now a
+~35 s serial upload, no card pulls; disc re-mastering only needed for
+data changes. Benign dcload-path-only quirk recorded in tooling.md
+(NOW LOADING sync drop = game's SPG reprogram from non-BIOS video
+state). Remaining queue: barrier-hang watch item (postponed).

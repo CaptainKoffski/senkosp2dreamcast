@@ -1306,3 +1306,27 @@ stale); one non-gating `TEXERR code=6` (watch item). Verdict:
   `Hello world!` echoed back through dcload's console, `Program returned 0`
   → clean return to dcload, ready for the next upload. Two-way serial
   upload link fully proven end-to-end.
+- **GAME-VIA-DCLOAD leg PASS (2026-09-02, operator + Mac):**
+  `captures/phase6/dcload-game.log` — the full port booted from a
+  cable-delivered loader: boot dcload (slot 04) → GDEMU button-swap back
+  to the game disc (slot 03) → `dc-tool-ser -x loader/loader.elf`
+  (release build, 875,412 B in 34.24 s — 25.5 KB/s effective, LZO eats
+  the splash data) → executes at 0x8c010000, shim streams the cart from
+  the swapped-in disc, attract reached (operator report; release loader
+  is serial-silent, so the quiet dc-tool console post-execute is
+  expected). Proves the iteration workflow: code changes travel over the
+  cable (~35 s), the 251 MB cart stays on the card; the disc only needs
+  re-mastering when DATA changes (e.g. texpatch config). The GDEMU
+  runtime disc swap + raw-register cart reads post-swap work fine.
+  **Characterized-benign quirk, dcload path only:** video signal drops
+  during NOW LOADING (operator's monitor auto-offed, then re-locked for
+  attract) — that window is the game's from-scratch SPG reprogram
+  (`pc=8c032140`, §Black-gap control test); on this path the upstream
+  video state is dcload's init rather than the BIOS's, so the rewrite is
+  a real mode transition instead of a same-values no-op. Self-recovers;
+  disc boots unaffected.
+- **Debug recipe going forward:** build `make loader SERIAL=1` and upload
+  THAT loader.elf with `dc-tool-ser -p -x` (`-p` = dumb terminal: raw
+  SCIF shim/loader chatter displays directly instead of confusing the
+  dcload console protocol). Same disc in the drive serves both release
+  and debug uploads — the disc's own boot region is bypassed.
