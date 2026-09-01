@@ -1032,3 +1032,17 @@ back to the game disc, attract reached on hardware
 data changes. Benign dcload-path-only quirk recorded in tooling.md
 (NOW LOADING sync drop = game's SPG reprogram from non-BIOS video
 state). Remaining queue: barrier-hang watch item (postponed).
+
+**Phase-6 queue rebuilt (2026-09-02, operator decisions):** carried
+open items all closed (#25–#28); dev-disc idea (dcload as game-disc
+boot binary, no-swap serial iteration) POSTPONED — experiment later or
+on the next port; Ernula barrier-hang watch item POSTPONED to
+post-release backlog (hard to reproduce, possibly-not-issue; not worth
+blocking the phase). Active queue is now the charter + coverage:
+#29 `make test-vmu` harness port + canary, #30 `make test-vmu-play`
+operator session (gate: all three tripwires PASS on the release
+candidate; `make test` already green), #31 composite-cable leg (all
+evidence VGA-only; Cleopatra composite sync-fix class is the known
+risk), #32 DreamShell serial-SD boot control test (structural-risk
+flag: raw-register cart reads vs isoldr's syscall-layer
+virtualization — may be a characterized known-fail).
