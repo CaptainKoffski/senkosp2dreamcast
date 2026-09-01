@@ -4085,3 +4085,81 @@ Only track04 differs from v5; tracks 1–3 unchanged since v2.
 | track04.iso | **3460af24d9e21ab59d6bae88fb929ff2** |
 
 Card still stale: `make deploy` before the next hardware session.
+
+## Event mode build (Task #27 replan, 2026-09-01)
+
+Operator hardware report: enabling Event mode in the GAME TEST MENU
+"saves", the console reboots, nothing persists. Correct by design on
+this port: the game's EEPROM write path is fully stubbed (the five
+Naomi-BIOS-library thunks bit-bang cart-board EEPROM through G1
+registers a DC doesn't have and hard-hung real HW on 2026-07-21 — see
+§HW stall #2 in shims/src/main.c), and the post-save restart is the
+game's native reset routed by RESET-PATCH → `shim_reboot` → DC reboot.
+Session-persistence-without-reboot was priced and REJECTED: it needs
+RE of the stubbed write-lib ABI (the settings bytes never reach the
+shim), a no-reboot test-menu exit path the game doesn't have (Naomi
+semantics are settings-apply-at-next-boot), and redirecting boot reads
+off the baked image. Chosen route: **bake Event mode into the EEPROM
+image** via the Task-18 `EEPROM_GAME_HEX` hook (tooling.md §EEPROM
+game-area bake hook).
+
+### EEPROM game record — defaults + field map (operator-requested record)
+
+Ground truth from legs, not wiki. The 16-byte game record (EEPROM
+`0x2C..0x3B`, duplicated at `0x3C..0x4B`; 4-byte CRC headers ×2 at
+`0x24..0x2B`, CRCs computed by the Naomi BIOS writer):
+
+| variant | record hex | provenance |
+|---|---|---|
+| **DEFAULT** | `23511703 00 01 01 02 02 00 46 00 96 00 46 00` | original capture (phase4 §EEPROM replies); reproduced byte-exact by GAME TEST MENU "restore defaults" (this leg's diff) |
+| Task 18 easy leg | `23511703 00 01 00 02 02 00 78 00 96 00 6e 00` | Flycast-saved eeprom, 2026-08-26 |
+| **Event mode ON** | `23511703 01 01 01 02 02 00 46 00 96 00 46 00` | Flycast-saved eeprom, this leg (2026-09-01) |
+
+Observed field map (byte index into the record):
+- **idx4 = Event mode** (0 off / 1 on) — the ONLY byte this leg changed.
+- idx6 = difficulty-related (default `01`, Task-18 "easy" leg `00`).
+- idx10, idx14 = also changed in the Task-18 leg (`46→78`, `46→6e`;
+  changed alongside difficulty, identity not RE'd — likely timer/rounds).
+Restoring defaults in the test menu provably reproduces the baked
+default record byte-for-byte, so "defaults" needs no manual notes: the
+DEFAULT row above IS the restore-defaults result. Full 40-byte game
+area for the event bake (headers+both copies, CRC `4f54` valid from
+the in-emu BIOS writer):
+
+```
+4f5410104f5410102351170301010102020046009600460023511703010101020200460096004600
+```
+
+### Event build + smoke
+
+Build (env-var only — ZERO source changes; release builds with the env
+unset stay byte-identical):
+
+```
+rm shims/build/mie_blobs.c   # force blob regen (env var is not a make dep)
+EEPROM_GAME_HEX=<40-byte hex above> make gdi
+```
+
+track04.iso md5 `5955b93a8df6f722dfe15c2d7d111874` = **event build,
+NOT a release version** (release stays v6 `3460af24…`). After the
+hardware smoke, restore release bytes: `rm shims/build/mie_blobs.c &&
+make gdi` (env unset) and verify track04 back to v6.
+
+Smoke leg `phase6/event-smoke` (unattended 90 s, DC profile): 0
+SHIMERR, boot + attract instrument census IDENTICAL to the
+rollback-smoke control (14 ARMRST / 8 CCR / 10 GPIO / 42 SPG / 27
+VRAMDUMP). In-emulator visual confirmation of event mode is not
+possible on this build (release config is serial-silent, and see the
+renderer lesson below); the bake MECHANISM is control-tested — the
+Task-18 splice observably changed gameplay difficulty. Positive visual
+verdict = the hardware leg.
+
+**Renderer lesson (cited: this leg + rollback-smoke control):**
+`FLYCAST_VRAMDUMP` periodic snapshots under the GL renderer contain
+only CPU-written framebuffer bytes — TA-rendered 3D frames never land
+in emulated `vram[]`. An attract-mode dump decodes as near-black with
+static `sof1=0008d000` in BOTH the event leg and the known-good
+rollback-smoke control (17 identical-signature dumps each). Do not
+read a static/black VRAM decode as a hang; same family as the
+"shot pipeline delivers only TA presents" finding (tooling.md,
+loadbar-smoke2 row).

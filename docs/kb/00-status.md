@@ -983,3 +983,15 @@ KEPT: the RGB565 splash fix (operator-confirmed), the shim's paint-free
 state, and all findings/instruments. **Release md5s v6 (CURRENT)**: only
 track04 (`3460af24d9e21ab59d6bae88fb929ff2`). Resurrection point:
 commit 7476d47.
+
+**Event-mode build staged (2026-09-01, Task #27 replan,
+`phase5-hardware.md` §Event mode build):** test-menu saves can't
+persist by design (EEPROM write path stubbed; save-exit = native
+reboot), so Event mode is BAKED via the Task-18 `EEPROM_GAME_HEX` hook.
+Operator emulator leg pinned the flag: game-record idx4 `00→01`, the
+only byte vs restored defaults (defaults + field map now recorded in
+the KB). Event build track04 md5 `5955b93a…` (side build — release
+stays v6); 90 s smoke census-identical to the rollback-smoke control,
+0 SHIMERR. Awaiting: card insert → `make deploy` → operator hardware
+smoke (boot/play/exit Event mode). Afterwards restore release bytes
+(`rm shims/build/mie_blobs.c && make gdi`, verify track04 = v6).
