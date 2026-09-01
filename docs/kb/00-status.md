@@ -995,3 +995,10 @@ stays v6); 90 s smoke census-identical to the rollback-smoke control,
 0 SHIMERR. Awaiting: card insert → `make deploy` → operator hardware
 smoke (boot/play/exit Event mode). Afterwards restore release bytes
 (`rm shims/build/mie_blobs.c && make gdi`, verify track04 = v6).
+
+**Event mode PASS on hardware, #27 CLOSED (2026-09-02):** event build
+boots with the mode active, plays and exits clean (operator report;
+log-less by design). Release build restored + byte-verified (track04
+= v6 `3460af24…`, record idx4 back to 0). Card holds the EVENT build
+until the next `make deploy`. Remaining queue: #25 serial-link control
+test (dcload/dc-tool), barrier-hang watch item.

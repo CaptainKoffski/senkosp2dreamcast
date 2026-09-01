@@ -4163,3 +4163,16 @@ rollback-smoke control (17 identical-signature dumps each). Do not
 read a static/black VRAM decode as a hang; same family as the
 "shot pipeline delivers only TA presents" finding (tooling.md,
 loadbar-smoke2 row).
+
+### Event mode — hardware verdict (2026-09-02, operator): PASS
+
+Log-less GDEMU leg (release config is serial-silent; evidence =
+operator report, per the hw-round10 precedent): the event build boots
+with Event mode active from cold boot, the mode plays and exits clean
+— "works fine". Task #27 CLOSED. Release build restored same day with
+the env unset (`rm shims/build/mie_blobs.c && make gdi`): track04 md5
+back to v6 `3460af24d9e21ab59d6bae88fb929ff2`, blob game record
+byte-verified back to DEFAULT (idx4=0). NOTE: the GDEMU card currently
+holds the EVENT build — run `make deploy` from the restored tree
+before the next release-disc hardware session. Recipe for future event
+sessions: the one-command bake in §Event build + smoke above.
