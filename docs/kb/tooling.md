@@ -1297,3 +1297,12 @@ stale); one non-gating `TEXERR code=6` (watch item). Verdict:
   leg (the cable is proven at 115200 — raise with `-b` only after the
   control passes). **NEVER run dc-tool with the serial-SD dongle attached**
   — same SCIF pins (standing release-build rule, Makefile header).
+- **HARDWARE control leg PASS (2026-09-02, operator + Mac, Task #25
+  CLOSED):** `captures/phase6/dcload-hello.log` — GDEMU slot 04 → dcload
+  banner → `dc-tool-ser -t /dev/cu.usbserial-110 -x hello.elf`: all 9 ELF
+  sections delivered (201,296 B in 27.82 s, effective 7,234 B/s at 57600 —
+  LZO chunks doing the work), executed at 0x8c010000, KOS v2.3.0 booted on
+  silicon (real maple enumeration: 2 controllers + 2 VMUs; 640x480 VGA),
+  `Hello world!` echoed back through dcload's console, `Program returned 0`
+  → clean return to dcload, ready for the next upload. Two-way serial
+  upload link fully proven end-to-end.

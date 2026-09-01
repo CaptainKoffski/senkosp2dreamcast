@@ -1015,3 +1015,11 @@ evict the stale EVENT build from slot 03), boot the dcload entry with
 the coder's cable attached (NO SD dongle), then Mac-side
 `dc-tool-ser -x hello.elf` at default 57600. Full recipe:
 `docs/kb/tooling.md` §dcload-serial.
+
+**#25 CLOSED — serial upload link PASS on hardware (2026-09-02):**
+dcload-serial boot from GDEMU slot 04 + `dc-tool-ser` upload of KOS
+hello.elf over the coder's cable: 201 KB in 27.8 s at 57600, executed,
+`Hello world!` echoed back, clean return to dcload
+(`captures/phase6/dcload-hello.log`). We can now iterate test builds
+over serial without SD-card round-trips. Remaining queue: barrier-hang
+watch item (postponed).
