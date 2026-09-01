@@ -1002,3 +1002,16 @@ log-less by design). Release build restored + byte-verified (track04
 = v6 `3460af24…`, record idx4 back to 0). Card holds the EVENT build
 until the next `make deploy`. Remaining queue: #25 serial-link control
 test (dcload/dc-tool), barrier-hang watch item.
+
+**#25 build half DONE (2026-09-02):** dcload-serial 1.0.7 built
+(`tools/dcload-serial`, gitignored; Mac-side `dc-tool-ser` runs), boot
+GDI mastered by donor-clone (`scripts/make_dcload_gdi.py` →
+`build/dcload/`, GDmenu title "DCLOAD-SERIAL 1.0.7"), Flycast control
+legs confirm the bootstrap jumps dcload and it idles in its serial
+poll loop. Known-good payload: KOS `hello.elf` (printf echoes back
+through dcload's console = two-way proof). Awaiting operator: card
+insert → `make deploy-dcload` (slot 04; also re-run `make deploy` to
+evict the stale EVENT build from slot 03), boot the dcload entry with
+the coder's cable attached (NO SD dongle), then Mac-side
+`dc-tool-ser -x hello.elf` at default 57600. Full recipe:
+`docs/kb/tooling.md` §dcload-serial.

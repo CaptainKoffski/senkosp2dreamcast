@@ -37,7 +37,7 @@ DISC_FILES = build/disc.gdi build/track01.iso build/track02.raw \
              build/track03.iso build/track04.iso
 ZIP = build/[GDI] Senko no Ronde Special.zip
 
-.PHONY: shims loader gdi disc release test deploy clean
+.PHONY: shims loader gdi disc release test deploy deploy-dcload clean
 
 shims:
 	$(MAKE) -C shims
@@ -73,6 +73,21 @@ deploy: gdi
 	@# mount point. NOEJECT=1 to stage several slots in one card session.
 	$(if $(NOEJECT),@echo "deployed to $(CARD) -- NOT ejected",\
 	  diskutil eject "$$(df '$(CARD)' | tail -1 | awk '{print $$NF}')")
+
+# Task 25: dcload-serial boot disc for the serial-link control test — its own
+# card slot so the game disc stays untouched. Same AppleDouble guard as deploy.
+# Build dcload first: docs/kb/tooling.md §dcload-serial.
+DCLOAD_CARD ?= /Volumes/GDEMU/04
+deploy-dcload:
+	python3 scripts/make_dcload_gdi.py
+	test -d "$(dir $(DCLOAD_CARD))"   # GDEMU volume mounted?
+	mkdir -p "$(DCLOAD_CARD)"
+	cp build/dcload/disc.gdi build/dcload/track01.iso build/dcload/track02.raw \
+	  build/dcload/track03.iso build/dcload/track04.iso "$(DCLOAD_CARD)/"
+	dot_clean -m "$(DCLOAD_CARD)"
+	@ls -a "$(DCLOAD_CARD)" | grep '^\._' && { echo "AppleDouble junk survived!"; exit 1; } || true
+	$(if $(NOEJECT),@echo "deployed to $(DCLOAD_CARD) -- NOT ejected",\
+	  diskutil eject "$$(df '$(DCLOAD_CARD)' | tail -1 | awk '{print $$NF}')")
 
 clean:
 	$(MAKE) -C shims clean

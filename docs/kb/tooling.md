@@ -1258,3 +1258,42 @@ stale); one non-gating `TEXERR code=6` (watch item). Verdict:
 | `phase6/blankrecon(.log/.stdout.log)` + legs 2/3/4 | fork 044a2fb6c | **Black-gap recon + BOOT-UNBLANK verification legs** (2026-09-01, unattended 90 s each, v2→patched discs). Fork instrument grown (commit 044a2fb6c, incremental `make flycast` rebuild in tools/flycast-src/build): VRAM snapshot on every VO_CONTROL blank-bit transition (`FLYCAST_VRAMDUMP` prefix, `-blank{0,1}-NN.bin`, max 12) with FB/SOF register state in the log line; `SOFWR` cartlog cap 800→4000 (loader page-flips exhausted 800 pre-takeover). Findings: gap scan-out = loader splash+bar byte-exact (decoded evidence `phase6/blankgap-splash-at-base0.png`); three redundant blank-set sites found by iteration — **change-only register logging hides redundant writes; census a bit only after suppressing its first setter**. Legs 2-4 bulk VRAM dumps deleted (verdict lines live in the kept logs); leg-1 dumps kept in scratchpad only (ROM-derived). |
 | `phase6/rollback-smoke(.log/.stdout.log)` | fork 044a2fb6c | **Bar-rollback verification leg** (2026-09-01, unattended 90 s, v6 disc). Blank-set census restored to the exact pre-BOOT-UNBLANK baseline (incl. `pc=8c032140 pr=8c036cea` once per boot); 0 SHIMERR; attract renders. Bulk VRAM dumps deleted post-verdict. |
 | `phase6/event-smoke.log`(`+.stdout.log`) | — | **Event-build boot smoke** (2026-09-01, unattended 90 s, one-call bounded) — first `EEPROM_GAME_HEX` event bake (record idx4=01; phase5-hardware.md §Event mode build). 0 SHIMERR; instrument census identical to rollback-smoke control (14/8/10/42/27). Bulk periodic VRAM dumps deleted post-verdict (GL renderer: only CPU FB writes land in `vram[]` — static near-black decode is NORMAL for 3D scenes, verified against the control leg; don't read it as a hang). Operator source leg: stock Flycast Naomi test menu, defaults restored + Event ON → `senkosp.zip.eeprom` diff = exactly one byte. Before-copy: `captures/phase6/eeprom-event/before-event-leg.eeprom`. |
+| `phase6/dcload-smoke(.log/.stdout.log)` + `dcload-smoke2` | — | **dcload-serial boot control legs** (2026-09-02, unattended 30 s + 60 s, one-call bounded, `build/dcload/disc.gdi`) — donor bootstrap loads dcload's unscrambled 1st_read loader from track04 and **dcload's relocated code executes** (SPG/FB init from `pc=8c004fd4 pr=8c006720`, inside its 0x8c004000 home), then sits quiet in the serial poll loop; 0 errors. Leg-1 lesson: BIOS boot animation eats ~25 s, and the fork's VRAM dumps fire only on FB_R_SOF1 writes/blank edges — dcload never page-flips after init, so its drawn banner is INVISIBLE to the dump instrument (black decodes are normal, not a hang). Upload proof is hardware-only (Flycast has no serial peer). Bulk VRAM dumps deleted post-verdict. |
+
+### dcload-serial + dc-tool-ser — serial upload link (Task 25, 2026-09-02)
+
+- **Install:** `tools/dcload-serial` (gitignored under `/tools/`) — shallow
+  clone of https://github.com/KallistiOS/dcload-serial, HEAD `e4b29bf`
+  (2026-07-15), VERSION 1.0.7. Deps were already present: sh-elf at
+  `/opt/toolchains/dc/sh-elf` (Makefile.cfg's default TARGETPREFIX matches
+  verbatim) and Homebrew libelf 0.8.13_1 at the macOS-arm64 default paths.
+  Zero config edits.
+- **Build:** bare `make` in the checkout builds everything we need, then
+  fails at the final `1st_read.bin` step (`/utils/scramble` — a KOS-path
+  scramble tool; env not sourced). Expected and harmless: the SCRAMBLED
+  binary is for burned MIL-CD CD-Rs only. GD-area track04 boot takes the
+  UNSCRAMBLED `target-src/1st_read/loader.bin` (15,724 B, `-Ttext=0x8c010000`
+  per its Makefile — exactly where the donor bootstrap loads 1ST_READ.BIN).
+  Per `1st_read/loader.s`, it relocates dcload proper to `0x8c004000`
+  (dcload.x: ram ORIGIN 0x8c004000 LENGTH 0xb400) and the exception stub to
+  `0x8c00f400`, so uploaded programs own `0x8c010000+`. Host tool:
+  `host-src/tool/dc-tool-ser` (1.0.7, `-h` verified).
+- **Boot GDI:** `python3 scripts/make_dcload_gdi.py` → `build/dcload/`
+  (B5 donor-clone reusing make_gdi.py's donor cache + brand_ip; track04 =
+  loader.bin zero-padded to the donor boot region; IP title
+  "DCLOAD-SERIAL 1.0.7" is what GDmenu will display). `make deploy-dcload`
+  masters + copies to its own card slot — default `/Volumes/GDEMU/04`
+  (created if absent; GDEMU stops scanning at the first missing folder
+  number, so slots must stay contiguous), override with `DCLOAD_CARD=`.
+- **Known-good payload:** KOS `examples/dreamcast/hello/hello.elf`
+  (`../cleopatra/tools/kos`, rebuilt 2026-09-02 with the same environ.sh the
+  loader build sources). Its `printf` routes through dcload's console
+  syscalls back over the cable — upload + execute + return traffic = two-way
+  link proof in one leg.
+- **Upload command (Mac side):**
+  `tools/dcload-serial/host-src/tool/dc-tool-ser -t /dev/cu.usbserial-XXXX
+  -x ../cleopatra/tools/kos/examples/dreamcast/hello/hello.elf`
+  Default 57600 8N1 = dcload's boot rate; fewest variables for the control
+  leg (the cable is proven at 115200 — raise with `-b` only after the
+  control passes). **NEVER run dc-tool with the serial-SD dongle attached**
+  — same SCIF pins (standing release-build rule, Makefile header).
