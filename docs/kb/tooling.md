@@ -1330,3 +1330,33 @@ stale); one non-gating `TEXERR code=6` (watch item). Verdict:
   SCIF shim/loader chatter displays directly instead of confusing the
   dcload console protocol). Same disc in the drive serves both release
   and debug uploads — the disc's own boot region is bypassed.
+
+## VMU canary harness (Task 29, 2026-09-03)
+
+Cleopatra's VMU-safety harness ported near-verbatim
+(`../cleopatra/scripts/test_vmu_untouched.sh`; design spec
+`../cleopatra/docs/superpowers/specs/2026-07-26-vmu-safety-design.md` — the
+oracle citations there are against the exact Flycast build we run, the
+sibling repo's `tools/flycast-src`). Two deltas only:
+
+- `BIN` points at the sibling repo's Flycast (this repo has no local
+  flycast checkout).
+- attract window default 90 s → **150 s** (senkosp's BIOS anim +
+  NOW LOADING stream is slower than Cleopatra; the log must show the
+  engine executing, not just BIOS, for the leg to mean anything).
+
+Protocol unchanged: 3 × 128 KB `0xA5` canaries (A1/A2/B2) + all-zero
+control (B1) in a temp dir; transient `-config` redirect
+(`Dreamcast.VMUPath`, `PerGameVmu=no`, `UsePhysicalVmuMemory=no`,
+vsync off, controller+VMU pinned on ports A/B); graceful osascript quit
+(NOT kill -9 — buffered VMU fwrite could hide a write = false PASS);
+PASS iff canaries byte-identical AND control auto-formatted (control
+test: proves redirect/attachment/hash wiring in the same run).
+
+- **`make test-vmu` PASS (2026-09-03, first run, release candidate
+  disc.gdi of 2026-09-02):** all three canaries unchanged, control B1
+  auto-formatted. Leg depth confirmed from the log tail: game's SPG
+  reprogram (`pc=8c032140`) and AICA ARM reset both fired → engine code
+  ran, maple path live, zero VMU writes.
+- **`make test-vmu-play`** = same script, headed; operator plays as
+  long as they like then quits Flycast (Task 30, pre-release gate).

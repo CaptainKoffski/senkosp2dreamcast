@@ -37,7 +37,7 @@ DISC_FILES = build/disc.gdi build/track01.iso build/track02.raw \
              build/track03.iso build/track04.iso
 ZIP = build/[GDI] Senko no Ronde Special.zip
 
-.PHONY: shims loader gdi disc release test deploy deploy-dcload clean
+.PHONY: shims loader gdi disc release test test-vmu test-vmu-play deploy deploy-dcload clean
 
 shims:
 	$(MAKE) -C shims
@@ -60,6 +60,15 @@ test:
 	$(MAKE) -C shims test
 	python3 scripts/test_build_patch_table.py
 	python3 scripts/test_maple_literals.py
+
+# VMU-safety canary runs (Cleopatra's harness ported; design spec:
+# ../cleopatra/docs/superpowers/specs/2026-07-26-vmu-safety-design.md):
+# test-vmu = unattended 150 s attract; test-vmu-play = headed, tester plays then quits.
+test-vmu:
+	scripts/test_vmu_untouched.sh attract
+
+test-vmu-play:
+	scripts/test_vmu_untouched.sh play
 
 # Cleopatra's deploy recipe verbatim (../cleopatra/Makefile): copy, dot_clean,
 # then fail loudly if any ._* AppleDouble sidecar survived -- GDEMU reads the

@@ -1046,3 +1046,12 @@ evidence VGA-only; Cleopatra composite sync-fix class is the known
 risk), #32 DreamShell serial-SD boot control test (structural-risk
 flag: raw-register cart reads vs isoldr's syscall-layer
 virtualization — may be a characterized known-fail).
+
+**Task 29 CLOSED — `make test-vmu` PASS (2026-09-03):** Cleopatra's
+VMU canary harness ported (`scripts/test_vmu_untouched.sh`, Makefile
+`test-vmu`/`test-vmu-play` targets; deltas: sibling-repo Flycast path,
+150 s attract window). First run against the 2026-09-02 release
+candidate: PASS — canaries untouched, control auto-formatted, engine
+execution confirmed in-log (SPG reprogram + AICA ARM reset). Tripwire
+gate is now 2/3: `make test` + `make test-vmu` green; remaining #30
+`make test-vmu-play` (operator), then coverage legs #31/#32.
