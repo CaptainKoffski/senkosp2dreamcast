@@ -114,3 +114,9 @@ screenshot normal; VGA census still byte-identical to baseline.
 
 **Real-target status:** awaiting operator composite re-test (centering is an
 analog scan-position property Flycast cannot show).
+
+**HARDWARE VERDICT (2026-09-03, operator):** Task 31 CLOSED PASS. Composite
+re-test after VIDEO-GEOM-HOOK: picture synced AND centered, FREE PLAY fully
+visible. VGA re-test on the same build: no regression. Cable coverage now
+proven on real hardware for both VGA (31 kHz) and composite (NTSC 480i);
+the phase-5 "all evidence VGA-only" disclaimer is retired.

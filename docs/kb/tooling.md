@@ -1376,3 +1376,6 @@ test: proves redirect/attachment/hash wiring in the same run).
   `geo-vga0` — VIDEO-GEOM-HOOK verification (KOS NTSC geometry end-state,
   no vblank starvation on the 525-line frame, VGA census unchanged).
   docs/kb/phase6-release.md §Composite round 2.
+- **Task 31 hardware PASS (2026-09-03, operator):** composite = synced +
+  centered (sense hook + geometry hook), VGA = no regression. Closes the
+  cable-variance coverage leg; docs/kb/phase6-release.md §Composite.

@@ -1083,3 +1083,8 @@ Added VIDEO-GEOM-HOOK: wrap the display-init call site, restore KOS's
 DC-native NTSC geometry regs post-mode-set on TV cables. Emulator-verified
 (end-state regs, no interrupt starvation, VGA untouched). AWAITING
 operator composite re-test (make deploy first).
+
+**Task 31 CLOSED PASS (2026-09-03, operator hardware verdict):** composite
+works and is centered; VGA re-test clean. Both cable classes now
+hardware-proven. Phase-6 remaining: #32 DreamShell serial-SD control test
+(operator; structural-risk flag stands), then release packaging.
