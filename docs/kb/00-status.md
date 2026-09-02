@@ -1055,3 +1055,11 @@ candidate: PASS — canaries untouched, control auto-formatted, engine
 execution confirmed in-log (SPG reprogram + AICA ARM reset). Tripwire
 gate is now 2/3: `make test` + `make test-vmu` green; remaining #30
 `make test-vmu-play` (operator), then coverage legs #31/#32.
+
+**Task 30 CLOSED — `make test-vmu-play` PASS (2026-09-03, operator):**
+headed canary session played and quit by the operator; PASS verified
+forensically (no kept forensics dir — the script preserves it on any
+FAIL/abort). **Phase-6 tripwire gate 3/3 green** (`make test`,
+`make test-vmu`, `make test-vmu-play`) on the 2026-09-02 release
+candidate. Remaining phase-6 queue: coverage legs #31 (composite) and
+#32 (DreamShell serial-SD), then release packaging.

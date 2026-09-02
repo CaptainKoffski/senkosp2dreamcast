@@ -1360,3 +1360,10 @@ test: proves redirect/attachment/hash wiring in the same run).
   ran, maple path live, zero VMU writes.
 - **`make test-vmu-play`** = same script, headed; operator plays as
   long as they like then quits Flycast (Task 30, pre-release gate).
+- **`make test-vmu-play` PASS (2026-09-03, operator session, Task 30):**
+  headed run, operator played then quit; verdict verified forensically —
+  zero `/tmp/vmu-canary.*` dirs left behind, and the script deletes its
+  temp dir ONLY on the PASS branch (FAIL or any mid-run abort keeps it),
+  so the run provably reached "PASS: no VMU writes". Session breadth is
+  operator-driven (paths exercised = whatever the session covered — the
+  standing caveat of every dynamic layer). Tripwire gate 3/3 green.
