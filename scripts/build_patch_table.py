@@ -517,6 +517,17 @@ ptr(0x13930c, 0x8C0B5BE8, sym("shim_e_prefree"), "E-PREFREE main: MODESEL load f
 ptr(0x01d5a8, 0x8C02A0EA, sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK main: monitor sense -> DC cable")
 ptr(0x18f020, 0x8C02A0EA, sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK test: monitor sense -> DC cable")
 
+# ---- VIDEO-GEOM-HOOK (Task 31 round 2, TV centering) ----------------------
+# The SDK's 15 kHz builder programs arcade-monitor geometry (536-line frame,
+# active start 0x17): picture sits ~10% low on a consumer TV (operator photo,
+# docs/kb/img/phase6-composite-shift.jpeg). Wrap the game's one display-init
+# call (single fn-ptr pool word per image, same scan as the sense hook) and,
+# on non-VGA cables only, restore the six SPG/VO geometry regs to KOS's
+# DC-native NTSC-IL values after the SDK's own mode-set completes. Mode word
+# passes through untouched (bit30 lesson). VGA: pure pass-through.
+ptr(0x04edcc, 0x8C03D48E, sym("shim_vid_init_main"), "VIDEO-GEOM-HOOK main: display init + TV geometry fixup")
+ptr(0x1aa9c0, 0x8C03CF0E, sym("shim_vid_init_test"), "VIDEO-GEOM-HOOK test: display init + TV geometry fixup")
+
 # ---- emit -------------------------------------------------------------
 def _row(dat_off, img, old, new, what):
     old_b = list(old) + [0] * (12 - len(old))

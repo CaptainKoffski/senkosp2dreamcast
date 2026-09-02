@@ -1372,3 +1372,7 @@ test: proves redirect/attachment/hash wiring in the same run).
   the mode-word-hook failure measurement, the sense-hook 15 kHz proof,
   release-build screenshot leg, and the VGA regression census. Verdicts
   + register tables: docs/kb/phase6-release.md §Composite fix.
+- **Geometry-fix legs (2026-09-03, Task 31 round 2):** `phase6/geo-comp3`,
+  `geo-vga0` — VIDEO-GEOM-HOOK verification (KOS NTSC geometry end-state,
+  no vblank starvation on the 525-line frame, VGA census unchanged).
+  docs/kb/phase6-release.md §Composite round 2.

@@ -83,3 +83,34 @@ init and persist (census: exactly one SPG_CONTROL write per composite leg,
 **Real-target status:** emulator-verified; awaiting the operator's composite
 re-test on hardware (the actual Task 31 gate — a TV's sync tolerance is the
 thing Flycast cannot prove).
+
+## Composite round 2 — TV centering (VIDEO-GEOM-HOOK, 2026-09-03)
+
+**Operator verdict on the sense hook:** composite now syncs and the game is
+visible — but shifted ~10% down, FREE PLAY cut off
+(`docs/kb/img/phase6-composite-shift.jpeg`). Cause: the SDK's class-0
+builder programs *arcade-monitor* geometry — 536-line frame
+(`SPG_LOAD=02180353`), active start line 0x17 — while the KOS splash on the
+same boot/TV displays centered with the DC-native NTSC-IL set (525 lines,
+start 0x12).
+
+**Fix:** VIDEO-GEOM-HOOK wraps the game's one display-init call (the
+call-site pool word from the round-1 RE: main dat `0x4edcc`, test dat
+`0x1aa9c0`) — mode word passes through untouched (bit30 lesson) — and after
+the SDK's mode-set returns, on non-VGA cables only, rewrites the six
+geometry regs to KOS's measured values: SPG_HBLANK `007e0345`, SPG_LOAD
+`020c0359`, SPG_VBLANK `00240204`, SPG_WIDTH `07d6c63f`, VO_STARTX `a4`,
+VO_STARTY `00120012` (offsets per Flycast `core/hw/pvr/pvr_regs.h`; values
+from KOS's own `pc=8c00b87c` boot writes in the same legs). FB layout,
+interlace fields, vclk stay the SDK's.
+
+**Evidence (`captures/phase6/geo-comp3.*`, `geo-vga0.*`):** fixup lands 2 ms
+after the SDK's writes (six-write block `pr=8c010a2e`), end-state = KOS
+geometry; game activity profile byte-comparable to the pre-fix leg through
+the full 90 s (TAREG/TAEND/C2D rates identical; the "SOFWR stops" scare is
+the fork's 2000-record SOFWR logging cap, present in both legs) — so the
+525-line frame does NOT starve the game's vblank interrupt; attract
+screenshot normal; VGA census still byte-identical to baseline.
+
+**Real-target status:** awaiting operator composite re-test (centering is an
+analog scan-position property Flycast cannot show).

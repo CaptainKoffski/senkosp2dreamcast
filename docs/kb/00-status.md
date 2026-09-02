@@ -1076,3 +1076,10 @@ byte-identical to baseline; make test green. First attempt (call-site
 mode-word transform) measured-failed (-1: bit30 = PAL request, not a
 force bit) — full RE in docs/kb/phase6-release.md. AWAITING operator
 composite re-test on hardware (make deploy, then composite cable).
+
+**Task 31 round 2 (2026-09-03):** operator confirmed composite syncs but
+sits ~10% low (arcade-monitor geometry from the SDK's 15 kHz builder).
+Added VIDEO-GEOM-HOOK: wrap the display-init call site, restore KOS's
+DC-native NTSC geometry regs post-mode-set on TV cables. Emulator-verified
+(end-state regs, no interrupt starvation, VGA untouched). AWAITING
+operator composite re-test (make deploy first).
