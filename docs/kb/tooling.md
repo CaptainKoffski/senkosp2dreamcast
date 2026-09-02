@@ -1379,3 +1379,8 @@ test: proves redirect/attachment/hash wiring in the same run).
 - **Task 31 hardware PASS (2026-09-03, operator):** composite = synced +
   centered (sense hook + geometry hook), VGA = no regression. Closes the
   cable-variance coverage leg; docs/kb/phase6-release.md §Composite.
+- **Task 32 DreamShell leg (2026-09-03, operator): characterized
+  known-fail as flagged.** isoldr serves syscall reads (NAOMI magic
+  passed) but the raw-ATA rehearsal halts loud (`r=-6` GD_E_CHECK, sense
+  5 ILLEGAL REQUEST) — docs/kb/phase6-release.md §DreamShell. Port is
+  GDEMU/optical-only; documented limitation, no fix planned.

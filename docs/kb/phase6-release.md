@@ -120,3 +120,35 @@ re-test after VIDEO-GEOM-HOOK: picture synced AND centered, FREE PLAY fully
 visible. VGA re-test on the same build: no regression. Cable coverage now
 proven on real hardware for both VGA (31 kHz) and composite (NTSC 480i);
 the phase-5 "all evidence VGA-only" disclaimer is retired.
+
+## DreamShell serial-SD control test (Task 32, 2026-09-03)
+
+**CLOSED — characterized known-fail, exactly as flagged.** Operator booted
+the release build through DreamShell isoldr (serial-SD dongle): red
+`shim_die`-family halt screen from the loader's raw-ATA rehearsal —
+`RAW-ATA READ FAIL r=-6 err=da061150`
+(`docs/kb/img/phase6-dreamshell-fail.jpeg`).
+
+Decode (`shims/src/gd.c` §gd_fail): site 6 = `GD_E_CHECK` (drive raised
+CHECK CONDITION), ALTSTAT `0x11` (DSC+ERR), ATA ERROR `0x50` = sense key 5
+**ILLEGAL REQUEST**. The sequencing is the interesting part
+(`loader/main.c` rehearsal block):
+
+1. The KOS/syscall-level cart read **succeeded** — the `NAOMI` magic check
+   passed, i.e. isoldr faithfully served real cart bytes from the SD card
+   at the BIOS-syscall layer ("cart read OK (KOS)" reached).
+2. The rehearsal then replayed the same sector through the shim's raw
+   task-file path — which talks to the physical drive, where the DreamShell
+   boot disc (not our game) sits — and the drive rejected the out-of-layout
+   FAD with ILLEGAL REQUEST. Halt, loud and diagnostic, before the game
+   ever got control.
+
+Structural, not a bug: isoldr virtualizes GD at the syscall layer only; our
+runtime streaming is deliberately raw ATA (the loader's kernel slice lands
+on the BIOS's low-RAM GD state — rationale in `shims/src/gd.c` header), so
+DreamShell can never feed it. A DreamShell-compatible build would need the
+whole runtime cart stream rerouted through syscalls — out of scope,
+recorded as a documented limitation: **this port boots from GDEMU/optical
+disc paths only; under DreamShell it fails fast with a readable error
+screen instead of hanging mid-stream** (the rehearsal doing precisely the
+job it was built for, first time it met a foreign environment).

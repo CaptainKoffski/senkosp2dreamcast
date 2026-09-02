@@ -1088,3 +1088,12 @@ operator composite re-test (make deploy first).
 works and is centered; VGA re-test clean. Both cable classes now
 hardware-proven. Phase-6 remaining: #32 DreamShell serial-SD control test
 (operator; structural-risk flag stands), then release packaging.
+
+**Task 32 CLOSED — characterized known-fail (2026-09-03, operator):**
+DreamShell isoldr boot halts at the loader's raw-ATA rehearsal
+(`RAW-ATA READ FAIL r=-6 err=da061150` = GD_E_CHECK, sense ILLEGAL
+REQUEST) after the syscall-level read PASSED — the structural
+raw-registers-vs-isoldr flag confirmed by measurement. Documented
+limitation: GDEMU/optical boot paths only; fails fast with a readable
+screen. Phase-6 queue: all coverage legs done (#29-#32 closed); remaining
+= release packaging.
