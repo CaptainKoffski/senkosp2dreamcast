@@ -1367,3 +1367,8 @@ test: proves redirect/attachment/hash wiring in the same run).
   so the run provably reached "PASS: no VMU writes". Session breadth is
   operator-driven (paths exercised = whatever the session covered — the
   standing caveat of every dynamic layer). Tripwire gate 3/3 green.
+- **Composite-fix leg set (2026-09-03, Task 31):** `phase6/comp-leg`,
+  `comp-dbg`, `comp-dbg2`, `rel-comp3`, `rel-vga0` — pre-fix control,
+  the mode-word-hook failure measurement, the sense-hook 15 kHz proof,
+  release-build screenshot leg, and the VGA regression census. Verdicts
+  + register tables: docs/kb/phase6-release.md §Composite fix.

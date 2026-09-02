@@ -1063,3 +1063,16 @@ FAIL/abort). **Phase-6 tripwire gate 3/3 green** (`make test`,
 `make test-vmu`, `make test-vmu-play`) on the 2026-09-02 release
 candidate. Remaining phase-6 queue: coverage legs #31 (composite) and
 #32 (DreamShell serial-SD), then release packaging.
+
+**Task 31 composite fix implemented + emulator-verified (2026-09-03):**
+operator's composite leg (black screen, game alive) root-caused to the
+KAMUI2 monitor sense reading a Naomi BIOS/DIP-cached code our conversion
+never populates (always 31 kHz). Fixed with MONITOR-SENSE-HOOK — one
+fn-ptr pool word per image repointed at shim_monitor_sense (real DC cable
+via PDTRA); the game's own auto-mode (0x80000038) then selects the SDK's
+native 15 kHz builder. Flycast: Cable=3 programs NTSC 480i and attract
+renders (docs/kb/img/phase6-composite-attract.png); Cable=0 census
+byte-identical to baseline; make test green. First attempt (call-site
+mode-word transform) measured-failed (-1: bit30 = PAL request, not a
+force bit) — full RE in docs/kb/phase6-release.md. AWAITING operator
+composite re-test on hardware (make deploy, then composite cable).

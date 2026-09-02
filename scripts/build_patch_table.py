@@ -500,6 +500,23 @@ ptr(0x00e4ec, 0x8C031AF0, sym("shim_g_carve"), "G-CARVE main: KAMUI2 carve stomp
 # the unloader nulls slots it frees and skips null slots.
 ptr(0x13930c, 0x8C0B5BE8, sym("shim_e_prefree"), "E-PREFREE main: MODESEL load frees match textures first")
 
+# ---- MONITOR-SENSE-HOOK (Task 31, composite sync fix) ---------------------
+# The game's one display init uses mode 0x80000038 bit31 "auto": the SDK
+# wrapper FUN_8c03d48e queries the monitor sense FUN_8c02a0ea and picks the
+# class itself (0 -> 31 kHz, 1 -> the SDK's own 15 kHz builder, 2 -> PAL);
+# explicit-class requests are validated against the same sense. The sense
+# reads a cached monitor code (0x8c170d88) only Naomi BIOS/DIP init ever
+# populates -- post-BIOS-bypass it always says 31 kHz, so a TV cable never
+# syncs (operator composite leg 2026-09-03: black screen, game alive).
+# Repointing the sense's single fn-ptr pool word per image (whole-.dat u32
+# scan: exactly one each; the SDK core links at the same address in both
+# images) makes the SDK's own auto+validate logic run against the real DC
+# cable. A mode-word hook at the call site instead trips the wrapper's
+# `return -1` validation (measured, comp-dbg leg). Full RE:
+# docs/kb/phase6-release.md §composite fix.
+ptr(0x01d5a8, 0x8C02A0EA, sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK main: monitor sense -> DC cable")
+ptr(0x18f020, 0x8C02A0EA, sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK test: monitor sense -> DC cable")
+
 # ---- emit -------------------------------------------------------------
 def _row(dat_off, img, old, new, what):
     old_b = list(old) + [0] * (12 - len(old))

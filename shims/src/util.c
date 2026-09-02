@@ -110,25 +110,26 @@ int shim_cable_is_vga(void) {
     return cable_latch == 0;
 }
 
-/* Composite/RGB sync fix -- Cleopatra Fortune Plus SDK hook (FUN_8c034020 /
- * FUN_8c0409e0 / pool 0x8c026570 are THAT game's Ghidra-RE'd addresses, not
- * senkosp's). Kept as reference for the same problem class (Naomi DIP-1
- * monitor choice never reaching the game post-BIOS-bypass); Tasks 10-12
- * re-derive senkosp's own SDK video-init hook once RE'd. #if 0, not deleted,
- * so a live-compiled call into another game's hardcoded address can't slip
- * into the shim by accident while it sits unused. */
-#if 0  /* re-enabled per-task: see plan Tasks 10-12 */
-int shim_vid_init(unsigned int mode, unsigned int b, unsigned int c, unsigned int d) {
-#if SHIM_LOADSTAT
-    ls_stampA(3);                              /* video init reached, on the init timeline */
-#endif
-    if (!shim_cable_is_vga())
-        mode &= ~3u;               /* class 1 (VGA 31k) -> class 0 (NTSC 480i) */
-    int r = ((int (*)(unsigned int, unsigned int, unsigned int, unsigned int))
-             0x8c034020)(mode, b, c, d);
+/* Composite/RGB sync fix (Task 31) -- Cleopatra's problem class, senkosp's
+ * own mechanism (Ghidra RE 2026-09-03, docs/kb/phase6-release.md). The
+ * game's one display init passes mode 0x80000038: bit31 = "auto" -- the
+ * SDK display wrapper FUN_8c03d48e queries the monitor sense FUN_8c02a0ea
+ * and picks the class itself (0 -> class 1 = 31 kHz, 1 -> class 0 = the
+ * SDK's own 15 kHz builder, 2 -> class 2 = PAL; explicit-class calls are
+ * VALIDATED against the same sense, so hooking the mode word instead
+ * trips `return -1` paths -- measured, comp-dbg leg). The sense reads a
+ * cached monitor code at 0x8c170d88 that only Naomi BIOS/DIP init ever
+ * populates meaningfully; post-BIOS-bypass it always says 31 kHz and a TV
+ * cable never syncs. MONITOR-SENSE-HOOK repoints the sense's single
+ * fn-ptr pool word per image (main dat 0x1d5a8, test dat 0x18f020;
+ * whole-.dat u32 scan = exactly one each) here, so the SDK's own auto
+ * and validation logic runs against the real DC cable. VGA -> 0 keeps
+ * the 31 kHz path byte-identical (Cable=0 census leg). */
+int shim_monitor_sense(void) {
+    int r = shim_cable_is_vga() ? 0 : 1;
+    scif_puts("SENSE ->"); scif_puthex((unsigned int)r); scif_puts("\n");
     return r;
 }
-#endif /* re-enabled per-task: see plan Tasks 10-12 */
 
 void shim_die(unsigned int code, unsigned int a, unsigned int b) {
     volatile unsigned int *e = P2(SHIM_ERR);
