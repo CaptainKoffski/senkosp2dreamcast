@@ -1384,3 +1384,32 @@ test: proves redirect/attachment/hash wiring in the same run).
   passed) but the raw-ATA rehearsal halts loud (`r=-6` GD_E_CHECK, sense
   5 ILLEGAL REQUEST) — docs/kb/phase6-release.md §DreamShell. Port is
   GDEMU/optical-only; documented limitation, no fix planned.
+
+## Phase 7: DreamShell/isoldr source (T1 recon, 2026-09-03)
+
+- **Clone:** `git clone --depth 1 https://github.com/DC-SWAT/DreamShell
+  tools/dreamshell-src` (gitignored via `/tools/`). NOTE: the charter's
+  `github.com/DreamShell/DreamShell` URL is a 404 — upstream is
+  **DC-SWAT/DreamShell**. Cloned HEAD `9b59b442936997b6ff5792efa5d2acdc0cb950a2`
+  (isoldr VERSION 0.8.5, `firmware/isoldr/loader/Makefile.cfg`).
+- **Operator-version worktree:** `git fetch --depth 1 origin tag
+  v4.0.4.Release && git worktree add ../dreamshell-4.0.4 v4.0.4.Release`
+  → `tools/dreamshell-4.0.4` at `5cc1200` (DreamShell 4.0.4, isoldr
+  0.8.4 — the version on the operator's SD). Files load-bearing for T1
+  (`gdc_syscall.s`, `applications/iso_loader/app.xml` placement list,
+  `modules/isoldr/preset.c` `memory=`/`heap=` keys, `malloc.c`,
+  `dev/sd/`) are byte-identical or semantically identical between
+  v4.0.4 and HEAD; `syscalls.c` diffs are large but the PIOREAD param
+  block, coroutine pump model, and PIOREAD-no-purge guard were
+  re-verified in the v4.0.4 tree directly.
+- **isoldr `sd` blob build (v4.0.4 tree):** `cd
+  tools/dreamshell-4.0.4/firmware/isoldr/loader &&
+  PATH=/opt/toolchains/dc/sh-elf/bin:$PATH make -f Makefile.sd
+  ENABLE_CISO=1 ENABLE_MULTI_DISC=1 NAME=sd` (sh-elf-gcc 15.2.0, the
+  existing KOS toolchain). Result: `build/sd.bin` 29,732 B on disk;
+  `sh-elf-size build/sd.elf` = text 29,444 + data 180 + bss 304 =
+  **29,928 B**; + 1 KB params + 32 ⇒ resident end ≈ `0x8c00b908` at the
+  `0x8c004000` placement. This is the number the T1 memory contract is
+  sized against (spec `docs/superpowers/specs/2026-09-03-phase7-t1-dreamshell-design.md`).
+- **Step-0 throughput measurement** (operator stopwatch, no tools):
+  recorded in `docs/kb/phase7-polishing.md` §T1 step 0.
