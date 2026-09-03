@@ -1,7 +1,7 @@
 # Requires: source ../cleopatra/tools/kos/environ.sh (KOS reused from the
 # Cleopatra port -- this repo has no local KOS checkout; docs/kb/tooling.md).
 TARGET = loader.elf
-OBJS = main.o handoff.o gd.o shim_blob.o bios_data.o splash_blob.o
+OBJS = main.o handoff.o gd.o gd_sys.o shim_blob.o bios_data.o splash_blob.o
 CFLAGS += -I../shims/include -I../build
 CFLAGS += $(DEFS)   # debug toggles from the top Makefile (e.g. SERIAL=1)
 BIOS = ../bios/naomi/epr-21576h.ic27   # Naomi Japan bios0 (gitignored ROM)
@@ -24,6 +24,10 @@ main.o: ../build/patch_table.h ../shims/include/shim_iface.h
 # LOAD_OFFSET == SHIM_BASE == 0x8c010000), so writing it would corrupt the
 # loader that is about to draw the error screen.
 gd.o: ../shims/src/gd.c ../shims/include/shim_iface.h
+	kos-cc $(CFLAGS) $(CPPFLAGS) -DGD_LOADER_BUILD=1 -c $< -o $@
+# Syscall GD backend, loader build: direct-vector calls (no gdstack -- see
+# gd_sys.c header: GD_STACK_TOP sits inside the running loader image).
+gd_sys.o: ../shims/src/gd_sys.c ../shims/include/shim_iface.h
 	kos-cc $(CFLAGS) $(CPPFLAGS) -DGD_LOADER_BUILD=1 -c $< -o $@
 # Phase 4 Task 9: patch_table.h resolves shim symbol ADDRESSES from shim.map;
 # a shim rebuild moves every symbol, so the table must regenerate whenever the

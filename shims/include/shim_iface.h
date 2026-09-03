@@ -20,6 +20,16 @@
 #define GD_STACK_BOTTOM (SHIM_BASE + 0x6000)  /* 8 KB reserved/spare (gdstack.S deleted Task 10) */
 #define GD_STACK_TOP    (SHIM_BASE + 0x8000)  /* = SHIM_END */
 
+/* Phase 7 T1: dual-backend GD dispatch. SHIM_STATE[SHIM_STATE_GD_BACKEND]
+ * = 0 raw ATA (real-BIOS boots, GDEMU/optical) / 1 BIOS-syscall (DreamShell
+ * isoldr). Seeded by the loader after the rehearsal probe (main.c). */
+#define SHIM_STATE_GD_BACKEND 1
+/* Canary at the bottom of the private syscall stack (gdstack.S swaps r15 to
+ * GD_STACK_TOP; isoldr's FatFs+SPI runs on it -- Cleopatra measured >2 KB,
+ * we reserve 8 KB and VERIFY instead of hoping; spec decision 5). Seeded by
+ * the loader at staging (nonzero: the window memset would zero it). */
+#define GD_STACK_CANARY 0x57ac6a2d
+
 /* Loader-placed BIOS-derived blocks (outside shim home).
  *
  * KERNEL-SLICE pin (docs/kb/phase4-conversion.md §"Low-RAM placements — spec
@@ -93,6 +103,12 @@
                                  * must not leak into silent release builds
                                  * (release = hands-off). SERIAL=1 builds turn
                                  * it back on via the top-level Makefile. */
+#endif
+#ifndef SHIM_GD_DIAG
+#define SHIM_GD_DIAG 0          /* on-screen GD-syscall tracer (Cleopatra
+                                 * G12): send/status/heartbeat/phase cells +
+                                 * stack low-water. TV-debuggable, serial-
+                                 * silent. NEVER ship 1 (paints over play). */
 #endif
 
 #endif

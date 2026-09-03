@@ -8,12 +8,14 @@ B = build
 # ($(B)/mie_blobs.c below), not Cleopatra's xxd-embedded .bin blobs -- they
 # are captured traffic, so they are regenerated at build time and never
 # committed.
-# gdstack.S deleted in Task 10: it trampolines into the DC BIOS GD syscall
-# vector, and this port's runtime disc path is raw ATA by design (the kernel
-# slice the loader places lands on the BIOS's own low-RAM GD state -- see
-# src/gd.c's header). Provably dead, not merely unused.
-SRCS = src/main.c src/scif.c src/util.c src/gd.c src/cart.c src/maple.c src/jvs.c \
-       src/mtramp.S $(B)/mie_blobs.c
+# gdstack.S revived in Phase 7 Task 5 (2026-09-03-phase7-t1-dreamshell spec +
+# plan): DreamShell's isoldr backend needs the private-stack/FPU-quarantine/
+# MMUCR-window trampoline gd_sys.c calls as gdc_call -- raw ATA (src/gd.c)
+# stays the default backend (SHIM_STATE_GD_BACKEND selects at runtime,
+# shim_iface.h); gdstack.S is dead weight only when the syscall backend is
+# never probed into, which the dispatch task (Task 6) still owes.
+SRCS = src/main.c src/scif.c src/util.c src/gd.c src/gd_sys.c src/cart.c \
+       src/maple.c src/jvs.c src/mtramp.S src/gdstack.S $(B)/mie_blobs.c
 
 .PHONY: all test clean
 all: $(B)/shim.bin $(B)/shim.map
