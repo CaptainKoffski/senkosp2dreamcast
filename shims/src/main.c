@@ -435,7 +435,11 @@ static void maple_service(void) {
             u32 plen = (h1 & 0xffu) + 1u;
             if (((h1 >> 8) & 7u) == 0u) {    /* pattern 0 = START = a transfer */
                 u32 rcv = UW(addr + 4) & 0x1fffffe0u;
-                if (rcv - 0x0c000000u < 0x01000000u)
+                /* Floor at 0x0c01f000 (cart.c DEST_LO precedent): a garbage rcv below
+                 * the game image would overwrite loader-placed low RAM -- including the
+                 * BIOS syscall vectors at 0xc0000b0 that the DreamShell backend needs
+                 * alive. Measured maple buffers are all >= 0x0c1bxxxx (boot-binary.md). */
+                if (rcv - 0x0c01f000u < 0x01000000u - 0x0001f000u)
                     maple_frame(addr, rcv, plen, (h1 >> 16) & 3u);
                 else if (!(odd_seen & 4u)) {  /* a reply we could not deliver is
                                                * a silent stall -- say so once */
