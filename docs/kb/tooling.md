@@ -1470,3 +1470,31 @@ test: proves redirect/attachment/hash wiring in the same run).
   sized against (spec `docs/superpowers/specs/2026-09-03-phase7-t1-dreamshell-design.md`).
 - **Step-0 throughput measurement** (operator stopwatch, no tools):
   recorded in `docs/kb/phase7-polishing.md` §T1 step 0.
+- **Fork instrument growth for the hole write-watch (Task 2/3, 2026-09-03,
+  `../flycast4naomi2dreamcast`), four commits `f821cdc3c..8ce3b451d`:**
+  - `f821cdc3c` "SHIMWATCH2 per-address dedup" (Task 1's own instrument,
+    already landed going into the first leg).
+  - `871fc3274` "DC-boot arming for SHIMWATCH2/SPWATER" — the tags only ever
+    printed from `cartlog_sample()`, gated on Naomi-cartridge DMA/PIO events
+    and therefore dead on a native DC `.gdi` boot (leg 1 defect). Added: a
+    DC-reachable baseline (`HANDOFF-DC`, armed off the handoff record-walk
+    stub's final CCR write, `ccn.cpp` `CCN_CCR_write`), a DC-reachable
+    periodic tick piggybacked on the existing `STARTRENDER` hook
+    (dynarec-safe, every vblank — same site `cartlog_texerr_tick()`/
+    `cartlog_arena_tick()` already use), and split the shared 64-line cap:
+    hole window uncapped (dedup-bitmap-bounded), shim-home window keeps its
+    64+CAP budget.
+  - `704e96afe` build-warning fixup (dropped an unused counter, no logic
+    change).
+  - `8ce3b451d` "fix round 3: DC-boot arming trigger fired via P2, matched
+    only P1" — leg 2 still came back silent because the CCR trigger compared
+    the raw PC against `HANDOFF_SCRATCH`'s P1 address, but the handoff stub
+    actually runs through the `P2ADDR()` uncached alias
+    (`shims/include/shim_iface.h:74`, `| 0xa0000000`) — a wrong-mirror
+    address, not a dynarec staleness artifact. Fix: mask
+    `Sh4cntx.pc & 0x1fffffff` before the compare (SH4 P1/P2/P3 mirror the
+    same physical space at address bits 31:29) — the real fix, no fallback
+    trigger needed.
+  - Verified fired correctly in leg 3 (`captures/phase7/hole-attract3.log`):
+    `HANDOFF-DC` ×1, `SPWATER` ×116, `SHIMWATCH2` ×3,427. Findings recorded
+    in `docs/kb/phase7-polishing.md` §T1 measurements.

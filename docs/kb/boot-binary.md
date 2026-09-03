@@ -171,6 +171,29 @@ from pointer pools (`0x8c02122c`–`0x8c02123c`), then `bsr 0x8c0211e2` and
 byte-copy loop — bss-clear / data-copy shaped), then `jsr @[0x8c021240]` with
 `bra .` behind it as the never-return guard. Detail deferred to later tasks.
 
+> **Closed (2026-09-03, Phase 7 T1 Task 3).** Pool words `.dat 0x122c-0x123c`:
+> `0x8c170c14, 0x41474553, 0x8c00c000, 0x8c15ae64, 0x8c15ae60`. Method:
+> `sh-elf-objdump -D -b binary -m sh4 -EL --adjust-vma=0x8c021150` on the raw
+> `.dat` slice (`-EL` required — `-m sh4` alone defaults big-endian and
+> decodes garbage) resolves the two loops directly rather than guessing from
+> the pool words alone:
+> - **Loop 1: `[0x8c00c000, 0x8c00f000)`**, filled with the repeating longword
+>   `0x41474553` = ASCII **"SEGA"** (`r4` starts at the literal `0x8c00c000`,
+>   end bound loaded indirectly through `*0x8c170c14`, which is the same
+>   `0x8c00f000` SP value from step 10 above). A stack canary: paint the
+>   not-yet-used boot stack with a known pattern before it goes live, so a
+>   later scan of how much got overwritten measures actual stack depth.
+> - **Loop 2: `[0x8c1de1cc, 0x8c1de200)`** (bounds `*0x8c15ae60`/`*0x8c15ae64`,
+>   both resolved directly from `senkosp.dat`) — 52 bytes, same "SEGA" fill,
+>   at the tail of the documented static-BSS end (`relocation-map.md`).
+>
+> For contrast, `bsr 0x8c021188`'s fill loop is the *real* zero-fill BSS
+> clear: `[0x8c1bf180, 0x8c1de1c9)` via `mov #0,r4` — confirms loops 1/2 above
+> are canary fills, not the BSS clear itself. Neither loop touches the
+> `0x8c003800–0x8c00c000` low-RAM window (loop 1 starts exactly at the
+> boundary and only increases). Full derivation:
+> `.superpowers/sdd/2026-09-03-phase7-t1-dreamshell/task-3-report.md` §1.
+
 ### SP verdict
 
 **Final SP = `0x8c00f000`** → phys `0x8c00f000 & 0x1fffffff` = **`0x0c00f000`**.
