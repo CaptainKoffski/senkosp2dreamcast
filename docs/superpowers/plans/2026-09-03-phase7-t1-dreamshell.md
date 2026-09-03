@@ -467,7 +467,9 @@ void shim_die(u32, u32, u32);
 
 extern unsigned int gd_last_err;    /* defined in gd.c (both builds) */
 
-#if SHIM_GD_DIAG
+#if SHIM_GD_DIAG && !GD_LOADER_BUILD
+/* diag is shim-only: hex_paint_c lives in util.c, which the loader never
+ * links -- a GDDIAG=1 build must not break the loader link. */
 void hex_paint_c(unsigned int, unsigned int, unsigned int,
                  unsigned short, unsigned short);
 #define GD_DIAG(x, y, v) hex_paint_c((x), (y), (v), 0xffff, 0x001f)
