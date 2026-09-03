@@ -314,12 +314,32 @@ over `0xffd80008–0x10` TCR0/TCNT0/TCOR0) — see Risks.
 
 - **Host:** `make test` extended — dispatcher unit test (flag →
   backend selection), `gd_plan` suite unchanged.
-- **Emulator (unattended):** `FORCE_SYSCALL=1` build flag forces
-  backend=syscall on a normal virtual disc; Flycast HLEs GD
-  syscalls statelessly, so the whole game runs on the new backend
-  post-handoff (Cleopatra G11). Attract soak + existing CRC/TEXERR
-  instruments clean. Plus a release-config regression leg (backend=
-  raw, byte-path identical to phase-6 release behavior).
+- **Emulator (unattended) — REVISED 2026-09-04 (Task 6 debug round;
+  ruling R12):** the original `FORCE_SYSCALL` leg is structurally
+  invalid — our DC legs run the stock DC BIOS (`UseReios = no`),
+  whose GD vector (`0x8c001000`, VECBC-probed) sits inside the
+  kernel-slice overwrite, so post-handoff syscalls execute stomped
+  code (a `DIRECT=1` control leg wedged byte-identically to the
+  trampolined one — trampoline exonerated; the "stateless HLE"
+  premise borrowed from Cleopatra's G11 applied only to their
+  pre-handoff/reios context). Replaced by two legs:
+  1. **`TESTSRV=1`** — a ~50-line test-only syscall server compiled
+     into the shim behind a build flag; the loader installs its
+     address at `0x8c0000bc`/`0xc0` and seeds backend=syscall +
+     carve. It serves fn 0–3 (`PIOREAD` via the proven raw driver,
+     coroutine-shaped: ≥1 pump before COMPLETED). Entry offset
+     ≥ `0x10000` turns the MMUCR fingerprint gate ON — the leg
+     exercises `gdc_call` (private stack, FPU quarantine, MMUCR
+     window), the dispatch, the pump loop, and the carve, in real
+     game context. Attract soak + CRC instruments clean.
+  2. **`FORCE_CARVE=1`** — carve applied under the RAW backend:
+     the one-variable gate that the 64 KB heap shift alone doesn't
+     disturb the game.
+  Plus the release-config regression leg (backend=raw, byte-path
+  identical to phase-6 release behavior). **Honest limit:** no
+  emulator configuration can host real isoldr (serial-SD has no
+  peer; every in-RAM BIOS implementation lives in stomped low RAM)
+  — isoldr semantics are verified on hardware only.
 - **Hardware (operator, stop-and-wait):** all DreamShell legs are
   **serial-silent** (dongle owns SCIF; release `LOADER_SERIAL=0`
   already enforces this; never `SERIAL=1` with the dongle attached —
@@ -342,8 +362,10 @@ over `0xffd80008–0x10` TCR0/TCNT0/TCOR0) — see Risks.
 4. **Probe totality:** GDEMU boot → raw chosen; DreamShell boot →
    syscall chosen; both-fail still halts red and readable
    (emulator + hardware evidence).
-5. **Emulator control:** `FORCE_SYSCALL` attract soak clean
-   (instruments green), unattended.
+5. **Emulator control (revised per R12):** `TESTSRV` attract soak
+   clean (trampoline+dispatch+pump+carve exercised, instruments
+   green) AND `FORCE_CARVE` attract leg clean (carve-only control),
+   both unattended.
 6. **Pre-code measurements banked** with verdicts in the KB
    (hole write-watch, SP low-water, fill-pool decode, TMU0 check).
 7. **KB written:** `docs/kb/phase7-polishing.md` §T1 results,
