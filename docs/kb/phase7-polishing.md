@@ -78,6 +78,22 @@ isoldr signature sniffing needed.
    the expected load times *before* engineering. If the dongle is
    actually SD-over-something-faster, even better — measure, don't
    assume.
+
+   **MEASURED (operator stopwatch, 2026-09-03, phase-6 Task 32 setup
+   re-run):** isoldr launch → loader splash ≈ 7 s (≈880 KB `1ST_READ.BIN`
+   + isoldr's own init ⇒ ≥125 KB/s, overhead-diluted lower bound); splash
+   → red rehearsal-halt screen ≈ 3 s. That second window is GD init + the
+   loader's single `cdrom_read_sectors` of the 1,515,512 B main image
+   through isoldr's syscall layer (`loader/main.c` rehearsal block) — the
+   exact mechanism a syscall backend would use — so effective sequential
+   throughput ≈ **490 KB/s** (eyeball band 2–4 s ⇒ 370–740 KB/s). The
+   ~190 KB/s SCIF-ceiling planning assumption is **disproven low**; the
+   dongle transport is 2–4× faster. Caveat: one large sequential read is
+   the best case — the game's runtime mix (1,590 smaller DMA tuples,
+   Phase 2) pays per-read overhead, so treat 490 KB/s as the ceiling-ish
+   figure, not the in-game guarantee. Sustained in-game demand (2.3
+   MB/min ≈ 39 KB/s, Phase 2) fits with ~10× margin; a 10 MB scene burst
+   projects to ~20–30 s.
 1. Recon isoldr source (github.com/DreamShell/DreamShell, `firmware/isoldr`):
    confirm syscall coverage (PIOREAD by FAD, 2048-byte data sectors — our
    `gd_plan()` math carries over), resident-blob size, placement presets.
