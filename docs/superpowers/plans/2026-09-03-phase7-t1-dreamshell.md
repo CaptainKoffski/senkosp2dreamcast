@@ -307,6 +307,56 @@ git add docs/kb/phase7-polishing.md && git commit -m "phase7 T1 task3: fill pool
 
 ---
 
+### Task 3b: Heap-top carve mechanism recon (ADDED 2026-09-03 — placement revision)
+
+**Context:** the measurements killed the low-RAM placement (live RTOS TCB
+table); the operator chose the heap-top carve: game heap top
+`0x8d000000 → 0x8cff0000` on syscall-backend boots only, isoldr at the
+stock `0x8cff0000` preset (spec §Memory contract, revised). This task
+designs the smallest carve mechanism; it writes NO shipping code.
+
+**Files:**
+- Read-only: `senkosp.dat`, `tools/ram-snapshot.bin`, `docs/kb/relocation-map.md`, `docs/kb/boot-binary.md`, Ghidra project (`docs/kb/tooling.md` §Phase 3)
+- Modify: none (report only)
+
+**Interfaces:**
+- Produces: the carve patch spec Task 6 implements — either (preferred) an
+  in-place instruction patch at the heap-top seed site(s) yielding top
+  `0x8cff0000`, applied by the loader ONLY when backend==syscall; or
+  (fallback) a return-site detour + heap-struct field poke with every
+  field named.
+
+- [ ] **Step 1: Disassemble the seed site + neighborhood.** The heap-top
+  seed lives at P1 `0x8c085b50` (dat `0x65b50`, patched word
+  `0x4028cb8d`; test-image twin at dat `0x1af894`) inside `FUN_8c085b00`
+  (`docs/kb/relocation-map.md` §Provenance). Disassemble the function
+  (Ghidra headless or manual SH-4 decode of the surrounding 0x100 bytes
+  from `senkosp.dat`): what exact instruction pair is the seed word, which
+  register carries the computed top, and where does it get stored?
+
+- [ ] **Step 2: Design the in-place patch.** Determine whether a 4-byte
+  (or slightly wider, if adjacent instructions are expendable)
+  replacement can make the computed top `0x8cff0000` — candidates: a
+  `mov.l @(disp,pc), rN` into an existing reachable pool slot that is
+  free/patchable, or a different immediate+shift sequence reaching
+  `0x8cff0000`. The patch must preserve every other register/flag the
+  surrounding code needs. If no in-place form exists, specify the
+  fallback: hook site (creation call/return), trampoline shape
+  (`mtramp.S` precedent), and the exact heap-struct field addresses
+  (find where `0x8e000000`-era top was stored in `tools/ram-snapshot.bin`
+  — scan for the value, cross-check against the store site from step 1).
+
+- [ ] **Step 3: Sanity the shift.** Confirm from `relocation-map.md`
+  §Provenance that no absolute heap-address constants exist that a 64 KB
+  shift would break (the Phase-3 exhaustive scans are the citation), and
+  note the low-16-bit preservation argument in the report.
+
+- [ ] **Step 4: Report.** Full patch spec (old bytes → new bytes, dat
+  offsets for BOTH images, register/liveness argument), or the fallback
+  spec. No commits.
+
+---
+
 ### Task 4: Maple receive-pointer floor (vector-table survival made structural)
 
 **Files:**
@@ -433,9 +483,14 @@ typedef int (*gdc_t)(u32, u32, u32, u32);
 #define GD_LOADER_BUILD 0
 #endif
 #ifndef GD_SYS_FIRST_LADDER
-#define GD_SYS_FIRST_LADDER 1   /* run InitSystem+CMD_INIT once before the
-                                 * first stream (spec decision 6). Task 3's
-                                 * TMU verdict may pin this to 0. */
+#define GD_SYS_FIRST_LADDER 0   /* PINNED 0 by Task 3's TMU verdict (spec
+                                 * decision 6 revised): the game reprograms
+                                 * TMU0, and isoldr's CMD_INIT path
+                                 * spin-sleeps on a BIOS-rate TMU0 -- no
+                                 * unconditional post-handoff ladder. The
+                                 * probe exercises the backend pre-handoff;
+                                 * the between-attempt retry ladder stays
+                                 * (residual mis-time risk = dies loud). */
 #endif
 
 #if GD_LOADER_BUILD
@@ -645,16 +700,27 @@ git commit -m "phase7 T1 task5: syscall GD backend (gd_sys.c + gdstack.S revived
 
 ---
 
-### Task 6: Dispatch + boot probe + build knobs
+### Task 6: Dispatch + boot probe + heap carve + build knobs
 
 **Files:**
 - Modify: `shims/src/gd.c` (one dispatch shim in `gd_read_cart`'s sector reads)
-- Modify: `loader/main.c` (rehearsal block ~line 205; staging seed ~line 263)
+- Modify: `loader/main.c` (rehearsal block ~line 205; staging seed ~line 263; conditional carve patch)
 - Modify: `Makefile` (FORCE_SYSCALL / GDDIAG knobs)
 
 **Interfaces:**
-- Consumes: `gd_sys_read_sectors`, `SHIM_STATE_GD_BACKEND`, `GD_STACK_CANARY` (Task 5).
-- Produces: the shipped probe/dispatch behavior Tasks 7–8 verify; `make gdi FORCE_SYSCALL=1` (forces the syscall backend end-to-end); `make gdi GDDIAG=1` (on-screen tracer build).
+- Consumes: `gd_sys_read_sectors`, `SHIM_STATE_GD_BACKEND`, `GD_STACK_CANARY` (Task 5); the carve patch spec (Task 3b).
+- Produces: the shipped probe/dispatch/carve behavior Tasks 7–8 verify; `make gdi FORCE_SYSCALL=1`; `make gdi GDDIAG=1`.
+
+- [ ] **Step 0 (ADDED): wire the carve.** Implement Task 3b's carve spec:
+  preferred form is extra patch-table-style entries (old/new bytes at the
+  heap-top seed sites, both images) that `loader/main.c` applies ONLY when
+  `backend == 1` — the probe runs before `apply_patches`, so the loader
+  already knows the backend at patch time. Apply the same conditional to
+  the test image's twin site. If Task 3b delivered the fallback
+  (detour + field poke) instead, implement exactly that spec. Either way:
+  a `say("heap carved for isoldr")` loader line (quiet builds skip the
+  draw; the dbglog remains for SERIAL emulator legs), and the raw-backend
+  path must provably apply NO carve (cite the guard in your report).
 
 - [ ] **Step 1: Dispatch in `gd.c`**
 
@@ -796,6 +862,16 @@ plus one `SERIAL=1` variant of the same leg if direct
 line + the absence of the syscall line IS the probe verdict). This is
 the "probe chose raw on a real-BIOS boot" half of exit criterion 4.
 
+- [ ] **Step 5b (ADDED): carve write-watch window.** Add a third window to
+  the fork's `cartlog_shimwatch2`: `0x00ff0000–0x00ffffff` (P1
+  `0x8cff0000–0x8cffffff`), uncapped-unique like the hole window — in
+  FORCE_SYSCALL emulator legs nothing occupies the carve (no isoldr in
+  the emulator), so ANY post-carve write there means the allocator or
+  game crossed the carved top. Same fork workflow (commit/push/ff-pull/
+  rebuild). Expected in the step-6 leg: zero hits in that window (except
+  the reset-stub top page `0x8cfff000+` if a test-menu-exit reboot is
+  exercised — bucket it separately if seen).
+
 - [ ] **Step 6: Emulator FORCE_SYSCALL leg — whole game on the new backend**
 
 ```bash
@@ -885,10 +961,11 @@ Task 32 did. Operator instructions (verbatim, adjusted only if Task 3
 moved the heap pin):
 
 1. In DreamShell 4.0.4's ISO Loader app, select the senkosp image.
-2. In its settings: **Boot memory = `0x8c004000`**, **Heap memory =
-   `0x8c00c000`** (explicit hex — not Auto; Auto can land inside RAM the
-   game overwrites). Firmware: plain `sd` (default; not cdda/full). Save
-   the preset so it persists.
+2. In its settings: **Boot memory = `0x8cff0000`**, **Heap memory =
+   `0x8cff7a00`** (explicit hex — not Auto; Auto can land inside RAM the
+   game overwrites; REVISED per the carve decision — the old
+   `0x8c004000` plan is falsified, spec §Memory contract). Firmware:
+   plain `sd` (default; not cdda/full). Save the preset so it persists.
 3. Launch. Expected on screen: loader splash (~7 s in), then ~3 s later
    the game boots — attract as normal. The phase-6 red screen must NOT
    appear.

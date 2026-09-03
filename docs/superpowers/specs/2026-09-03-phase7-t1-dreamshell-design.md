@@ -59,8 +59,10 @@ verdict: GO** (this session).
    boots therefore exercise exactly today's sequence.
 3. **Supported DreamShell version: 4.0.4 (isoldr 0.8.4)** — the
    operator's installed version, source-verified (§Ground truth).
-   Placement pins: `memory = 0x8c004000`, `heap = 0x8c00c000` in the
-   per-game isoldr preset. Other presets are fatal (§Memory contract).
+   Placement pins *(revised 2026-09-03, operator decision after the
+   measurement falsified the low-RAM plan — §Memory contract)*:
+   `memory = 0x8cff0000`, `heap = 0x8cff7a00`, backed by the 64 KB
+   heap-top carve. Other presets are fatal (§Memory contract).
 4. **Gate rig = the operator's** (console + dongle + DreamShell SD).
    The beta tester's dongle is bonus coverage. Single-rig honest
    limit recorded, as every phase before.
@@ -68,11 +70,18 @@ verdict: GO** (this session).
    not Cleopatra's 16 KB — there is no free 16 KB anywhere in our
    map. Compensating control: stack canary + low-water diag; verify,
    don't hope.
-6. **Recovery ladder runs once unconditionally before the first
-   stream.** Cleopatra's record: preserving low RAM was necessary
-   but not sufficient — and we don't even preserve it. Budget
-   `gdGdcInitSystem` + `CMD_INIT` as the mechanism, not the
-   exception (`../cleopatra/docs/kb/00-status.md` HW round 11/12).
+6. **Recovery ladder at the probe stage only** *(revised
+   2026-09-03: the Task-3 TMU scan found the game genuinely stops/
+   reprograms/restarts TMU0 at two disassembly-verified sites, and
+   isoldr's `CMD_INIT`/card-retry path spin-sleeps on a free-running
+   BIOS-rate TMU0)*. `GD_SYS_FIRST_LADDER = 0`: no unconditional
+   post-handoff `InitSystem`+`CMD_INIT` before the first stream —
+   the loader-context probe (pre-handoff, timers BIOS-owned)
+   exercises the backend instead. The between-attempt retry ladder
+   stays; its residual risk (mis-timed isoldr sleeps under the
+   game's TMU0 programming, error instead of recovery) is recorded
+   as an accepted failure shape: a failed retry dies loud, it does
+   not hang the happy path.
 7. **Three fork measurements land before shim code** (§Pre-code
    measurements) — they convert "no evidence of collision" into
    "positive evidence of none".
@@ -238,25 +247,51 @@ window).
 
 ### 5. Memory contract + operator instruction
 
+**REVISED 2026-09-03 (operator decision, after the pre-code
+measurements falsified the original contract).** The original plan —
+isoldr at `0x8c004000` in the low-RAM hole — is dead: the DC-profile
+write-watch legs (`captures/phase7/hole-attract3.log`) measured 3,362
+diverged bytes in `0x8c009e10–0x8c00bfff`, byte-exact-matched against
+`tools/ram-snapshot.bin` as **live Naomi RTOS TCB-table content**
+(slot 47+ of the 0x200-stride table at `0x8c004000`) — the kernel
+slice's RTOS actively uses its TCB region on the DC port. The
+quiet-in-attract remainder (25.5 KB) is the same live table's unused
+portion, and no isoldr build fits it anyway (slim no-CISO/no-multi
+build still ~3.5 KB over). Low RAM is unsound for any resident blob.
+
+**The carve:** isoldr lives at the top of the game's relocated heap
+instead. A shim hook, run once after the game creates its syMalloc
+heap `[0x8c1de200, 0x8d000000)` (`FUN_8c085b00`), pokes the heap's
+top down to **`0x8cff0000`** — carving 64 KB the allocator can then
+never touch (tail-carving allocator: the entire layout shifts down
+rigidly by 0x10000, low 16 bits preserved — same mechanism the
+16 MB relocation already proved, weaker alignment preservation, see
+Risks). **The poke is conditional on backend == syscall**: real-BIOS
+boots (GDEMU/optical) keep the full heap and byte-identical behavior.
+
 | Range | Owner under DreamShell |
 |---|---|
 | `0x8c0000b0–0xe0` | syscall vectors — survive (below `0x600`) |
 | `0x8c000600–0x8c003800` | our Naomi kernel slice (unchanged) |
-| `0x8c004000–≈0x8c00b908` | isoldr `sd` blob (31 KB, v4.0.4 measured) |
-| `0x8c00c000–0x8c00e800` | isoldr heap (pinned) |
-| `0x8c00e864⁻–0x8c00f000` | game boot stack (floor measured) |
-| `0x8c00f400–0x8c010000` | game VBR/handlers + boot memset |
+| `0x8c003800–0x8c00ffff` | game/RTOS (TCB table, boot stack `bootmin=0x8c00e7ec` measured, VBR, scratch) — nothing of ours |
 | `0x8c010000–0x8c018000` | shim window (incl. revived 8 KB GD stack) |
+| `0x8c1de200–0x8cff0000` | game heap (top poked, syscall boots only) |
+| `0x8cff0000–≈0x8cff7908` | isoldr `sd` blob (31 KB, v4.0.4 measured) |
+| `0x8cff7a00–≈0x8cff9ee0` | isoldr heap (pinned; bound ≤9,432 B measured) |
+| `0x8cfff000–0x8d000000` | reset-stub top page (reboot path only; above isoldr's extent — harmless) |
 
 Operator pins in the isoldr per-game preset: **`memory =
-0x8c004000`, `heap = 0x8c00c000`**; plain `sd` firmware (no CDDA —
-the game has no CDDA; audio is AICA-streamed from cart data).
-Fatal alternatives, recorded so nobody retries them: `0x8c000100/
-0x8c001100/0x8c001200` land under the kernel slice; every
-`0x8cfcxxxx–0x8cffxxxx` option sits inside the game's relocated
-heap `[0x8c1de200, 0x8d000000)`; `0x8dfc0000` needs 32 MB;
-`HEAP_MODE_AUTO` at low placements can land at `0x8c001100` —
-inside the slice.
+0x8cff0000`** (a stock GUI preset), **`heap = 0x8cff7a00`**; plain
+`sd` firmware (no CDDA — the game has no CDDA; audio is
+AICA-streamed from cart data). Fatal alternatives, recorded so
+nobody retries them: every low-RAM option (`0x8c000100–0x8c008000`)
+lands under the kernel slice or inside the live TCB table;
+`0x8cff4800` would force an unaligned 47 KB carve (allocation shift
+0xb800 preserves only 11 low address bits — the 64 KB carve's
+low-16-bit preservation is the safety argument); the lower high
+presets (`0x8cfc0000–0x8cfe8000`) waste 32–192 KB of heap for no
+gain; `0x8dfc0000` needs 32 MB; `HEAP_MODE_AUTO` must not be used —
+pin the heap explicitly.
 
 ### 6. Pre-code measurements (fork legs, before any shim code)
 
@@ -323,15 +358,21 @@ untested and out of scope.
 
 ## Risks / open questions
 
-- **TMU0 collision (open until the static check runs):** isoldr's
-  card init/retry-reinit and `CMD_INIT` spin on a free-running
-  TMU0. If senkosp reprograms TMU0, the recovery ladder could
-  mis-time or hang. Phase-5's pad-poll work referenced a TCNT0
-  cache (staged, `#if 0`) — the game at least *reads* the timer
-  block. Disposition in the plan: Ghidra xref sweep; if the game
-  writes TMU0, drop the unconditional-`CMD_INIT` part of decision 6
-  to the probe stage only (loader context, pre-handoff, timers
-  BIOS-owned) and record the residual retry risk.
+- **TMU0 collision — RESOLVED (2026-09-03, Task 3):** the game
+  writes TMU0 (stop/reprogram/restart, two sites, disassembly-
+  verified). Decision 6 revised accordingly: ladder at probe stage
+  only; retry-path residual risk accepted (dies loud, not a hang of
+  the happy path).
+- **Heap-top carve correctness (new, from the placement revision):**
+  the poke must hit every field the allocator consults (top/end and
+  any cached capacity/limit) — Task 3b pins them from `FUN_8c085b00`
+  disassembly + RAM-snapshot cross-check before any code. The 64 KB
+  shift preserves low 16 address bits of every tail-carved block
+  (the 16 MB relocation preserved 24 and was proven; no absolute
+  heap-address constants exist per Phase 3's exhaustive scans) —
+  the FORCE_SYSCALL emulator soak with the carve active is the
+  behavioral gate before hardware. Carve is conditional on
+  backend==syscall, so GDEMU boots are structurally unchanged.
 - **8 KB stack sufficiency:** mitigated by canary + low-water diag
   (decision 5); if the watermark says tight, the fallback is
   shrinking `SHIM_BOUNCE`'s neighborhood or spilling into the
