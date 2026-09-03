@@ -1097,3 +1097,18 @@ raw-registers-vs-isoldr flag confirmed by measurement. Documented
 limitation: GDEMU/optical boot paths only; fails fast with a readable
 screen. Phase-6 queue: all coverage legs done (#29-#32 closed); remaining
 = release packaging.
+
+**Post-release backlog (operator reports, 2026-09-03):** two performance
+observations from play sessions, recorded before the phase-6 close:
+(a) the two in-game loadings feel long — attract -> START (the
+descending-tone "hang" moment) and 2P join during a 1P match;
+(b) background microfreezes on stage 8. Neither is attributable yet:
+stage 8 is the tightest VRAM-arena scene in the census (peaks within
+~100-200 KB of the 8 MB ceiling, docs/kb/arena-fit-options.md), so (b)
+may be texture eviction churn rather than disc latency; (a) needs a
+read-vs-unpack profile of the load window. First step for both: one
+profiling leg (cartlog timings + arena telemetry) BEFORE touching the
+driver. If disc-bound: the recorded upgrade path is G1 DMA / async cart
+service (shims/src/gd.c ponytail note), NOT syscalls (architecturally
+excluded, see gd.c header). Joins the Ernula barrier-hang watch item and
+the dev-disc experiment in the post-release queue.
