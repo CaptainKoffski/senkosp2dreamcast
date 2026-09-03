@@ -414,6 +414,16 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
  * image (see gd_fail), so this must be unlinkable there, not merely unused.
  * The loader rehearses gd_read_fad only. */
 #if !GD_LOADER_BUILD
+int gd_sys_read_sectors(void *dst, unsigned fad, unsigned n);
+/* Phase 7 T1 dispatch: backend chosen once by the loader's rehearsal probe
+ * (main.c), 0 = raw ATA / 1 = BIOS-syscall (DreamShell isoldr). The raw
+ * path below this line is untouched. */
+static int gd_read(unsigned fad, void *dst, unsigned secs) {
+    if (P2(SHIM_STATE)[SHIM_STATE_GD_BACKEND])
+        return gd_sys_read_sectors(dst, fad, secs);
+    return gd_read_fad(fad, dst, secs);
+}
+
 int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
     if (!len) return 0;
     if (cart_off > (unsigned)CART_SIZE || len > (unsigned)CART_SIZE - cart_off)
@@ -426,18 +436,18 @@ int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
     int r;
 
     if (pl.head_len) {
-        if ((r = gd_read_fad(fad, b, 1)) < 0) return r;
+        if ((r = gd_read(fad, b, 1)) < 0) return r;      /* head */
         for (i = 0; i < pl.head_len; i++) d[i] = b[pl.head_skip + i];
         d += pl.head_len;
         fad++;
     }
     if (pl.body_secs) {
-        if ((r = gd_read_fad(fad, d, pl.body_secs)) < 0) return r;
+        if ((r = gd_read(fad, d, pl.body_secs)) < 0) return r;  /* body */
         d += pl.body_secs * GD_SECSZ;
         fad += pl.body_secs;
     }
     if (pl.tail_len) {
-        if ((r = gd_read_fad(fad, b, 1)) < 0) return r;
+        if ((r = gd_read(fad, b, 1)) < 0) return r;      /* tail */
         for (i = 0; i < pl.tail_len; i++) d[i] = b[i];
     }
 #if SHIM_CRC

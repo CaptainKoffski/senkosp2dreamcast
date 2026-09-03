@@ -68,6 +68,13 @@ extern uint8 splash_bin[];      /* objcopy-embedded 640x480 RGB565 (Makefile) */
 int dbgio_init(void) { return 0; }   /* strong override of KOS weak symbol */
 #endif
 
+/* FORCE_SYSCALL=1 (top Makefile): skip the raw rehearsal below and go
+ * straight to the syscall backend -- emulator control legs only (Flycast
+ * HLEs the GD syscalls statelessly; the real dongle can't be emulated). */
+#ifndef GD_FORCE_SYSCALL
+#define GD_FORCE_SYSCALL 0
+#endif
+
 /* No progress bar (Task 26 ROLLED BACK, operator 2026-09-01): tried
  * shim-side (v1 -- defaced the game's NOW LOADING; the game seizes video
  * before its first cart read) and loader-side (v2 + BOOT-UNBLANK -- on
@@ -200,21 +207,35 @@ int main(void) {
     }
     say("cart read OK (KOS)");
 
+    /* Phase 7 T1: which GD backend the rehearsal below picks. Function scope
+     * (not block-scoped inside the rehearsal below) because it must survive
+     * to the staging seed (SHIM_STATE[1]) and the conditional carve, both
+     * well after the rehearsal block closes. */
+    uint32 backend = 0;                 /* 0 = raw, 1 = syscall */
+
     /* Rehearse the shim's exact runtime GD path before handing the game to it
      * (replaces Cleopatra's syscall rehearsal -- our runtime path is raw ATA,
      * because the kernel slice this loader places lands on the BIOS's low-RAM
      * GD state; see shims/src/gd.c's header). Same sector KOS just read, so a
      * mismatch is the driver's fault, not the disc's. Runs BEFORE
-     * apply_patches, which mutates `stage`. */
+     * apply_patches, which mutates `stage`.
+     * Phase 7 T1: a raw-path failure is now expected, not fatal -- under
+     * DreamShell isoldr virtualizes the GD only at the syscall layer, the
+     * physical drive still holds the DS boot disc, so raw ATA reads nothing
+     * of ours. Falls back to rehearsing the syscall backend on the same
+     * sector; `backend` (function scope, see declaration above) records
+     * which one won and stays live through staging below. */
     {
         static uint8 rawbuf[2048] __attribute__((aligned(32)));
-        char msg[64];
+        char msg[96];
+        int gd_sys_read_sectors(void *dst, unsigned fad, unsigned n);
         /* The driver writes rawbuf through its P2 (uncached) alias. KOS's
          * startup zeroed this .bss buffer through the CACHED alias, so its
          * lines may still be in the D-cache and dirty -- invalidate (discard,
          * no write-back: a write-back would land stale zeroes on top of the
          * incoming sector) so the memcmp below reads what the drive delivered. */
         dcache_inval_range((uintptr_t)rawbuf, sizeof(rawbuf));
+#if !GD_FORCE_SYSCALL
         /* KOS is live here: its cdrom driver pumps the BIOS GD server from a
          * vblank handler whenever a DMA is outstanding (KOS cdrom.c:691-708).
          * None is outstanding after a blocking cdrom_read_sectors, but a raw
@@ -223,13 +244,35 @@ int main(void) {
         irq_mask_t old = irq_disable();
         int r = gd_read_fad(fad, rawbuf, 1);
         irq_restore(old);
+#else
+        int r = -99;                        /* FORCE_SYSCALL build: skip raw */
+        uint32 raw_err_unused = gd_last_err; (void)raw_err_unused;
+#endif
         if (r != 0) {
-            sprintf(msg, "RAW-ATA READ FAIL r=%d err=%08lx", r, (unsigned long)gd_last_err);
-            halt(msg);                    /* err = 0xda<site><status><error>, gd.c */
+            uint32 raw_err = gd_last_err;
+            /* Raw path failed (DreamShell: expected -- isoldr virtualizes GD
+             * at the syscall layer only; the physical drive holds the DS boot
+             * disc). Rehearse the syscall backend on the same sector. KOS is
+             * live and its own driver already pumps this server; no IRQ mask
+             * (Cleopatra loader rehearsal precedent). Buffer passed as P2 --
+             * isoldr stores through the given pointer, PIOREAD doesn't purge. */
+            dcache_inval_range((uintptr_t)rawbuf, sizeof(rawbuf));
+            int rs = gd_sys_read_sectors((void *)P2ADDR((uint32)rawbuf), fad, 1);
+            if (rs != 0) {
+                sprintf(msg, "GD FAIL raw r=%d e=%08lx / sys r=%d e=%08lx",
+                        r, (unsigned long)raw_err,
+                        rs, (unsigned long)gd_last_err);
+                halt(msg);
+            }
+            if (memcmp(rawbuf, buf, 2048))
+                halt("SYSCALL MISMATCH VS KOS READ");
+            backend = 1;
+            say("cart read OK (syscall)");
+        } else {
+            if (memcmp(rawbuf, buf, 2048))
+                halt("RAW-ATA MISMATCH VS KOS READ");
+            say("cart read OK (raw ATA)");
         }
-        if (memcmp(rawbuf, buf, 2048))    /* same sector KOS just read */
-            halt("RAW-ATA MISMATCH VS KOS READ");
-        say("cart read OK (raw ATA)");
     }
 
     if (apply_patches(stage,
@@ -241,6 +284,21 @@ int main(void) {
            (unsigned)N_PATCHES_MAIN, (unsigned)N_PATCHES_TEST,
            test_boot ? "test" : "main");
     say("patches OK");
+
+    /* Phase 7 T1 heap carve (task-3b-report.md): applied ONLY on the
+     * syscall backend, and only AFTER the unconditional table above (its
+     * `old` encodes the post-reloc state -- task-3b-report.md FIX ROUND 1).
+     * `backend` defaults to 0 and is set to 1 nowhere except the syscall
+     * branch just above, so a real-BIOS/raw-ATA boot never reaches this
+     * block -- the raw path is provably un-carved. */
+    if (backend) {
+        if (apply_patches(stage,
+                          test_boot ? senkosp_carve_test : senkosp_carve_main,
+                          test_boot ? N_CARVE_TEST : N_CARVE_MAIN,
+                          img_off))
+            halt("CARVE ABORT");
+        say("heap carved for isoldr");
+    }
 
     /* ---- staging (Task 10) ----------------------------------------------
      * Nothing below is written to its FINAL home: see the STAGE_* block at the
@@ -261,6 +319,10 @@ int main(void) {
     memset((void *)(STAGE_SHIM + shim_len), 0, SHIM_WINDOW - shim_len);
     /* SHIM_STATE[0] = boot mode (0 = main, 1 = test), read by the shim. */
     *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE)) = (uint32)test_boot;
+    /* SHIM_STATE[1] = GD backend from the rehearsal probe (0 raw, 1 syscall). */
+    *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4) = backend;
+    /* Canary under the private syscall stack (gd_sys.c checks per read). */
+    *(uint32 *)(STAGE_SHIM + (GD_STACK_BOTTOM - SHIM_BASE)) = GD_STACK_CANARY;
 
     /* The BIOS-derived blocks the game reads via patched P2 pointers: the
      * 0x60000 verify+copy library, and the three-piece Naomi RTOS kernel slice

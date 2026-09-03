@@ -102,8 +102,10 @@ static int gd_init_drive(void) {
     }
 }
 
+#if GD_SYS_FIRST_LADDER
 /* nonzero .data init, house style (see gd.c gd_last_err) */
 static int gd_sys_virgin = 1;
+#endif
 
 /* Read `n` 2048-byte data sectors at absolute `fad` into dst (pass the P2
  * alias -- isoldr stores through exactly the pointer given, and PIOREAD does

@@ -53,7 +53,13 @@ def parse_rows(text):
 # ---- (a) + (b): one run, check old-byte fidelity + img tagging -----------
 text = run_gen()
 dat = DAT.read_bytes()
-rows = parse_rows(text)
+# Task 6: only the two unconditional patch arrays are checked against
+# PRISTINE senkosp.dat here -- the carve arrays (senkosp_carve_main/test,
+# appended after these two by build_patch_table.py) deliberately emit a
+# POST-reloc `old` (carve()'s overlay rule, task-3b-report.md FIX ROUND 1),
+# so they would fail this pristine-dat check by design. They get their own
+# check below.
+rows = parse_rows(text[:text.index("senkosp_carve_main")])
 # Task 11: the row COUNT is no longer asserted (it grows every task and an
 # exact number is drift, not a test). What must hold is the invariant: every
 # emitted row's `old` is what senkosp.dat actually holds at that offset, and
@@ -91,6 +97,24 @@ for w, want_lit_off, want_len in ((0x001000, 8, 12), (0x001002, 6, 10)):
     assert code[0:6] == struct.pack("<HHH", 0xD201, 0x422B, 0x0009), code[0:6].hex()
     assert code[lit_off:lit_off + 4] == struct.pack("<I", 0x8C010ABC)
 print("OK detour() kind: both W%4 alignments, literal lands inside the window")
+
+# ---- HEAP-CARVE (Task 6): both carve tables, exact bytes -------------------
+CARVE_RE = {
+    name: re.compile(rf'static const patch_t {name}\[\] = \{{(.*?)\}};', re.S)
+    for name in ("senkosp_carve_main", "senkosp_carve_test")
+}
+for name, pat in CARVE_RE.items():
+    m = pat.search(text)
+    assert m, f"{name} not emitted (or emitted as the empty [1] = {{0}} form)"
+    carve_rows = parse_rows(m.group(1))
+    assert len(carve_rows) == 1, f"{name}: expected exactly 1 entry, got {len(carve_rows)}"
+    off, img, ln, old, new = carve_rows[0]
+    assert ln == 8, f"{name}: expected 8 B window, got {ln}"
+    # old is the POST-reloc state (0x8d, not the pristine 0x8e) -- carve()'s
+    # overlay rule, not a raw dat read (task-3b-report.md FIX ROUND 1).
+    assert old[2] == 0x8D, f"{name}: old byte[2] = {old[2]:#x}, expected 0x8d (post-reloc)"
+    assert new == bytes.fromhex("8de01840ff702840"), f"{name}: new = {new.hex()}"
+print("OK HEAP-CARVE: both tables 1 entry, old embeds post-reloc 0x8d, new matches spec")
 
 # ---- old-byte verification must reject a deliberately wrong `old` ----------
 before = len(BPT.patches)

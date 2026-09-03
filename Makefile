@@ -30,6 +30,18 @@ endif
 ifeq ($(CRC),1)
 DEFS += -DSHIM_CRC=1
 endif
+# FORCE_SYSCALL=1: loader skips the raw rehearsal and seeds the syscall
+# backend -- the whole game then streams via BIOS GD syscalls. Emulator
+# control legs only (Flycast HLEs the syscalls statelessly; the dongle
+# itself cannot be emulated). Never a release knob.
+ifeq ($(FORCE_SYSCALL),1)
+DEFS += -DGD_FORCE_SYSCALL=1
+endif
+# GDDIAG=1: on-screen GD-syscall tracer + stack low-water (TV-debuggable,
+# serial-silent -- the DreamShell debugging instrument). Never ship.
+ifeq ($(GDDIAG),1)
+DEFS += -DSHIM_GD_DIAG=1
+endif
 export DEFS
 
 CARD ?= /Volumes/GDEMU/03
