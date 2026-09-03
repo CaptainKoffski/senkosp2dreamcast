@@ -1466,8 +1466,12 @@ test: proves redirect/attachment/hash wiring in the same run).
   existing KOS toolchain). Result: `build/sd.bin` 29,732 B on disk;
   `sh-elf-size build/sd.elf` = text 29,444 + data 180 + bss 304 =
   **29,928 B**; + 1 KB params + 32 ⇒ resident end ≈ `0x8c00b908` at the
-  `0x8c004000` placement. This is the number the T1 memory contract is
-  sized against (spec `docs/superpowers/specs/2026-09-03-phase7-t1-dreamshell-design.md`).
+  `0x8c004000` placement. **That placement is now falsified** — live RTOS
+  TCB-table content occupies `0x8c009e10-0x8c00bfff` (`docs/kb/phase7-polishing.md`
+  §T1 measurements) — but the 29,928 B measurement itself still stands; the
+  T1 memory contract is now sized at `memory=0x8cff0000` / `heap=0x8cff7a00`
+  per the revised spec (`docs/superpowers/specs/2026-09-03-phase7-t1-dreamshell-design.md`,
+  commit `ca60b97`).
 - **Step-0 throughput measurement** (operator stopwatch, no tools):
   recorded in `docs/kb/phase7-polishing.md` §T1 step 0.
 - **Fork instrument growth for the hole write-watch (Task 2/3, 2026-09-03,
@@ -1498,3 +1502,9 @@ test: proves redirect/attachment/hash wiring in the same run).
   - Verified fired correctly in leg 3 (`captures/phase7/hole-attract3.log`):
     `HANDOFF-DC` ×1, `SPWATER` ×116, `SHIMWATCH2` ×3,427. Findings recorded
     in `docs/kb/phase7-polishing.md` §T1 measurements.
+  - **Reviewer note:** on Naomi-profile legs the new `STARTRENDER` tick fires
+    *alongside* the old ~10 s Naomi cartridge-DMA tick — harmless for
+    correctness (dedup/throttle absorb the overlap), but it means
+    `SHIMWATCH2`/`SPWATER` log cadence on Naomi legs now differs from the
+    phase-4/5-era baseline; don't count lines per tick when comparing across
+    eras.

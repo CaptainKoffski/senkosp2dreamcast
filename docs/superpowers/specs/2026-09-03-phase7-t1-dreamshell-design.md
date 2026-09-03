@@ -286,7 +286,7 @@ Operator pins in the isoldr per-game preset: **`memory =
 AICA-streamed from cart data). Fatal alternatives, recorded so
 nobody retries them: every low-RAM option (`0x8c000100–0x8c008000`)
 lands under the kernel slice or inside the live TCB table;
-`0x8cff4800` would force an unaligned 47 KB carve (allocation shift
+`0x8cff4800` would force an unaligned 46 KB carve (allocation shift
 0xb800 preserves only 11 low address bits — the 64 KB carve's
 low-16-bit preservation is the safety argument); the lower high
 presets (`0x8cfc0000–0x8cfe8000`) waste 32–192 KB of heap for no

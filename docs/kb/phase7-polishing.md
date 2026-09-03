@@ -156,6 +156,11 @@ fill sweep. **`0x8c003800–0x8c009e0f` stayed silent the full 600 s but this is
 not evidence it's free** — it's the same live TCB table's slots that simply
 weren't claimed during attract mode; a played match or other game state could
 still touch lower slots. Full derivation: `.superpowers/sdd/2026-09-03-phase7-t1-dreamshell/task-3-report.md` §4a.
+Honest limit on the `SHIMWATCH2` content-scan itself (same as the phase-4
+watch): it runs at the C level inside the fork's periodic tick, so it only
+sees whatever byte value is resident *at the sampled instant* — a write that
+flips a byte and reverts it between two sampled ticks bypasses the scan
+entirely and would never show up as a divergence.
 
 **`bootmin=0x8c00e7ec`** (deepest `r15` sampled over the 600 s leg, `min ==
 bootmin` in both the first and last `SPWATER` line — the deepest excursion
@@ -228,7 +233,9 @@ Full recon: `.superpowers/sdd/2026-09-03-phase7-t1-dreamshell/task-3-report.md`.
    dcload uses). Verify against phase-4 placements + loader staging that
    nothing of ours touches it at runtime. **Operator instruction must pin
    the preset** — the `0x8c000100` preset would land under our kernel
-   slice and die.
+   slice and die. *[Superseded by §T1 measurements — the candidate hole is
+   live TCB table, not free; placement moved to the heap-top carve, see
+   spec §Memory contract.]*
 3. Port the syscall backend from Cleopatra; wire the probe + dispatch.
 4. Legs. Note two hard constraints:
    - **All DreamShell legs are serial-silent** — the dongle owns the SCIF
