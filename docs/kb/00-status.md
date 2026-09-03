@@ -1112,3 +1112,19 @@ driver. If disc-bound: the recorded upgrade path is G1 DMA / async cart
 service (shims/src/gd.c ponytail note), NOT syscalls (architecturally
 excluded, see gd.c header). Joins the Ernula barrier-hang watch item and
 the dev-disc experiment in the post-release queue.
+
+**PHASE 6 CLOSED (2026-09-03).** Gate met: tripwires 3/3 green (make
+test / test-vmu / test-vmu-play), composite fixed and hardware-proven
+(both cable classes), DreamShell characterized, release packaged by the
+operator and shipped to a closed-beta tester. Keep main releasable while
+the beta runs.
+
+**PHASE 7 "Polishing" CHARTERED — start here next:
+docs/kb/phase7-polishing.md.** One must-have, ordered first: T1 make the
+port run under DreamShell serial-SD (dual-backend GD driver — the syscall
+vector table survives our kernel slice, isoldr's resident driver serves
+syscalls; full solution sketch, alternatives, risks and step order in the
+charter). Optional pool: T2 profiling leg (loadings + stage-8
+microfreezes) gating T3 G1-DMA/async and T4 arena margin; T5 Ernula
+watch; T6 dev-disc; T7 boot-gap cosmetics. Phase branch:
+phase7-polishing.
