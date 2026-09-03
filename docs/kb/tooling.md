@@ -240,18 +240,24 @@ referenced, not duplicated — that file is part of this project's method.
   HEAD --stat` — empty, confirming no other content had silently drifted.
   Only then: `flycast-src`'s `master` ref moved to the new `origin/master`
   (`git update-ref refs/heads/master origin/master` — `git reset --hard` was
-  blocked by the environment's destructive-command guard; `update-ref` was
-  content-safe here specifically *because* the gate diff was already empty,
-  so no working-tree/index content actually changed, only which commit the
-  ref names). Old SHA `044a2fb6c` stays reachable via reflog, not deleted.
-  `flycast-src` is fast-forwardable from the fork again.
+  blocked by the environment's destructive-command guard). Safety basis
+  (fix round, R7 — the gate diff alone proves content equality, not
+  working-tree/index safety): the empty gate diff above shows `origin/master`
+  and `flycast-src`'s old tree were content-identical, and the **post-op
+  `git status`** (clean, only the pre-existing, unrelated `core/deps/Syphon`
+  submodule diff — present before and after) is what actually confirms
+  `update-ref` left the working tree and index untouched, since moving a
+  ref touches neither by itself. Old SHA `044a2fb6c` stays reachable via
+  reflog, not deleted. `flycast-src` is fast-forwardable from the fork
+  again.
   **This task's fork commit:** `7ba6f1745` in `flycast4naomi2dreamcast`
   (canonical), pulled `--ff-only` into `flycast-src` clean (no cherry-pick
   workaround needed this time). Widens `cartlog_shimwatch2()`
   (`core/hw/naomi/naomi.cpp`) from the shim-home-only window to also cover
   the DreamShell isoldr slot `0x8c003800`–`0x8c00bfff` (skipping the
-  game-owned `0x8c00c000`–`0x8c010000` gap), capped at 64 emitted
-  `SHIMWATCH2` lines + one `SHIMWATCH2 CAP` line. Adds a boot-scoped SP
+  game-owned `0x8c00c000`–`0x8c010000` gap — boot stack/VBR/scratch,
+  `docs/kb/boot-binary.md`), capped at 64 emitted `SHIMWATCH2` lines + one
+  `SHIMWATCH2 CAP` line. Adds a boot-scoped SP
   low-water (`sp_boot_min`, `core/hw/naomi/cartlog.cpp`) restricted to
   `0x8c000000`–`0x8c010000`, emitted as `bootmin=` on the existing `SPWATER`
   line. New GD-command SP feed: `cartlog_sp_sample(Sh4cntx.r[15])` at the top
@@ -262,6 +268,20 @@ referenced, not duplicated — that file is part of this project's method.
   only the same pre-existing linker warnings as every prior rebuild (`-s`
   obsolete, duplicate static libs, `libomp`/`libpng` deployment-target
   mismatches).
+  **Fix round (2026-09-03, controller ruling R6):** `cartlog_shimwatch2()`'s
+  64-line cap had no per-address dedup and `emitted` was cumulative across
+  the ~10s ticks — a byte that diverges once and stays diverged re-counted
+  against the cap on every tick, so the cap could exhaust on a handful of
+  real addresses and silently suppress new ones later in the run. Fixed
+  with a per-address seen-bitmap (`static u8 seen[(0x18000 - 0x3800 + 7) /
+  8]`, indexed by `i - LO1`, covers both windows plus the skipped gap —
+  wasted bits there, trivial indexing); test-and-set before emitting,
+  `emitted` increments only on first sight of an address. Cap semantics now
+  "first 64 unique addresses". Fork commit `f821cdc3c` in
+  `flycast4naomi2dreamcast` (canonical), pulled `--ff-only` into
+  `flycast-src` clean. **Rebuild:** `cmake --build build
+  -j"$(sysctl -n hw.ncpu)"` — exit 0, only `naomi.cpp.o` recompiled +
+  relink, same pre-existing linker warnings, nothing new.
 
 ### dat-extract (../naomi2dreamcast/tools/dat-extract)
 
