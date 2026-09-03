@@ -31,9 +31,13 @@ ifeq ($(CRC),1)
 DEFS += -DSHIM_CRC=1
 endif
 # FORCE_SYSCALL=1: loader skips the raw rehearsal and seeds the syscall
-# backend -- the whole game then streams via BIOS GD syscalls. Emulator
-# control legs only (Flycast HLEs the syscalls statelessly; the dongle
-# itself cannot be emulated). Never a release knob.
+# backend -- the whole game then streams via BIOS GD syscalls. RETIRED as a
+# verification leg (task-6-report.md DEBUG ROUND 1): against this emulator's
+# real BIOS + this port's own KERNEL-SLICE stomp, the vector serves no real
+# GD driver at all, so a FORCE_SYSCALL-only leg proves nothing about
+# gdc_call. Kept as the underlying "skip raw, force backend=1" primitive --
+# TESTSRV=1 below reuses it and adds a server actually worth calling. Never
+# a release knob.
 ifeq ($(FORCE_SYSCALL),1)
 DEFS += -DGD_FORCE_SYSCALL=1
 endif
@@ -41,6 +45,22 @@ endif
 # serial-silent -- the DreamShell debugging instrument). Never ship.
 ifeq ($(GDDIAG),1)
 DEFS += -DSHIM_GD_DIAG=1
+endif
+# TESTSRV=1 (fix round 2, task-6-report.md): the real syscall-backend
+# verification leg, replacing FORCE_SYSCALL's retired one. Shim gets its own
+# GD_TEST_SERVER stand-in (shims/src/gd_testsrv.c) built in; loader skips
+# the raw rehearsal (LOADER_TESTSRV, same idea as GD_FORCE_SYSCALL) and
+# installs the stand-in's address at the syscall vector just before handoff
+# -- gdc_call's trampoline (gdstack.S) gets a real callee for the first
+# time. Emulator + hardware control legs only; test-only, never shipped.
+ifeq ($(TESTSRV),1)
+DEFS += -DGD_TEST_SERVER=1 -DLOADER_TESTSRV=1
+endif
+# FORCE_CARVE=1 (fix round 2): apply the heap-carve tables even on the raw
+# backend -- one-variable isolation of the carve from backend selection.
+# Test-only, never shipped.
+ifeq ($(FORCE_CARVE),1)
+DEFS += -DFORCE_CARVE=1
 endif
 export DEFS
 

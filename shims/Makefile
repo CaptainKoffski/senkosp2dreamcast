@@ -14,8 +14,12 @@ B = build
 # stays the default backend (SHIM_STATE_GD_BACKEND selects at runtime,
 # shim_iface.h); gdstack.S is dead weight only when the syscall backend is
 # never probed into, which the dispatch task (Task 6) still owes.
-SRCS = src/main.c src/scif.c src/util.c src/gd.c src/gd_sys.c src/cart.c \
-       src/maple.c src/jvs.c src/mtramp.S src/gdstack.S $(B)/mie_blobs.c
+SRCS = src/main.c src/scif.c src/util.c src/gd.c src/gd_sys.c src/gd_testsrv.c \
+       src/cart.c src/maple.c src/jvs.c src/mtramp.S src/gdstack.S $(B)/mie_blobs.c
+# gd_testsrv.c is always compiled (unconditionally in SRCS) but its whole
+# body is `#if GD_TEST_SERVER` -- an empty translation unit on every normal
+# build, live only under the top Makefile's TESTSRV=1 (fix round 2,
+# task-6-report.md).
 
 .PHONY: all test clean
 all: $(B)/shim.bin $(B)/shim.map

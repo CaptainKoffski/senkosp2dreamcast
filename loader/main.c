@@ -75,6 +75,27 @@ int dbgio_init(void) { return 0; }   /* strong override of KOS weak symbol */
 #define GD_FORCE_SYSCALL 0
 #endif
 
+/* TESTSRV=1 (top Makefile, fix round 2): like FORCE_SYSCALL, but for a
+ * shim built with its own GD_TEST_SERVER stand-in (shims/src/gd_testsrv.c)
+ * installed at the syscall vector just before handoff, below -- debug
+ * round 1 (task-6-report.md) proved FORCE_SYSCALL's leg was structurally
+ * invalid (Flycast's real BIOS vector, after this port's own KERNEL-SLICE
+ * stomp, serves no real GD driver at all), so this replaces it as the way
+ * to actually exercise gdc_call's trampoline end-to-end. Test-only, never
+ * shipped. */
+#ifndef LOADER_TESTSRV
+#define LOADER_TESTSRV 0
+#endif
+
+/* FORCE_CARVE=1 (top Makefile, fix round 2): apply the heap-carve tables
+ * even on the raw backend -- one-variable isolation of the carve mechanism
+ * from backend selection (does the carved heap top break a normal raw-ATA
+ * boot, independent of whether the syscall backend ever runs). Test-only,
+ * never shipped. */
+#ifndef FORCE_CARVE
+#define FORCE_CARVE 0
+#endif
+
 /* No progress bar (Task 26 ROLLED BACK, operator 2026-09-01): tried
  * shim-side (v1 -- defaced the game's NOW LOADING; the game seizes video
  * before its first cart read) and loader-side (v2 + BOOT-UNBLANK -- on
@@ -227,7 +248,6 @@ int main(void) {
      * which one won and stays live through staging below. */
     {
         static uint8 rawbuf[2048] __attribute__((aligned(32)));
-        char msg[96];
         int gd_sys_read_sectors(void *dst, unsigned fad, unsigned n);
         /* The driver writes rawbuf through its P2 (uncached) alias. KOS's
          * startup zeroed this .bss buffer through the CACHED alias, so its
@@ -235,7 +255,7 @@ int main(void) {
          * no write-back: a write-back would land stale zeroes on top of the
          * incoming sector) so the memcmp below reads what the drive delivered. */
         dcache_inval_range((uintptr_t)rawbuf, sizeof(rawbuf));
-#if !GD_FORCE_SYSCALL
+#if !GD_FORCE_SYSCALL && !LOADER_TESTSRV
         /* KOS is live here: its cdrom driver pumps the BIOS GD server from a
          * vblank handler whenever a DMA is outstanding (KOS cdrom.c:691-708).
          * None is outstanding after a blocking cdrom_read_sectors, but a raw
@@ -245,11 +265,23 @@ int main(void) {
         int r = gd_read_fad(fad, rawbuf, 1);
         irq_restore(old);
 #else
-        int r = -99;                        /* FORCE_SYSCALL build: skip raw */
+        int r = -99;           /* FORCE_SYSCALL/TESTSRV build: skip raw */
         uint32 raw_err_unused = gd_last_err; (void)raw_err_unused;
 #endif
         if (r != 0) {
-            uint32 raw_err = gd_last_err;
+            uint32 raw_err = gd_last_err; (void)raw_err;
+#if LOADER_TESTSRV
+            /* TESTSRV installs GD_TEST_SERVER at the syscall vector only at
+             * staging, just before handoff (below) -- it isn't live yet
+             * here, so calling gd_sys_read_sectors now would jump into
+             * whatever the vector still holds (fix round 2, task-6-report.md
+             * DEBUG ROUND 1: on this leg's BIOS that's real-but-stomped GD
+             * driver code, not our stand-in). Skip the rehearsal call
+             * itself; the shim's live syscall path gets its first exercise
+             * post-handoff, in-game, against the now-installed server. */
+            backend = 1;
+            say("cart read OK (syscall) [TESTSRV]");
+#else
             /* Raw path failed (DreamShell: expected -- isoldr virtualizes GD
              * at the syscall layer only; the physical drive holds the DS boot
              * disc). Rehearse the syscall backend on the same sector. KOS is
@@ -259,6 +291,7 @@ int main(void) {
             dcache_inval_range((uintptr_t)rawbuf, sizeof(rawbuf));
             int rs = gd_sys_read_sectors((void *)P2ADDR((uint32)rawbuf), fad, 1);
             if (rs != 0) {
+                char msg[96];
                 sprintf(msg, "GD FAIL raw r=%d e=%08lx / sys r=%d e=%08lx",
                         r, (unsigned long)raw_err,
                         rs, (unsigned long)gd_last_err);
@@ -268,6 +301,7 @@ int main(void) {
                 halt("SYSCALL MISMATCH VS KOS READ");
             backend = 1;
             say("cart read OK (syscall)");
+#endif
         } else {
             if (memcmp(rawbuf, buf, 2048))
                 halt("RAW-ATA MISMATCH VS KOS READ");
@@ -285,13 +319,15 @@ int main(void) {
            test_boot ? "test" : "main");
     say("patches OK");
 
-    /* Phase 7 T1 heap carve (task-3b-report.md): applied ONLY on the
-     * syscall backend, and only AFTER the unconditional table above (its
-     * `old` encodes the post-reloc state -- task-3b-report.md FIX ROUND 1).
+    /* Phase 7 T1 heap carve (task-3b-report.md): applied on the syscall
+     * backend, and only AFTER the unconditional table above (its `old`
+     * encodes the post-reloc state -- task-3b-report.md FIX ROUND 1).
      * `backend` defaults to 0 and is set to 1 nowhere except the syscall
-     * branch just above, so a real-BIOS/raw-ATA boot never reaches this
-     * block -- the raw path is provably un-carved. */
-    if (backend) {
+     * branch above, so a real-BIOS/raw-ATA boot never reaches this block on
+     * its own -- the raw path is provably un-carved UNLESS FORCE_CARVE=1
+     * (fix round 2 test knob) explicitly asks for it anyway, to isolate the
+     * carve from backend selection. */
+    if (backend || FORCE_CARVE) {
         if (apply_patches(stage,
                           test_boot ? senkosp_carve_test : senkosp_carve_main,
                           test_boot ? N_CARVE_TEST : N_CARVE_MAIN,
@@ -382,6 +418,24 @@ int main(void) {
     *(volatile uint32 *)0xa05f8008 = 0;
     *(volatile uint32 *)0xa05f6900 = 0xffffffff;   /* ISTNRM: clear latches */
     *(volatile uint32 *)0xa05f690c = 0xffffffff;   /* ISTERR: clear latches */
+
+#if LOADER_TESTSRV
+    /* Test-only vector install (TESTSRV, fix round 2): 0x8c0000bc/-c0 sit
+     * below every copy record above (shim home starts at SHIM_BASE
+     * 0x8c010000), so they're poked directly here, last, right before the
+     * jump. GD_TEST_SERVER_ADDR (patch_table.h, resolved from shim.map the
+     * same way hook()/detour() targets are) is the shim's own link address
+     * for gd_test_server -- valid once the record walker below has copied
+     * the shim window to SHIM_BASE, which happens inside ho() before the
+     * game's first instruction ever runs, so nothing dereferences this
+     * vector before it is correct. [0xc0] = [0xbc]+8 mimics isoldr's own
+     * vector pair (real isoldr installs both, 8 B apart) so gdstack.S's own
+     * fingerprint probe reads this as isoldr-class and applies its MMU
+     * AT=0 window -- the whole point of the exercise (task-6-report.md
+     * DEBUG ROUND 1 / FIX ROUND 2). Never shipped (top Makefile). */
+    *(volatile uint32 *)P2ADDR(0x8c0000bc) = GD_TEST_SERVER_ADDR;
+    *(volatile uint32 *)P2ADDR(0x8c0000c0) = GD_TEST_SERVER_ADDR + 8;
+#endif
 
     void (*ho)(uint32, uint32) =
         (void *)P2ADDR(HANDOFF_SCRATCH);           /* run the stub uncached */
