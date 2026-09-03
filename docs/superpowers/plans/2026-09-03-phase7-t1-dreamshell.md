@@ -906,18 +906,21 @@ git commit -m "phase7 T1 task6: backend dispatch + loader probe + FORCE_SYSCALL/
 - Consumes: Task 6's builds and knobs.
 - Produces: exit-criterion 5 evidence + re-recorded release md5s (criterion 3's emulator half).
 
-- [ ] **Step 1: FORCE_SYSCALL attract soak with CRC (~30 min)**
+- [ ] **Step 1: TESTSRV attract soak with CRC (~30 min)** *(revised per
+R12 — FORCE_SYSCALL is structurally invalid in the emulator; the
+test-server leg is the syscall-machinery soak)*
 
 CRC needs serial to be audible (`CRC=1` requires `SERIAL=1` — emulator
 only, never hardware-with-dongle):
 
 ```bash
-make gdi FORCE_SYSCALL=1 SERIAL=1 CRC=1
-FLYCAST_CARTLOG=captures/phase7/force-soak.log <flycast> "$(pwd)/build/disc.gdi" &  # ~30 min, kill by PID
-python3 scripts/check_stream_crc.py captures/phase7/force-soak.log
+make clean && make gdi TESTSRV=1 SERIAL=1 CRC=1
+FLYCAST_CARTLOG=captures/phase7/testsrv-soak.log <flycast> "$(pwd)/build/disc.gdi" &  # ~30 min, kill by PID
+python3 scripts/check_stream_crc.py captures/phase7/testsrv-soak.log
 ```
 Expected: CRC checker PASS (0 mismatches — byte-perfect delivery through
-the syscall path), 0 `TEXERR` counters, attract cycled ≥3 times.
+the trampoline+dispatch+carve path), 0 `TEXERR` counters, attract cycled
+≥3 times, carve window 0 hits, no canary shim_die.
 
 - [ ] **Step 2: Full test suite + release rebuild**
 
