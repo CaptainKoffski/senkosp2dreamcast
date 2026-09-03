@@ -99,9 +99,15 @@ for w, want_lit_off, want_len in ((0x001000, 8, 12), (0x001002, 6, 10)):
 print("OK detour() kind: both W%4 alignments, literal lands inside the window")
 
 # ---- HEAP-CARVE (Task 6): both carve tables, exact bytes -------------------
+# (fix round 3 review: off/img were unpacked but never asserted -- pin both
+# per table so a main/test mix-up in the generator fails this test.)
+CARVE_EXPECT = {
+    "senkosp_carve_main": (0x65b4e, 0),
+    "senkosp_carve_test": (0x1af892, 1),
+}
 CARVE_RE = {
     name: re.compile(rf'static const patch_t {name}\[\] = \{{(.*?)\}};', re.S)
-    for name in ("senkosp_carve_main", "senkosp_carve_test")
+    for name in CARVE_EXPECT
 }
 for name, pat in CARVE_RE.items():
     m = pat.search(text)
@@ -109,6 +115,9 @@ for name, pat in CARVE_RE.items():
     carve_rows = parse_rows(m.group(1))
     assert len(carve_rows) == 1, f"{name}: expected exactly 1 entry, got {len(carve_rows)}"
     off, img, ln, old, new = carve_rows[0]
+    want_off, want_img = CARVE_EXPECT[name]
+    assert off == want_off, f"{name}: dat_off {off:#x}, expected {want_off:#x}"
+    assert img == want_img, f"{name}: img {img}, expected {want_img}"
     assert ln == 8, f"{name}: expected 8 B window, got {ln}"
     # old is the POST-reloc state (0x8d, not the pristine 0x8e) -- carve()'s
     # overlay rule, not a raw dat read (task-3b-report.md FIX ROUND 1).

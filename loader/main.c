@@ -266,7 +266,6 @@ int main(void) {
         irq_restore(old);
 #else
         int r = -99;           /* FORCE_SYSCALL/TESTSRV build: skip raw */
-        uint32 raw_err_unused = gd_last_err; (void)raw_err_unused;
 #endif
         if (r != 0) {
             uint32 raw_err = gd_last_err; (void)raw_err;
