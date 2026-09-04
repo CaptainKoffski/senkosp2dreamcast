@@ -96,6 +96,14 @@ int dbgio_init(void) { return 0; }   /* strong override of KOS weak symbol */
 #define FORCE_CARVE 0
 #endif
 
+/* PRESET_NOTE=1 (top Makefile): render the tester-facing preset_note()
+ * screen unconditionally at entry -- emulator screenshot leg only (the real
+ * trigger needs a low-placed isoldr, which Flycast can't host). Test-only,
+ * never shipped. */
+#ifndef LOADER_FORCE_PRESET_NOTE
+#define LOADER_FORCE_PRESET_NOTE 0
+#endif
+
 /* No progress bar (Task 26 ROLLED BACK, operator 2026-09-01): tried
  * shim-side (v1 -- defaced the game's NOW LOADING; the game seizes video
  * before its first cart read) and loader-side (v2 + BOOT-UNBLANK -- on
@@ -114,6 +122,39 @@ static void halt(const char *msg) {
     dbglog(DBG_INFO, "%s", msg);
     for (int i = 0; i < 640 * 480; i++) vram_s[i] = 0xf800;   /* red */
     bfont_draw_str(vram_s + 100 * 640 + 20, 640, 1, msg);
+    for(;;) thd_sleep(1000);
+}
+
+/* Phase 7 preset tripwire: isoldr-class resident detected in game-owned low
+ * RAM (defaults/Auto placement). Measured-fatal -- the blob sits inside the
+ * game RTOS's live TCB table and the console hard-reboots at attract's first
+ * 3D scene (docs/kb/phase7-polishing.md §T1 hardware round). Stopping here
+ * turns a delayed mystery reboot into instructions. Deliberately NOT halt():
+ * testers read this screen, so calm blue, no "ERROR", no red (operator
+ * request 2026-09-05). Never returns. */
+static void preset_note(void) {
+    static const char *rows[] = {
+        "  SENKO NO RONDE SPECIAL - ONE MORE STEP",
+        "",
+        "ISO Loader started with its default memory",
+        "settings. This game needs its own preset,",
+        "or the console restarts during play.",
+        "",
+        "EASY FIX: copy the DS folder from the",
+        "release zip onto your SD card (keep the",
+        "folder structure), then launch the game",
+        "again. The settings apply automatically.",
+        "",
+        "OR set manually in ISO Loader:",
+        "   Boot memory: 0x8cff0000",
+        "   Heap memory: 0x8cff7a00",
+        "",
+        "Nothing is wrong with your Dreamcast :)",
+    };
+    dbglog(DBG_INFO, "isoldr at default low placement -- preset note shown\n");
+    for (int i = 0; i < 640 * 480; i++) vram_s[i] = 0x2331;   /* steel blue */
+    for (unsigned i = 0; i < sizeof(rows) / sizeof(rows[0]); i++)
+        bfont_draw_str(vram_s + (28 + i * 27) * 640 + 20, 640, 1, rows[i]);
     for(;;) thd_sleep(1000);
 }
 
@@ -157,6 +198,10 @@ static int apply_patches(uint8 *img, const patch_t *table, unsigned n, uint32 lo
 
 int main(void) {
     dbglog(DBG_INFO, "SENKOSP LOADER PHASE4 TASK10\n");
+
+#if LOADER_FORCE_PRESET_NOTE
+    preset_note();                       /* screenshot leg; never returns */
+#endif
 
     /* Naomi BIOS splash (arcade boot feel): shown for the whole load. On the
      * real Naomi the BIOS draws this screen, not the game -- our conversion
@@ -304,6 +349,12 @@ int main(void) {
                         r, (unsigned long)raw_err, (unsigned long)vbc);
                 halt(msg);
             }
+            /* isoldr-class resident, but placed low (defaults/Auto): every
+             * low-RAM placement is measured-fatal mid-attract. Don't rehearse,
+             * don't stage -- show the fix. The pinned preset (0x8cff0000)
+             * clears 0x10000 by construction; TESTSRV never reaches here. */
+            if ((vbc & 0x00ffffffu) < 0x00010000u)
+                preset_note();
             int rs = gd_sys_read_sectors((void *)P2ADDR((uint32)rawbuf), fad, 1);
             if (rs != 0) {
                 char msg[96];

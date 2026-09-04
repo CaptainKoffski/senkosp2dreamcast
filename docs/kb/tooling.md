@@ -1534,6 +1534,16 @@ is byte-for-byte unaffected.
   syscall-stack low-water mark (TV-debuggable, serial-silent by design — the
   DreamShell debugging instrument, since a real dongle owns SCIF). Never
   ship.
+- **`PRESET_NOTE=1` (T1 follow-up, 2026-09-05)** →
+  `-DLOADER_FORCE_PRESET_NOTE=1`. Loader renders the tester-facing
+  `preset_note()` screen (DreamShell defaults tripwire,
+  `phase7-polishing.md` §T1 follow-up) unconditionally at entry and parks —
+  emulator screenshot/behavior leg only, since the real trigger (a
+  low-placed isoldr) can't exist in Flycast. Test-only, never shipped.
+  **Gotcha, burned once:** `DEFS` knobs are invisible to make's dependency
+  tracking — an up-to-date `main.o` is NOT rebuilt when only the knob
+  changes, so the first leg silently ran a knob-less loader. `touch
+  loader/main.c` (or `make clean`) before any knob-flipped rebuild.
 - **`FORCE_SYSCALL=1` (retired as a verification leg, kept as a primitive)**
   → `-DGD_FORCE_SYSCALL=1`. Skips the raw rehearsal and seeds
   `backend=1` directly. `task-6-report.md` DEBUG ROUND 1 found this leg
@@ -1619,4 +1629,13 @@ image's boot sector (`modules/isoldr/preset.c` `format_preset_filename`,
 md5 at `applications/iso_loader/modules/module.c:372`). The release image
 is bit-reproducible, so one correct `.cfg` can ship in the release
 package and stock isoldr auto-applies it (users skip step 2 entirely).
-Not yet packaged — parked as release-packaging polish.
+**SHIPPED 2026-09-05:** `make release` runs `scripts/make_preset.py` →
+`build/release-extras/DS/apps/iso_loader/presets/sd_<md5>.cfg` + tester
+`README.txt`, zipped into the release archive with paths ("unzip at SD
+root" merges `DS/`). The boot sector = first 2048 B of donor-verbatim
+`track03.iso`, so the filename (`sd_f9b8dd28f12a741cd2ae1526f544aecb.cfg`
+today) survives shim/loader rebuilds; the script asserts the IP.BIN
+magic and prunes stale siblings. Launching with defaults and NO preset
+now lands on the loader's calm-blue `preset_note()` instruction screen
+instead of the characterized hard-reboot. Full record:
+`phase7-polishing.md` §T1 follow-up.

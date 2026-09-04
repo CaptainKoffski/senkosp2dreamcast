@@ -429,8 +429,8 @@ the image's boot sector (`modules/isoldr/preset.c`
 `format_preset_filename`; md5 computed at `module.c:372`). Our release
 image is bit-reproducible, so the correct preset file is derivable and
 **shippable in the release package** — copied once, stock isoldr
-auto-applies it and defaults "just work". Parked as release-packaging
-polish (operator call).
+auto-applies it and defaults "just work". ~~Parked as release-packaging
+polish (operator call)~~ **SHIPPED 2026-09-05** — §T1 follow-up below.
 
 **Ernula barrier watch item (Optional pool T5): RESOLVED — feature, not
 bug.** Operator: releasing the barrier button while continuing to spam
@@ -457,6 +457,92 @@ Spec: `docs/superpowers/specs/2026-09-03-phase7-t1-dreamshell-design.md`
 dongle, DreamShell 4.0.4/isoldr 0.8.4 only); Flycast cannot host real
 isoldr (R12), so end-to-end serial-SD validation is hardware-only — done
 above; other isoldr versions/devices untested and out of scope.
+
+### T1 follow-up — defaults just work, no tester-side settings (2026-09-05)
+
+Operator decision (brainstorm 2026-09-05): a preset file shipped in the
+release zip counts as "no DreamShell modification on the tester's side";
+true bare-defaults play (own SPI/SD driver, charter alternative B) stays
+parked. Two pieces shipped:
+
+**1. Auto-applied preset in the release zip (packaging, zero runtime
+code).** `make release` now runs `scripts/make_preset.py`, which derives
+the preset filename from the built image and adds
+`DS/apps/iso_loader/presets/sd_<md5>.cfg` + a tester `README.txt` to the
+zip **with paths** — tester instruction collapses to "unzip onto the SD
+card root, launch, touch nothing". Chain, all source-verified in the
+v4.0.4 tree: on image select the GUI auto-loads a matching preset
+(`applications/iso_loader/modules/module.c:1758` isoLoader_LoadPreset →
+`modules/isoldr/preset.c:191` isoldr_find_preset — user file beats the
+built-in romdisk pack) and populates every widget from it; `<md5>` = md5
+of the 2048 B boot sector = first sector of the data track
+(`modules/isofs/fs_iso9660.c:1386`, session_base−150) = first 2048 B of
+our donor-verbatim `track03.iso`, so the name — currently
+`sd_f9b8dd28f12a741cd2ae1526f544aecb.cfg` — is **stable across
+shim/loader rebuilds** (IP.BIN bytes). Values = the T1-proven pins
+(memory `8cff0000`, heap `8cff7a00`) + the 4.0.4 GUI defaults the
+operator's save carried (async=8 per app.xml `checked=` state, OS auto,
+mode 0, dma 0; save format `preset.c:433`). `sd_` only — no `ide_` twin
+(heap pin sized against the measured `sd` blob; IDE blob size
+unverified). The script self-guards: refuses a track03 whose boot sector
+isn't IP.BIN, and drops stale `sd_*.cfg` siblings.
+
+**2. Friendly preset tripwire in the loader (~20 lines,
+`loader/main.c` `preset_note()`).** Bare defaults used to limp to a
+mystery hard-reboot at attract's first 3D scene; now, when the probe
+selects the syscall backend, the loader checks the live GD vector's RAM
+offset — `< 0x10000` (the gdstack G8 fingerprint threshold) means an
+isoldr-class resident in game-owned low RAM, measured-fatal per the §T1
+characterization — and stops **before staging** with a tester-facing
+screen: calm steel-blue fill (`0x2331`, deliberately NOT the red
+`halt()` — operator: testers "are very afraid of red"), instructions to
+copy the DS folder from the zip (or pin boot/heap manually), closing
+with "Nothing is wrong with your Dreamcast :)". Raw/GDEMU boots never
+reach the check; the pinned preset (`0x8cff0000` → offset `0xff0000`)
+clears it by construction; TESTSRV installs its vector high, unaffected.
+
+**Emulator evidence (2026-09-05):**
+- `phase7/preset-note-shot` — `PRESET_NOTE=1` screenshot-knob build
+  (new test-only knob, top Makefile; fires `preset_note()` at loader
+  entry): loader parks forever in the note loop — log ends at the
+  loader's KOS video init, **0 cart DMA / 0 handoff / game never
+  boots** over the whole leg. (The parked screen itself doesn't
+  re-present in headless Flycast — same boot-gap present quirk as the
+  phase-5 loading-bar autopsy; the visual renders via the same
+  bfont+vram path as the hardware-proven red halt screen, photo owed by
+  the hardware leg. First leg attempt burned on the known no-header-dep
+  trap: `DEFS` knobs don't rebuild an up-to-date `main.o` — `touch
+  loader/main.c` first, now recorded in tooling.md.)
+- `phase7/preset-regress1` — clean release rebuild, unattended 3-min DC
+  attract leg: attract DEMONSTRATION + FREE PLAY on screen, 0 real
+  maple DMA (`MDODMA` 0). Raw path byte-path unchanged (the tripwire
+  sits inside the raw-failure branch; `preset_note` is dead code on
+  GDEMU boots).
+
+**Release md5s v8** (build 2026-09-05, double-rebuild byte-identical):
+`track04.iso` = `56f3ff8d3a7ee519644a921fb891da37` (loader grew:
+preset_note + tripwire), other four tracks donor-verbatim/unchanged.
+Supersedes v7 (`c6c622d7…`).
+
+**Hardware round owed (operator, stop-and-wait) — the real gate:**
+1. DreamShell, image on card, **no preset, defaults untouched** →
+   expect the blue note screen (photo), not a reboot.
+2. Fresh unzip of the release zip onto the DS SD (merges `DS/`), launch
+   with defaults untouched → auto-preset applies, boots to attract,
+   plays. This leg also validates the generated cfg against the GUI's
+   parsing for real.
+3. GDEMU regression boot (loader bytes changed).
+Bonus check, zero cost: the preset file the operator's T1 session saved
+on their card should be named exactly
+`sd_f9b8dd28f12a741cd2ae1526f544aecb.cfg` — a filename match confirms
+the boot-sector derivation end-to-end; a content diff vs the shipped
+cfg would surface any GUI-default mismatch (async=8 is the one guessed
+from app.xml rather than observed).
+
+**Out of scope, recorded:** upstreaming the preset to DC-SWAT's
+built-in pack (one-file PR, future DreamShell installs work with zero
+files — operator call, doesn't help current 4.0.4 installs); Approach B
+(own SPI/SD driver) remains the only path to true bare-defaults play.
 
 ### Alternatives if A hits a wall
 

@@ -1153,3 +1153,23 @@ item CLOSED (feature, not bug — operator repro); NEW T2 symptom:
 char-select background microfreezes on DreamShell (~1/s, absent on
 GDEMU — likely serial-link stall, T2 leg to confirm). Next: optional
 pool only (T2 profiling gate first if pursued).
+
+**Phase 7 T1 follow-up (2026-09-05): DreamShell defaults just work —
+hardware round owed.** Operator decision: shipping an auto-applied
+preset in the release zip satisfies "no tester-side DreamShell changes"
+(true bare-defaults play via an own SPI/SD driver stays parked). Two
+pieces: (1) `make release` now packages
+`DS/apps/iso_loader/presets/sd_f9b8dd28f12a741cd2ae1526f544aecb.cfg` +
+tester README (`scripts/make_preset.py`; stock isoldr auto-applies on
+image select, source-verified; filename = boot-sector md5 = donor
+IP.BIN bytes, stable across rebuilds); (2) the loader's `preset_note()`
+tripwire — a low-placed isoldr (defaults/Auto, measured-fatal) now
+stops pre-staging on a **calm-blue instruction screen** (operator: no
+red, testers panic) instead of the characterized mid-attract
+hard-reboot. Emulator evidence: knob leg parks (0 handoff/DMA), 3-min
+attract regression clean. **Release md5s v8**: `track04` =
+`56f3ff8d3a7ee519644a921fb891da37`, others unchanged. Hardware legs
+owed (operator): defaults-no-preset → blue screen photo; fresh-unzip →
+auto-preset boots + plays; GDEMU boot sanity. Full record:
+`phase7-polishing.md` §T1 follow-up; recipe + `PRESET_NOTE=1` knob (and
+its make-dependency gotcha) in `tooling.md`.

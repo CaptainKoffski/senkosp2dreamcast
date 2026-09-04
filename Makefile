@@ -62,6 +62,13 @@ endif
 ifeq ($(FORCE_CARVE),1)
 DEFS += -DFORCE_CARVE=1
 endif
+# PRESET_NOTE=1: loader renders the tester-facing DreamShell preset_note()
+# screen unconditionally at entry -- emulator screenshot leg only (the real
+# trigger is a low-placed isoldr, which Flycast can't host). Test-only,
+# never shipped.
+ifeq ($(PRESET_NOTE),1)
+DEFS += -DLOADER_FORCE_PRESET_NOTE=1
+endif
 export DEFS
 
 CARD ?= /Volumes/GDEMU/03
@@ -86,6 +93,8 @@ release: disc
 	rm -f "$(ZIP)"
 	cd build && zip -j "../$(ZIP)" disc.gdi track01.iso track02.raw \
 	  track03.iso track04.iso
+	python3 scripts/make_preset.py        # DreamShell auto-preset (phase 7)
+	cd build/release-extras && zip -r "../../$(ZIP)" .
 	@echo "NOTE: archive embeds the commercial ROM -- do not upload."
 
 test:
