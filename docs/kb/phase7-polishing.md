@@ -12,7 +12,8 @@ closed-beta tester).
 - Playbook applies per task as usual: brainstorming → spec → plan for T1
   before code (`docs/kb/port-playbook.md`).
 - The closed beta is live: keep `main` releasable at all times; phase branch
-  `phase7-polishing`.
+  `phase7-polishing` (T1) — merged to `main` 2026-09-05 and deleted; pool
+  work continues on `phase7-pool`.
 
 ---
 

@@ -1127,7 +1127,8 @@ syscalls; full solution sketch, alternatives, risks and step order in the
 charter). Optional pool: T2 profiling leg (loadings + stage-8
 microfreezes) gating T3 G1-DMA/async and T4 arena margin; T5 Ernula
 watch; T6 dev-disc; T7 boot-gap cosmetics. Phase branch:
-phase7-polishing.
+phase7-polishing (T1; merged to main 2026-09-05, deleted — pool work
+continues on phase7-pool).
 
 **Phase 7 T1 CLOSED (2026-09-04): DreamShell serial-SD support shipped.**
 Dual-backend GD driver: boot-time probe picks raw ATA (GDEMU/optical,
