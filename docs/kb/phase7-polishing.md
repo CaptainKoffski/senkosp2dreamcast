@@ -352,7 +352,8 @@ times:
 | track03.iso | 244ae7e5a321345e995edc4793fcbdd5 (unchanged since v2) |
 | track04.iso | **c6c622d759ff93c8cd8b4483c3a850ca** (was `3460af24d9e21ab59d6bae88fb929ff2` in v6 — shim grew: `gd_testsrv.c`, `gdstack.S` revival, carve tables, dispatch) |
 
-Card is stale: `make deploy` before the next hardware session.
+Card refreshed with this set on 2026-09-04 (`make deploy`, hardware round
+below).
 
 **R12 honest limit (unchanged, restated for the closing record).** Flycast
 has no serial peer — it cannot host a real isoldr. The `TESTSRV`/
@@ -372,6 +373,66 @@ construction (`SERIAL` defaults unset), and `TESTSRV`/`FORCE_CARVE`/`GDDIAG`
 are test-only knobs gated `#ifndef`/default-0 — none of the three is ever
 part of a shipped build (`docs/kb/tooling.md` §Phase 7 build knobs has the
 full record).
+
+### T1 hardware round (2026-09-04) — PASS, both legs
+
+Operator session on the release md5 set v7 (`track04`
+`c6c622d759ff93c8cd8b4483c3a850ca`), deployed to both the DreamShell SD
+(phase-6 Task 32 method) and the GDEMU card (`make deploy`).
+
+**Leg 1 — DreamShell 4.0.4 / isoldr 0.8.4, serial-SD, pinned preset**
+(Boot memory `0x8cff0000`, Heap memory `0x8cff7a00`, firmware plain `sd`,
+preset saved): **PASS.** Boots clean — the phase-6 red screen is gone.
+Operator watched the full attract loop, then played 2P and 1P matches;
+all transitions OK. Costs observed, both expected for a ~490 KB/s serial
+link (step-0 measurement, top of this doc):
+
+- Loading times noticeably longer than GDEMU.
+- Stage-8 microfreezes clearly noticeable (already on the T2 backlog).
+- **New symptom for T2:** character-select background microfreezes — the
+  bg freezes for a fraction of a second roughly once per second
+  (observed on the DreamShell leg; never reported on GDEMU). Consistent
+  with the slow link stalling a background stream; goes to T2's
+  attribution leg alongside the other two.
+
+**Leg 2 — GDEMU regression: PASS.** Operator: "no regressions, works as
+usual." Raw path byte-identical by construction (carve gated on
+`backend==syscall`; `gd.c` diff is the 3-line dispatch only).
+
+**Characterized known-fail — isoldr default settings (no preset).**
+Operator also tried defaults: the game boots, 2D story art renders, but
+the console **hard-reboots the moment the first 3D model renders** in
+attract. Root cause from source + our own measurements, no
+instrumentation needed: with no preset, isoldr places itself at
+`ISOLDR_DEFAULT_ADDR_LOW = 0x8c004000`
+(`tools/dreamshell-4.0.4/include/isoldr.h:38`, applied in
+`applications/iso_loader/modules/module.c:2088`). That address is the
+game RTOS's **live 0x200-stride TCB table** (§T1 measurements above:
+slots 47+ = `0x8c009e10`–`0x8c00bfff` written during boot, deeper slots
+claimed as tasks spawn). The `sd` loader blob ends ~`0x8c00b908` —
+its tail sits inside the live table. Boot limps through, then attract's
+first 3D scene spawns the demo-battle tasks → fresh TCB slots overwrite
+isoldr's resident body → the next GD syscall jumps into clobbered
+memory → reboot. Timing matches exactly (2D art already resident; the
+3D presentation is when streaming + task-spawn resume). This is the
+same falsification that killed low-RAM placement in the measurements
+section: **no placement fix can make Auto/defaults work** — every byte
+of RAM except the carved `[0x8cff0000, 0x8d000000)` is game-owned.
+
+Practical equivalent, zero code: DreamShell presets are per-image files
+`<dev>_<md5>.cfg` under `DS/apps/iso_loader/presets/`, keyed by md5 of
+the image's boot sector (`modules/isoldr/preset.c`
+`format_preset_filename`; md5 computed at `module.c:372`). Our release
+image is bit-reproducible, so the correct preset file is derivable and
+**shippable in the release package** — copied once, stock isoldr
+auto-applies it and defaults "just work". Parked as release-packaging
+polish (operator call).
+
+**Ernula barrier watch item (Optional pool T5): RESOLVED — feature, not
+bug.** Operator: releasing the barrier button while continuing to spam
+projectiles keeps the barrier up until the attack series ends;
+reproduced deliberately in 2P with no other projectiles on screen, so
+it is unrelated to slowdown. Case closed.
 
 ### Alternatives if A hits a wall
 
@@ -402,7 +463,10 @@ full record).
 **T2 — Profiling leg: attribute the loading times + stage-8 microfreezes.**
 Operator reports (00-status 2026-09-03 backlog): (a) long loads at
 attract→START (descending-tone hang moment) and at 2P join; (b) background
-microfreezes on stage 8. One instrumented leg (fork cartlog timings +
+microfreezes on stage 8; (c) NEW from the T1 hardware round (2026-09-04):
+character-select background microfreezes on the DreamShell leg (~1/s,
+fraction-of-a-second each — never reported on GDEMU, so likely pure
+serial-link stall, but the leg should confirm). One instrumented leg (fork cartlog timings +
 arena telemetry) to split each into disc-transfer vs game-side unpack vs
 VRAM-arena churn. Stage 8 peaks within ~100–200 KB of the 8 MB arena
 ceiling (`docs/kb/arena-fit-options.md`) — (b) may be eviction churn, not
@@ -420,9 +484,10 @@ margin via further VQ shrink of the stage-8 PAK set or eviction tuning —
 the phase-5 texpatch toolchain (`scripts/shrink_vq.py`, `vq_tuner.py`) is
 built for exactly this.
 
-**T5 — Ernula barrier-hang watch item** (postponed from phase 5):
-hard-to-reproduce, possibly-not-issue. A repro attempt only if the beta
-tester hits it too.
+**T5 — Ernula barrier-hang watch item: CLOSED 2026-09-04, feature not
+bug.** Operator repro (T1 hardware round): the barrier persists after
+button release for as long as the projectile series continues — verified
+in 2P with no foreign projectiles, unrelated to slowdown. No action.
 
 **T6 — Dev-disc experiment** (postponed from phase 6): master the game
 disc with dcload as its boot binary → serial upload iteration without the
