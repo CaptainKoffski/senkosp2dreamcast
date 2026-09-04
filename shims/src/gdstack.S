@@ -6,8 +6,9 @@
  *
  * 1. PRIVATE STACK: isoldr runs its whole read path (FatFs + SPI bit-bang +
  *    a coroutine that parks continuation frames) on the CALLER's stack. The
- *    game's Naomi stack is ~2 KB (floor 0x8c00e6e8, boot-binary.md §3) --
- *    deep enough for the real BIOS's shallow driver (18 green GDEMU
+ *    game's Naomi stack is ~2 KB (floor 0x8c00e7ec,
+ *    phase7-polishing.md §T1 measurements) -- deep enough for the real
+ *    BIOS's shallow driver (18 green GDEMU
  *    rounds), not for isoldr. Swap r15 to GD_STACK_TOP (shim_iface.h) --
  *    this port reserves 8 KB there, not Cleopatra's 16 KB, and gd_sys.c
  *    VERIFIES a canary at the boundary after every read instead of

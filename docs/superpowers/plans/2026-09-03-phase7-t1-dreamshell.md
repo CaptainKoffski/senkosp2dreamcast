@@ -825,6 +825,12 @@ Also add near the top of `main.c` (default for non-force builds):
 
 - [ ] **Step 3: Top-Makefile knobs**
 
+> **[RETIRED per R12, 2026-09-04:** the FORCE_SYSCALL emulator leg was
+falsified as structurally invalid (stock-BIOS syscall RAM is stomped by
+our kernel slice — task-6-report.md DEBUG ROUND 1); replaced by the
+TESTSRV + FORCE_CARVE legs (see Task 7's amendment). Kept for the
+record.**]**
+
 Below the `CRC=1` block, mirroring the `SERIAL` pattern exactly:
 
 ```make

@@ -288,6 +288,22 @@ int main(void) {
              * (Cleopatra loader rehearsal precedent). Buffer passed as P2 --
              * isoldr stores through the given pointer, PIOREAD doesn't purge. */
             dcache_inval_range((uintptr_t)rawbuf, sizeof(rawbuf));
+            /* Only an isoldr-class resident survives our handoff (the
+             * kernel slice stomps the 0x8c0010xx BIOS syscall RAM --
+             * task-6-report.md DEBUG ROUND 1), so a working server alone
+             * is NOT enough to pick the syscall backend: the live stock
+             * BIOS would pass this rehearsal, then wedge silently
+             * in-game. Same two-signature fingerprint as gdstack.S's
+             * MMU gate (gdstack.S:104-118): vector pair +8, or GD entry
+             * placed above the BIOS syscall RAM. */
+            uint32 vbc = *(volatile uint32 *)P2ADDR(0x8c0000bc);
+            uint32 vc0 = *(volatile uint32 *)P2ADDR(0x8c0000c0);
+            if (!(vc0 == vbc + 8 || (vbc & 0x00ffffffu) >= 0x00010000u)) {
+                char msg[96];
+                sprintf(msg, "GD FAIL raw r=%d e=%08lx / no isoldr vec=%08lx",
+                        r, (unsigned long)raw_err, (unsigned long)vbc);
+                halt(msg);
+            }
             int rs = gd_sys_read_sectors((void *)P2ADDR((uint32)rawbuf), fad, 1);
             if (rs != 0) {
                 char msg[96];
@@ -432,6 +448,8 @@ int main(void) {
      * fingerprint probe reads this as isoldr-class and applies its MMU
      * AT=0 window -- the whole point of the exercise (task-6-report.md
      * DEBUG ROUND 1 / FIX ROUND 2). Never shipped (top Makefile). */
+    if (GD_TEST_SERVER_ADDR == 0)
+        halt("TESTSRV ADDR 0 (stale patch_table.h -- make clean)");
     *(volatile uint32 *)P2ADDR(0x8c0000bc) = GD_TEST_SERVER_ADDR;
     *(volatile uint32 *)P2ADDR(0x8c0000c0) = GD_TEST_SERVER_ADDR + 8;
 #endif

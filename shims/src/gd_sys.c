@@ -112,6 +112,11 @@ static int gd_sys_virgin = 1;
  * NOT purge caches (0.8.4 syscalls.c:517); P2 makes that moot).
  * 0 = ok; negative = -GD_E_SYS with the verdict in gd_last_err. */
 int gd_sys_read_sectors(void *dst, unsigned fad, unsigned n) {
+    /* rc flows the loop-exhausted failure through `done`'s canary check too
+     * (was a bare `return -GD_E_SYS`, bypassing it) -- a canary-smashing
+     * overflow that also produces a GD error must still report 0xcafe0003 /
+     * shim_die(5), not the generic GD error that hit first. */
+    int rc = -GD_E_SYS;
 #if GD_SYS_FIRST_LADDER
     /* We overwrite BIOS low RAM at handoff; Cleopatra's record says budget
      * the rebuild as the mechanism, not the rare exception (their HW round
@@ -141,14 +146,13 @@ int gd_sys_read_sectors(void *dst, unsigned fad, unsigned n) {
             int s = GDC((u32)req, (u32)stat, 0, GD_CHECK);
             GD_RET(3);
             if ((guard & 0xffffu) == 0) { GD_DIAG(120, 120, (u32)s); GD_DIAG(20, 134, guard); }
-            if (s == GD_COMPLETED) goto done;
+            if (s == GD_COMPLETED) { rc = 0; goto done; }
             if (s <= GD_FAILED) { gd_last_err = stat[0]; break; }       /* hard error: retry */
             if (s == GD_NOT_FOUND && guard > 1000000u) { gd_last_err = 0xcafe0001u; break; }
             /* PROCESSING/STREAMING/BUSY/early NOT_FOUND: keep pumping */
             if (++guard > 100000000u) return gd_sys_wedge(fad, n);
         }
     }
-    return -GD_E_SYS;
 done:
 #if !GD_LOADER_BUILD
     /* 8 KB stack sufficiency is VERIFIED, not assumed (spec decision 5). */
@@ -165,5 +169,5 @@ done:
     }
 #endif
 #endif
-    return 0;
+    return rc;
 }
