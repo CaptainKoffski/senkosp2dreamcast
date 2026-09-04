@@ -281,6 +281,39 @@ skip=864`, cart region starts at byte 3,538,944 — `make_gdi.py`'s
 `BOOT_REGION` constant, fixed regardless of loader/shim size), not raw
 `senkosp.dat` — same convention as `tooling.md`'s r5/r7-smoke legs.
 
+**Evidence-chain pin (fix round, 2026-09-04 — review caught a real
+artifact-state trap, not a real integrity bug).** The CHECK block above was
+captured against **the TESTSRV build's own `track04.iso`**, md5
+`572cdb336a9e18af3fdd5db6d4f826f4` — the exact artifact this soak actually
+ran against. `build/track04.iso` is a **shared, overwritten-in-place**
+build product: Step 2 of this same task (below) later ran `make clean &&
+make gdi` (release, no flags) on top of it. A review that re-ran this
+section's documented `check_stream_crc.py` command *after* Step 2 had
+already landed was — correctly — checking the soak's logs against the
+**release** `track04.iso` instead, and got **12 `GDDMA` mismatches**, all at
+`fad` 450150–450566 (file offsets 0–851,968 B), i.e. strictly below
+`CART_FAD` (451,878) — the fixed-size boot-region window (loader + shim
+bytes), not the `.dat` cart domain. `shimcrc_match` stayed PASS throughout
+(0/464) because that check only ever reads the `--dat` cart slice, which is
+genuinely build-invariant: the texpatch-applied slice extracted from the
+release `track04.iso` is byte-identical (md5 `beac24c0ed3744e07c7dc8b69ec836e4`)
+to the one extracted from the TESTSRV build — only the boot region differs
+between builds (different `SERIAL`/`CRC`/`TESTSRV` `DEFS` baked into the
+same loader source), exactly as expected. **Second CRC run (the review's
+own ask for a second evidence point):** rebuilt `make clean && make gdi
+TESTSRV=1 SERIAL=1 CRC=1` from the identical, unchanged source tree —
+`track04.iso` reproduced **byte-for-byte** (md5
+`572cdb336a9e18af3fdd5db6d4f826f4`, matching the pre-soak build exactly) —
+and re-ran the checker against *this* artifact: **0 mismatches, all three
+CHECKs PASS**, reproducing the original result exactly. The hypothesis is
+proven, not assumed: the 12 "mismatches" were a documentation gap (this
+section never pinned the TESTSRV track04's own md5) meeting a shared
+mutable build directory, not a soak-integrity defect. **Anyone
+re-verifying this soak must rebuild `make clean && make gdi TESTSRV=1
+SERIAL=1 CRC=1` first** (md5 `572cdb336a9e18af3fdd5db6d4f826f4`) — checking
+these logs against any other `track04.iso` will reproduce the same 12
+boot-region false mismatches.
+
 Other verdicts: 0 `TEXERR` (206 `TEXHUD` health lines, all-zero fields), 0
 `SHIMERR` anywhere in either log (covers the stack-canary `shim_die(5, ...)`
 specifically, `gd_sys.c:157` — no canary trip), carve-window grep (`grep
