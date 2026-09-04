@@ -1508,3 +1508,86 @@ test: proves redirect/attachment/hash wiring in the same run).
     `SHIMWATCH2`/`SPWATER` log cadence on Naomi legs now differs from the
     phase-4/5-era baseline; don't count lines per tick when comparing across
     eras.
+
+## Phase 7: build knobs — TESTSRV / FORCE_CARVE / GDDIAG (Task 6/7, 2026-09-04)
+
+All three follow the existing `SERIAL=1`/`CRC=1` `Makefile` pattern
+(`ifeq ($(KNOB),1)` → `DEFS += -DFOO=1`, `export DEFS`) — test/diagnostic
+only, never a release knob, each `#ifndef`/default-0 so a plain `make gdi`
+is byte-for-byte unaffected.
+
+- **`TESTSRV=1`** → `-DGD_TEST_SERVER=1 -DLOADER_TESTSRV=1`. The real
+  syscall-backend verification leg, replacing the retired `FORCE_SYSCALL`
+  leg (below). Shim gets `shims/src/gd_testsrv.c` built in (a deliberately
+  dumb isoldr stand-in: one request in flight, no FatFs/coroutine/SPI
+  timing/CISO — proves the calling machinery, not isoldr's real behavior);
+  loader skips the raw rehearsal and installs the stand-in's address at the
+  syscall vector pair (`0x8c0000bc`/`c0`) just before handoff, so
+  `gdstack.S`'s `gdc_call` trampoline gets a real callee. Emulator +
+  hardware control legs only.
+- **`FORCE_CARVE=1`** → `-DFORCE_CARVE=1`. Applies the heap-carve tables
+  even on the raw backend (`loader/main.c`'s gate: `if (backend ||
+  FORCE_CARVE)`) — one-variable isolation of the carve from backend
+  selection, so a carve regression can be tested without also forcing the
+  syscall path. Test-only.
+- **`GDDIAG=1`** → `-DSHIM_GD_DIAG=1`. On-screen GD-syscall tracer + private
+  syscall-stack low-water mark (TV-debuggable, serial-silent by design — the
+  DreamShell debugging instrument, since a real dongle owns SCIF). Never
+  ship.
+- **`FORCE_SYSCALL=1` (retired as a verification leg, kept as a primitive)**
+  → `-DGD_FORCE_SYSCALL=1`. Skips the raw rehearsal and seeds
+  `backend=1` directly. `task-6-report.md` DEBUG ROUND 1 found this leg
+  structurally invalid against this emulator: with `UseReios=no` and no
+  isoldr disc, the syscall vector still points at the stock DC BIOS's own
+  early-boot code (`VECBC=0x8c001000`), which this port's own KERNEL-SLICE
+  placement (`0x8c000600–0x8c003800`, `shim_iface.h`) has already
+  overwritten with Naomi BIOS ROM bytes unrelated to the DC GD-ROM state
+  machine — `jsr @0x8c001000` post-handoff never runs a real GD driver, so
+  the leg wedges on a dead vector regardless of `gdstack.S`'s own
+  correctness (independently confirmed by a `GD_SYS_DIRECT` control:
+  bypassing the trampoline entirely reproduced the identical hang,
+  byte-for-byte). `TESTSRV=1` above reuses the same "skip raw, force
+  backend=1" primitive and adds a server actually worth calling.
+
+**`check_stream_crc.py` invocation for a `TESTSRV=1 SERIAL=1 CRC=1` leg**
+(Task 7, `captures/phase7/testsrv-soak.log`): same texpatch caveat as the
+r5/r7-smoke legs above — the default `make gdi` splices `shrink_vq.py`
+records into track04, so `--dat` must be a texpatch-applied slice, not raw
+`senkosp.dat`:
+```
+dd if=build/track04.iso bs=4096 skip=864 of=<scratch>/track04-cart-slice.dat
+python3 scripts/check_stream_crc.py --stdout <leg>.stdout.log \
+  --cartlog <leg>.log --dat <scratch>/track04-cart-slice.dat \
+  --track04 build/track04.iso
+```
+`bs=4096 skip=864` = byte offset 3,538,944 = `make_gdi.py`'s `BOOT_REGION`
+constant — fixed regardless of loader/shim size (the loader is always
+zero-padded to this donor-derived boot-region size), so this slice offset
+does not drift as the shim grows across tasks.
+
+### `carve()` generator helper (Task 6, `scripts/build_patch_table.py`)
+
+A third patch-table generator alongside `pool()`/`hook()`/`detour()`,
+emitted as its own arrays (`senkosp_carve_main`/`senkosp_carve_test`)
+applied by the loader only when `backend == 1` (or `FORCE_CARVE`), strictly
+after the unconditional main table:
+
+```python
+def carve(dat_off, pristine_hex, new_hex, comment=""):
+    """Overlap-aware raw entry. Verifies `pristine_hex` against the
+    pristine DAT (same money path as pool()), then derives the emitted
+    `old` by overlaying every reloc word from reloc_patchset.json that
+    intersects the window -- because the loader applies the unconditional
+    table first, the runtime memcmp sees post-reloc bytes."""
+```
+The overlay matters because one byte in this carve's window is itself a
+relocation target (`0x8e`→`0x8d`, the heap-top patch) — `carve()`'s `old`
+therefore encodes the **post-reloc** state on purpose, which is why
+`test_build_patch_table.py`'s pristine-fidelity check is scoped to stop
+before the carve arrays rather than asserting pristine bytes there (it
+would fail by design, not by bug). `sym_opt()` (a tolerant sibling of the
+existing `sym()`) resolves `GD_TEST_SERVER_ADDR` from `shim.map` the same
+way, falling back to `0x00000000u` when the symbol is compiled out
+(`TESTSRV=0`) — no new address-resolution machinery, the existing
+"read the final runtime address straight out of `shim.map`" path
+generalized to an optional symbol.

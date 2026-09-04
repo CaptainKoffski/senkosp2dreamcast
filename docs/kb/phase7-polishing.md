@@ -248,6 +248,98 @@ Full recon: `.superpowers/sdd/2026-09-03-phase7-t1-dreamshell/task-3-report.md`.
      handoff stomps BIOS state — but the end-to-end verdict is
      hardware + operator, stop-and-wait.
 
+### T1 emulator gate (2026-09-04)
+
+Task 7 (verification suite), closing exit criterion 5 + re-recording the
+release md5s (criterion 3's emulator half). Full data: `task-7-report.md`.
+
+**Task 6 legs (carried forward for the record — `task-6-report.md` FIX
+ROUND 2):**
+
+| leg | build | duration | key counts | carve-window (`addr=8cff`) |
+|---|---|---|---|---|
+| `testsrv-attract.log` | `TESTSRV=1` | ~595 s | 809,733 lines; `MDODMA`=277,743, `TAREG`/`TAEND`=70,440/70,440, `PVRW`=309,412, `SHIMERR`=0, `SHIMWATCH2`=3,427 (full established baseline) | 0 — carve intact under real syscall traffic; `gdstack.S` trampoline exercised end-to-end for the first time, `GDPIO fad=0006f526` (the request that hung forever pre-fix-round-2) completes clean |
+| `forcecarve-attract.log` | `FORCE_CARVE=1` (raw backend) | ~595 s | 808,512 lines; `MDODMA`=277,679, `TAREG`/`TAEND`=70,424/70,424, `SHIMERR`=0, `SHIMWATCH2`=3,427 | 0 — carve applied on the raw backend doesn't perturb a normal boot |
+| `dispatch-raw2.log` | plain `make gdi` | ~180 s | `TAREG`/`TAEND`=21,406/21,406 each, continuous to EOF, `SHIMERR`=0 | **314** — expected/correct: uncarved raw backend, ordinary top-of-heap allocator traffic just below `0x8d000000`, not a breach (the carve gate is `if (backend)`, off here by design) |
+
+**This task's soak — TESTSRV attract, ~1800 s (30 min), one-call
+foreground/backgrounded pattern, killed by PID** (`captures/phase7/testsrv-soak.log`
++ `.stdout.log`, gitignored): build `make clean && make gdi TESTSRV=1
+SERIAL=1 CRC=1`, flags confirmed on the actual compile lines (repo's
+standing `make clean`-before-reflag rule, `phase5-hardware.md:477`).
+
+```
+CHECK shimcrc_match: PASS — 464 SHIMCRC record(s), 0 mismatch(es)
+CHECK gdread_match: PASS — 1738 verified (fad>=base,type=0x800), 4 lowfad, 0 typeskip, 0 mismatch(es)
+CHECK coverage_nonzero: PASS — shim=464 record(s), drive=1742 record(s)
+```
+
+`check_stream_crc.py`'s own texpatch caveat (its docstring) applied: this
+build splices `shrink_vq.py` records into track04 by default (69 records),
+so `--dat` was a texpatch-applied slice (`dd if=build/track04.iso bs=4096
+skip=864`, cart region starts at byte 3,538,944 — `make_gdi.py`'s
+`BOOT_REGION` constant, fixed regardless of loader/shim size), not raw
+`senkosp.dat` — same convention as `tooling.md`'s r5/r7-smoke legs.
+
+Other verdicts: 0 `TEXERR` (206 `TEXHUD` health lines, all-zero fields), 0
+`SHIMERR` anywhere in either log (covers the stack-canary `shim_die(5, ...)`
+specifically, `gd_sys.c:157` — no canary trip), carve-window grep (`grep
+SHIMWATCH2 captures/phase7/testsrv-soak.log | grep -cE "addr=8cff"`) → **0**
+— carve stayed intact for the full 30 min under sustained syscall traffic.
+`SHIMWATCH2` total 4,002 (vs the 3,427 established baseline — longer leg,
+more hole/shim-home churn; carve window itself is the 0 above). No
+error/fail/abort/halt/wedge/crash tag in either log (one substring hit is a
+boot-time patch-table descriptive string, "CART-WAIT-B ... settle/abort" —
+not an event). `TAREG`/`TAEND`/`PVRW`/`MDODMA` still firing on the log's
+final lines — no freeze.
+
+**Attract cycle count**, derived from the `GDPIO` fad sequence (1,630 reads):
+12 large backward jumps, alternating between two fixed rewind points
+(`0x86a27→0x7a490`, `0x86514→0x76b9e`) at an even cadence through the whole
+leg — 2 rewinds per full attract loop (matching the documented "attract's
+two scripted demo fights", `cart-streaming-map.md`) = **6 full attract
+cycles**, comfortably past the brief's ≥3 bar.
+
+**Verdict: PASS, unconditionally green.** Byte-perfect delivery through the
+trampoline+dispatch+carve path for 30 min sustained, carve never breached,
+no wedge, no canary trip, attract free-running the whole leg.
+
+**New release md5 set (Release md5s v7 — supersedes `phase5-hardware.md`
+§Release md5s v6 for deploys; same convention as #26/#28 in `00-status.md`).**
+`make test` exit 0 (host tests + patch-table + maple-literal scan, all
+green) immediately before; reproducibility re-proved by running `make clean
+&& make gdi` **twice** and diffing all five disc files — identical both
+times:
+
+| file | md5 |
+|---|---|
+| disc.gdi | c527f1ec937b56caa65084d436f8c0a0 (unchanged since v2) |
+| track01.iso | 681fa4c8daa058ce2df8ea1b604d6e91 (unchanged since v2) |
+| track02.raw | 03c796f60db2e9ef0b65a42a47a9d321 (unchanged since v2) |
+| track03.iso | 244ae7e5a321345e995edc4793fcbdd5 (unchanged since v2) |
+| track04.iso | **c6c622d759ff93c8cd8b4483c3a850ca** (was `3460af24d9e21ab59d6bae88fb929ff2` in v6 — shim grew: `gd_testsrv.c`, `gdstack.S` revival, carve tables, dispatch) |
+
+Card is stale: `make deploy` before the next hardware session.
+
+**R12 honest limit (unchanged, restated for the closing record).** Flycast
+has no serial peer — it cannot host a real isoldr. The `TESTSRV`/
+`FORCE_CARVE` legs above validate **our own calling machinery**: the
+`gdc_call` trampoline, the probe/dispatch/carve wiring, and a real
+(if deliberately dumb) GD-syscall server that actually completes requests —
+not isoldr's real timing, FatFs, coroutine, or CISO behavior. `GD_TEST_SERVER`
+is `#if`-gated test-only code, never shipped. **End-to-end isoldr validation
+is a real DreamShell hardware leg with the dongle — this emulator gate closes
+everything upstream of that, not the thing itself.**
+
+**Build hygiene note:** this soak's build carries `SERIAL=1` (SCIF voice on,
+`-DSHIM_SERIAL=1 -DLOADER_SERIAL=1 -DSHIM_TEXHUD=1`) — an emulator-only
+diagnostic; a real DreamShell dongle owns the SCIF pins (standing rule,
+§T1 step 4). Release builds (the md5 set above) stay serial-silent by
+construction (`SERIAL` defaults unset), and `TESTSRV`/`FORCE_CARVE`/`GDDIAG`
+are test-only knobs gated `#ifndef`/default-0 — none of the three is ever
+part of a shipped build (`docs/kb/tooling.md` §Phase 7 build knobs has the
+full record).
+
 ### Alternatives if A hits a wall
 
 - **B — own SD driver in the shim:** speak the dongle's SPI-over-SCIF
