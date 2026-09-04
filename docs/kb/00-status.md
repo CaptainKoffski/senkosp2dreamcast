@@ -1128,3 +1128,27 @@ charter). Optional pool: T2 profiling leg (loadings + stage-8
 microfreezes) gating T3 G1-DMA/async and T4 arena margin; T5 Ernula
 watch; T6 dev-disc; T7 boot-gap cosmetics. Phase branch:
 phase7-polishing.
+
+**Phase 7 T1 CLOSED (2026-09-04): DreamShell serial-SD support shipped.**
+Dual-backend GD driver: boot-time probe picks raw ATA (GDEMU/optical,
+byte-identical to phase 6) or BIOS-syscall backend (`gd_sys.c` +
+`gdstack.S` trampoline) served by isoldr's resident driver; when syscall
+wins, the loader carves `[0x8cff0000, 0x8d000000)` off the game heap and
+isoldr lives there (stock preset address). Operator hardware round: both
+legs PASS — DreamShell 4.0.4/isoldr 0.8.4 boots to attract and plays (1P
++ 2P, all transitions), GDEMU regression clean. **The phase-6 Task 32
+"GDEMU/optical boot paths only" limitation is RETIRED** — DreamShell
+serial-SD is now a supported boot path (pinned preset required: boot
+`0x8cff0000` / heap `0x8cff7a00`, recipe in `tooling.md`; isoldr
+Auto/defaults reboot by construction — characterized in
+`phase7-polishing.md` §T1 hardware round). **Release md5s v7** supersede
+v6: `track04.iso` = `c6c622d759ff93c8cd8b4483c3a850ca` (shim grew:
+syscall backend + trampoline + carve + dispatch), other four tracks
+unchanged — full table in `phase7-polishing.md` §T1 emulator gate.
+Gate audit: 7/7 exit criteria earned (§T1 gate audit; one recorded
+residual: the both-fail red-halt composition is code-reviewed but never
+executed — cosmetic-only risk). Backlog updates: Ernula barrier watch
+item CLOSED (feature, not bug — operator repro); NEW T2 symptom:
+char-select background microfreezes on DreamShell (~1/s, absent on
+GDEMU — likely serial-link stall, T2 leg to confirm). Next: optional
+pool only (T2 profiling gate first if pursued).

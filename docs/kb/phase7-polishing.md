@@ -18,6 +18,9 @@ closed-beta tester).
 
 ## T1 (MUST, first): boot and run via DreamShell serial-SD
 
+**STATUS: CLOSED 2026-09-04 — all 7 exit criteria earned (§T1 gate
+audit below; hardware round PASS both legs).**
+
 **Goal:** the game boots through DreamShell isoldr from an SD card on the
 serial port and plays, on the same release disc image.
 
@@ -433,6 +436,26 @@ bug.** Operator: releasing the barrier button while continuing to spam
 projectiles keeps the barrier up until the attack series ends;
 reproduced deliberately in 2P with no other projectiles on screen, so
 it is unrelated to slowdown. Case closed.
+
+### T1 gate audit — CLOSED (2026-09-04)
+
+Spec: `docs/superpowers/specs/2026-09-03-phase7-t1-dreamshell-design.md`
+§Exit criteria. One row per criterion, evidence named.
+
+| # | criterion | earned by | verdict |
+|---|---|---|---|
+| 1 | DreamShell boot, no red screen, probe selected syscall | §T1 hardware round leg 1: boots through isoldr 0.8.4 (pinned preset) to attract. Syscall selection is proven structurally, not by an on-screen tag: raw ATA **cannot** serve serial-SD (phase-6 Task 32 known-fail is the control — same rig, raw path halts loud), so every read behind a successful boot was syscall-served | ✅ |
+| 2 | DreamShell play, full match, load times accepted | leg 1: full 1P + 2P matches, all transitions OK; loads longer as the step-0 GO (~490 KB/s) predicted, operator-accepted; microfreeze notes routed to T2 | ✅ |
+| 3 | GDEMU regression + `gd.c` raw path identical + `make test` + reproducible md5s | hardware round leg 2 ("no regressions, works as usual"); `gd.c` diff = 3-line `gd_read` dispatch only (Task 6 review); `make test` exit 0; double-rebuild byte-identical, Release md5s v7 recorded (§T1 emulator gate) | ✅ |
+| 4 | Probe totality: raw on GDEMU, syscall on DreamShell, both-fail halts red+readable | raw chosen: leg 2 + `dispatch-raw2.log` (flag=0); syscall chosen: leg 1; both-fail halt: the `halt()` renderer is hardware-proven red+readable (phase-6 Task 32 photo, same machinery), and the two-error-word composition passed Task 6 code review — but **that exact path never executed** (firing it needs failure-injection knobs on both backends; declined as test scope for a cosmetic-only residual: worst case is imperfect text on an already-halted console) | ✅ (residual recorded) |
+| 5 | Emulator control: TESTSRV soak + FORCE_CARVE leg, unattended | §T1 emulator gate: 30-min TESTSRV soak (464 SHIMCRC + 1,738 verified reads, 0 mismatches, carve-window hits 0, 6 attract cycles) + FORCE_CARVE attract leg clean; both unattended one-call legs | ✅ |
+| 6 | Pre-code measurements banked with verdicts | §T1 measurements: hole write-watch (live TCB table → low-RAM falsified → carve pivot), SP low-water `bootmin=0x8c00e7ec`, fill-pool decode (stack canary fill, not the hole writer), TMU0 verdict (game writes TMU0 → `GD_SYS_FIRST_LADDER=0`) | ✅ |
+| 7 | KB written: this doc §T1, tooling records, 00-status advanced | this doc (measurements + emulator gate + hardware round + this audit); `tooling.md` (DreamShell clone/build :1445, build knobs :1512, carve helper :1568, preset recipe); `00-status.md` phase-7 entry, phase-6 "GDEMU/optical only" limitation retired | ✅ |
+
+**Honest limits carried into the record:** single rig (one console, one
+dongle, DreamShell 4.0.4/isoldr 0.8.4 only); Flycast cannot host real
+isoldr (R12), so end-to-end serial-SD validation is hardware-only — done
+above; other isoldr versions/devices untested and out of scope.
 
 ### Alternatives if A hits a wall
 

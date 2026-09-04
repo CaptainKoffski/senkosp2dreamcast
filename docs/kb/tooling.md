@@ -1591,3 +1591,32 @@ way, falling back to `0x00000000u` when the symbol is compiled out
 (`TESTSRV=0`) — no new address-resolution machinery, the existing
 "read the final runtime address straight out of `shim.map`" path
 generalized to an optional symbol.
+
+## Phase 7: DreamShell isoldr preset recipe (T1 hardware, 2026-09-04)
+
+The supported way to boot the release image on the operator's DreamShell
+4.0.4 / isoldr 0.8.4 serial-SD rig (hardware-proven, `phase7-polishing.md`
+§T1 hardware round):
+
+1. ISO Loader app → select the senkosp image on the SD.
+2. **Boot memory = `0x8cff0000`** (stock preset in the list), **Heap
+   memory = `0x8cff7a00`** (custom hex entry — NEVER Auto), firmware
+   plain `sd` (default). Save the preset.
+3. Launch. Splash ~7 s, then boot to attract; probe selects the syscall
+   backend and the loader carves `[0x8cff0000, 0x8d000000)` off the game
+   heap for isoldr.
+
+**Auto/defaults are structurally unsupportable** — no preset means isoldr
+loads at `ISOLDR_DEFAULT_ADDR_LOW = 0x8c004000`
+(`tools/dreamshell-4.0.4/include/isoldr.h:38`), inside the game RTOS's
+live TCB table; the console reboots when attract's first 3D scene spawns
+tasks over isoldr's body (full characterization in `phase7-polishing.md`
+§T1 hardware round).
+
+**Shippable preset:** presets are per-image files
+`<dev>_<md5>.cfg` in `DS/apps/iso_loader/presets/`, keyed by md5 of the
+image's boot sector (`modules/isoldr/preset.c` `format_preset_filename`,
+md5 at `applications/iso_loader/modules/module.c:372`). The release image
+is bit-reproducible, so one correct `.cfg` can ship in the release
+package and stock isoldr auto-applies it (users skip step 2 entirely).
+Not yet packaged — parked as release-packaging polish.
