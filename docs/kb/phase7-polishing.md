@@ -520,9 +520,14 @@ clears it by construction; TESTSRV installs its vector high, unaffected.
   GDEMU boots).
 
 **Release md5s v8** (build 2026-09-05, double-rebuild byte-identical):
-`track04.iso` = `56f3ff8d3a7ee519644a921fb891da37` (loader grew:
+`track04.iso` = `ba63905ca7b551ca8de1451872f8420d` (loader grew:
 preset_note + tripwire), other four tracks donor-verbatim/unchanged.
-Supersedes v7 (`c6c622d7…`).
+Supersedes v7 (`c6c622d7…`). *(Same-day revision: first cut
+`56f3ff8d…` said "keep the folder structure"; the screen now says "to
+the ROOT of your SD card" — matching the README fix, so a tester who
+unzipped into a subfolder isn't re-fed the ambiguous wording. Never
+distributed. Attract regression re-run on the final bytes:
+`phase7/preset-regress2`, clean — demo + FREE PLAY, 0 `MDODMA`.)*
 
 **Hardware round owed (operator, stop-and-wait) — the real gate:**
 1. DreamShell, image on card, **no preset, defaults untouched** →

@@ -1167,8 +1167,12 @@ tripwire — a low-placed isoldr (defaults/Auto, measured-fatal) now
 stops pre-staging on a **calm-blue instruction screen** (operator: no
 red, testers panic) instead of the characterized mid-attract
 hard-reboot. Emulator evidence: knob leg parks (0 handoff/DMA), 3-min
-attract regression clean. **Release md5s v8**: `track04` =
-`56f3ff8d3a7ee519644a921fb891da37`, others unchanged. Hardware legs
+attract regression clean (re-run on final bytes). **Release md5s v8**:
+`track04` = `ba63905ca7b551ca8de1451872f8420d`, others unchanged
+(same-day text revision, `phase7-polishing.md` §T1 follow-up).
+Layout rule shipped in README + blue screen: game files anywhere on
+the card, `DS` folder at the ROOT (preset lookup is md5-keyed, not
+path-keyed). Hardware legs
 owed (operator): defaults-no-preset → blue screen photo; fresh-unzip →
 auto-preset boots + plays; GDEMU boot sanity. Full record:
 `phase7-polishing.md` §T1 follow-up; recipe + `PRESET_NOTE=1` knob (and
