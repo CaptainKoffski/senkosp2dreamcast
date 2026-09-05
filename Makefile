@@ -32,6 +32,12 @@ endif
 ifeq ($(CRC),1)
 DEFS += -DSHIM_CRC=1
 endif
+# TIME=1 (needs SERIAL=1 to be audible): SHIMTIME line per delivered cart read
+# (TMU0 stamp + in-driver ticks) -- the phase-7 T2 profiling instrument.
+# Digest with scripts/parse_shimtime.py.
+ifeq ($(TIME),1)
+DEFS += -DSHIM_TIME=1
+endif
 # FORCE_SYSCALL=1: loader skips the raw rehearsal and seeds the syscall
 # backend -- the whole game then streams via BIOS GD syscalls. RETIRED as a
 # verification leg (task-6-report.md DEBUG ROUND 1): against this emulator's

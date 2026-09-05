@@ -32,8 +32,22 @@
 #ifndef SHIM_CRC
 #define SHIM_CRC 0      /* diagnostic: CRC every delivered cart read over serial */
 #endif
-#if SHIM_CRC
+#ifndef SHIM_TIME
+#define SHIM_TIME 0     /* diagnostic: TMU0-stamped SHIMTIME line per cart read
+                         * (phase-7 T2 profiling; digest: parse_shimtime.py) */
+#endif
+#if SHIM_CRC || SHIM_TIME
 void scif_puts(const char *); void scif_puthex(unsigned int);
+#endif
+#if SHIM_TIME
+/* SH-4 TMU0 -- the game's own timer, read-only here. The game reprograms it
+ * to TCR0=2 (P/64 = 781.25 kHz), TCOR0=TCNT0=0xFFFFFFFF: a free-running
+ * down-counter, ~92 min wrap (docs/kb/phase7-polishing.md §T1 measurements,
+ * TMU0 verdict; register map ../flycast4naomi2dreamcast/core/hw/sh4/
+ * sh4_mmr.h:324-325). TCR0 is echoed to the parser so the tick rate is
+ * measured, not assumed. */
+#define TIME_TCNT0 (*(volatile unsigned int   *)0xffd8000c)
+#define TIME_TCR0  (*(volatile unsigned short *)0xffd80010)
 #endif
 
 /* ---- pure splitter (host-tested: test/test_gd_math.c) -------------------
@@ -434,6 +448,9 @@ int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
     unsigned char *b = (unsigned char *)P2ADDR(SHIM_BOUNCE);
     unsigned fad = pl.fad, i;
     int r;
+#if SHIM_TIME
+    unsigned t_in = TIME_TCNT0;
+#endif
 
     if (pl.head_len) {
         if ((r = gd_read(fad, b, 1)) < 0) return r;      /* head */
@@ -450,6 +467,30 @@ int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
         if ((r = gd_read(fad, b, 1)) < 0) return r;      /* tail */
         for (i = 0; i < pl.tail_len; i++) d[i] = b[i];
     }
+#if SHIM_TIME
+    {
+        /* Exit stamp sampled BEFORE any serial output (one line is ~4 ms at
+         * 115200 -- lighter than the hardware-proven SHIMCRC instrument, which
+         * adds ~50 cycles/byte of CRC on top of its line). d = entry - exit:
+         * down-counter, unsigned wrap-safe. Failed reads print nothing (they
+         * halt loud already). */
+        unsigned t_out = TIME_TCNT0;
+        static unsigned short tcr_seen = 0xffffu;  /* .data nonzero per house
+                                                    * style; 0xffff is not a
+                                                    * readable TCR0 value
+                                                    * (bits 15:9 read 0) */
+        unsigned short tcr = TIME_TCR0;
+        if (tcr != tcr_seen) {
+            tcr_seen = tcr;
+            scif_puts("SHIMTIME tcr="); scif_puthex(tcr); scif_puts("\n");
+        }
+        scif_puts("SHIMTIME o="); scif_puthex(cart_off);
+        scif_puts(" l=");         scif_puthex(len);
+        scif_puts(" s=");         scif_puthex(t_in);
+        scif_puts(" d=");         scif_puthex(t_in - t_out);
+        scif_puts("\n");
+    }
+#endif
 #if SHIM_CRC
     scif_puts("SHIMCRC o="); scif_puthex(cart_off);
     scif_puts(" l=");        scif_puthex(len);

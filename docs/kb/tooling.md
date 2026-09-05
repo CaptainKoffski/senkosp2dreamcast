@@ -1544,6 +1544,22 @@ is byte-for-byte unaffected.
   tracking — an up-to-date `main.o` is NOT rebuilt when only the knob
   changes, so the first leg silently ran a knob-less loader. `touch
   loader/main.c` (or `make clean`) before any knob-flipped rebuild.
+- **`TIME=1` (T2, 2026-09-05; needs `SERIAL=1` to be audible)** →
+  `-DSHIM_TIME=1`. The T2 profiling instrument: `gd_read_cart` prints one
+  `SHIMTIME o=<off> l=<len> s=<TCNT0 entry> d=<entry−exit ticks>` line per
+  delivered cart read (plus `SHIMTIME tcr=<TCR0>` once and on change, so
+  the tick rate is measured, not assumed — the game runs TMU0 at TCR0=2 =
+  781.25 kHz free-running, `phase7-polishing.md` §T1 measurements). Digest
+  with `scripts/parse_shimtime.py <leg>` (self-check:
+  `scripts/test_parse_shimtime.py` → `ok`); it rebuilds the read timeline:
+  per-burst driver duty %, game-side gaps, re-read churn. Perturbation
+  bound: one line ≈ 53 chars ≈ 4.6 ms at 115200, strictly lighter than the
+  hardware-proven `CRC=1` instrument (which adds ~50 cycles/byte of CRC on
+  top of a like-sized line). Same `make clean` gotcha as every knob
+  (below). Emulator control leg needs Flycast stdout serial:
+  `scripts/capture_dc_leg.sh <leg> build/disc.gdi -config
+  Debug:SerialConsoleEnabled=yes` (do not rely on the app's persisted
+  pref, which is how `phase7/t2-emuctl1` happened to capture).
 - **`FORCE_SYSCALL=1` (retired as a verification leg, kept as a primitive)**
   → `-DGD_FORCE_SYSCALL=1`. Skips the raw rehearsal and seeds
   `backend=1` directly. `task-6-report.md` DEBUG ROUND 1 found this leg

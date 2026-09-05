@@ -1182,3 +1182,20 @@ cfg); GDEMU regression boot clean. T1 follow-up **CLOSED**. Full
 record:
 `phase7-polishing.md` §T1 follow-up; recipe + `PRESET_NOTE=1` knob (and
 its make-dependency gotcha) in `tooling.md`.
+
+**Phase 7 T2 STARTED (2026-09-05, branch phase7-pool): profiling
+instrument shipped, emulator control PASS — hardware leg owed.** New
+knob `TIME=1` (needs `SERIAL=1`): `gd_read_cart` prints one
+TMU0-stamped `SHIMTIME` line per cart read (timebase = the game's own
+free-running 781.25 kHz TMU0, T1's verdict, echoed as `tcr=` so the
+rate is measured); `scripts/parse_shimtime.py` rebuilds the timeline
+(burst duty %, game-side gaps, re-read churn = eviction signature).
+Verified: `make test` green, knob-off build md5-identical to release
+v8, diag build `track04` `e370a097faf2d23403d581447be31e63`, ~106 s
+emulator attract leg parses to known ground truth (26-read boot burst,
+attract drip = phase-2 rate, 0 churn). Next: operator GDEMU serial leg
+(`phase7-polishing.md` §T2 hardware leg brief — five scenes incl.
+char-select dwell + stage-8), then per-symptom verdicts by the
+§Attribution rules; (c) DreamShell char-select resolves by arithmetic
+against the ~490 KB/s link (dongle owns SCIF — no capture possible
+there). T3/T4 stay gated on those verdicts.

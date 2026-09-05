@@ -592,7 +592,8 @@ arena telemetry) to split each into disc-transfer vs game-side unpack vs
 VRAM-arena churn. Stage 8 peaks within ~100–200 KB of the 8 MB arena
 ceiling (`docs/kb/arena-fit-options.md`) — (b) may be eviction churn, not
 disc. **T3/T4 are gated on this measurement — don't touch the driver
-before it.**
+before it.** → In progress: §T2 below (instrument shipped + emulator
+control leg PASS 2026-09-05; hardware leg owed).
 
 **T3 — G1 DMA / async cart service** (only if T2 says disc-bound): the
 recorded upgrade path in `gd.c`'s ponytail note. Caveats already recorded
@@ -619,6 +620,95 @@ bar no better on hardware, commit `7476d47` has the whole implementation
 + recon): only revisit with a new idea, e.g. keeping the splash visible
 through the gap (BOOT-UNBLANK recon in `docs/kb/phase5-hardware.md`
 §Black-gap decorate has the scanout facts).
+
+---
+
+## T2 — profiling leg (2026-09-05: instrument + emulator control PASS; hardware leg owed)
+
+Branch `phase7-pool`. Bounded task (brainstorm-approved design in chat,
+no spec file): one timing instrument, one parser, one hardware leg, then
+per-symptom verdicts gating T3/T4.
+
+### Instrument: `SHIM_TIME=1` (`make gdi SERIAL=1 TIME=1`)
+
+`gd_read_cart` (shims/src/gd.c — the single choke point every cart.c read
+path routes through, both backends) stamps SH-4 TMU0 TCNT0 at entry and
+exit and prints one line per delivered read:
+
+```
+SHIMTIME tcr=00000002                                  # once + on change
+SHIMTIME o=<cart off> l=<len> s=<TCNT0 entry> d=<entry-exit ticks>
+```
+
+Timebase: the game's own TMU0 — reprogrammed by the game to TCR0=2
+(P/64 = 781.25 kHz), TCOR0=0xFFFFFFFF free-running, ~92 min wrap (§T1
+measurements, TMU0 verdict), so absolute stamps are a clean timeline at
+1.28 µs/tick; the shim only reads it. `tcr=` is echoed so the parser
+measures the rate instead of assuming it. Perturbation bound: one line ≈
+53 chars ≈ 4.6 ms at 115200 baud, strictly lighter than the
+hardware-proven round-4 `CRC=1` instrument (like-sized line + ~50
+cycles/byte CRC over every delivered byte) which manufactured no
+symptoms. Exit stamp is sampled before any serial output so `d` never
+includes print cost; the print does inflate the *next* gap by ~5 ms —
+below every effect T2 hunts (loads: seconds; freezes: 100s of ms cadence).
+
+`scripts/parse_shimtime.py <leg>` rebuilds the timeline: per-read driver
+ms + implied KB/s, game-side gaps, gap-split bursts with driver duty %,
+and re-read churn (identical `(o,l)` tuples delivered twice = the
+eviction-then-reload signature). Wrap-safe, re-anchors on a TMU0
+reprogram. Self-check `scripts/test_parse_shimtime.py` → `ok`
+(down-counter math, wrap, reset re-anchor, burst split, churn).
+
+Build hygiene (all verified 2026-09-05): `make test` exit 0; knob-off
+`make gdi` md5-identical to release v8 (`track04` =
+`ba63905ca7b551ca8de1451872f8420d` — the knob is invisible when off);
+`make clean && make gdi SERIAL=1 TIME=1` → diag `track04` =
+`e370a097faf2d23403d581447be31e63`, `SHIMTIME` present in `shim.bin`
+(the `DEFS` gotcha check, tooling.md).
+
+### Emulator control leg — PASS (`captures/phase7/t2-emuctl1`)
+
+~106 s unattended attract, DC profile, diag build. 83 SHIMTIME reads +
+`tcr=00000002` — exactly the T1 TMU0 verdict's value, live. Parser
+output is self-consistent against known ground truth: 26-read boot burst,
+the 1.5 MB preload, steady attract drip ~39 KB every ~1.5 s (= phase 2's
+2.3 MB/min), zero churn in attract, and implied driver throughput ~48
+MB/s — the emulator's instant-read signature, exactly what hardware must
+NOT show (GDEMU PIO expectation: ~1–2 MB/s; that number IS the
+measurement). Capture needs `-config Debug:SerialConsoleEnabled=yes`
+(tooling.md §build knobs, TIME=1 row).
+
+### Hardware leg brief (operator, GDEMU, coder's cable) — OWED
+
+Deploy the diag build (`make clean && make gdi SERIAL=1 TIME=1 && make
+deploy`, md5 above; SERIAL=1 also lights the TEXHUD rows — known, fine).
+Start `scripts/capture_serial.sh phase7/t2-hw-gdemu` BEFORE power-on.
+One continuous leg, five scenes, rough wall-clock notes per scene
+("load felt ~N s", "freezes at ~1/s while X"):
+
+1. Boot → attract, let it run ~1 min.
+2. Start at attract (the descending-tone load) → char select.
+3. Dwell in char select ~30 s before confirming (the (c) rate window).
+4. 1P match; have 2P join mid-match (the second reported long load).
+5. A stage-8 scene for a few minutes where the microfreezes live
+   (VS stage select reaches it fastest), then ctrl-C.
+
+### Attribution rules (the T2 verdicts, decided before the data)
+
+- **(a) loads:** driver duty % across the load-window burst. Driver-
+  dominant → disc-bound → T3 (G1 DMA / async). Gap-dominant →
+  game-side unpack → record, no driver work (T3 declined).
+- **(b) stage-8:** freezes with coincident reads + churn tuples on
+  stage-8 offsets → eviction/reload → T4 (arena margin). No reads near
+  freezes → not disc, not eviction-reload — re-scope before touching
+  anything.
+- **(c) char-select on DreamShell:** measured GDEMU-leg dwell rate
+  (bytes/s + burst sizes) scaled to the ~490 KB/s serial budget. Burst
+  size / 490 KB/s ≈ observed freeze length at ~1/s cadence → serial-link
+  stall CONFIRMED by arithmetic, no DreamShell capture needed (the
+  dongle owns SCIF — a serial capture there is physically impossible).
+  Ambiguous → escalate to an on-screen-HUD DreamShell leg (GDDIAG
+  pattern), only then.
 
 ---
 
