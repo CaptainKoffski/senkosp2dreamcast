@@ -772,16 +772,33 @@ never fired across two 2P matches + stage 8.
   closes cleanly there: the 38,912 B drip read = 15 ms at 2.8 MB/s
   (subtle) but **~78 ms at DreamShell's ~490 KB/s ≈ "fraction of a
   second, once per second"**; load-screen chunks (0.7–2.8 MB) = 1.4–
-  5.7 s stalls each. Pending: operator confirms whether T1's DreamShell
-  freezes were on the loading screens (→ (c) = (b), same T3 remedy,
-  CLOSED) or genuinely on the idle dwell screen (→ escalate to the
-  GDDIAG on-screen leg). Either way no evidence points at T4.
+  5.7 s stalls each. ~~Pending: operator confirms which screen~~
+  **ANSWERED (operator, 2026-09-06): the idle dwell screen itself** —
+  "when I see a character and there is a green BG swirling, I see it
+  freezes each ~1s"; first noticed on DreamShell where it is much more
+  noticeable, then found on GDEMU too, subtler. **Reframe: (c) is NOT a
+  disc stall and NOT closed by T3.** For the dwell screen the leg
+  measured zero disc I/O, so disc, arena, and the instrument (release
+  builds show it) are all exonerated. Root cause OPEN, two candidate
+  mechanisms: (1) a game-side periodic ~1/s task (leading — must
+  reproduce in Flycast as a guest frame-time spike; if fixed-size it
+  also explains "subtler on GDEMU" only via attention/contrast); (2)
+  isoldr-resident periodic activity (the only mechanism that could make
+  an idle screen genuinely worse on DreamShell with zero I/O — needs a
+  DreamShell-source check for timer/IRQ hooks that run without GD
+  calls). Escalation instrument designed, not yet built: a frame-gap
+  max-hold HUD row (worst inter-frame TCNT0 delta, GDDIAG pattern —
+  TV-readable, serial-silent so it works beside the dongle) + a
+  gd-call counter, read on the dwell screen on both backends; plus an
+  emulator control sit on the same screen.
 
-**Net: T3 (G1 DMA / async cart service) is the one funded follow-up;
-T4 stays shelved with no symptom pointing at it.** T3 still starts
-with `gd.c`'s recorded caveats (G1-mirror coherence, DMA completion
-IRQ masked — the Cleopatra lesson) and is its own task with its own
-approval.
+**Net: T3 (G1 DMA / async cart service) is the funded follow-up for
+(a) and (b); T4 stays shelved with no symptom pointing at it; (c) the
+dwell-screen hitch is a separate, non-disc open item** (candidate
+mechanisms + escalation instrument above — small, own approval). T3
+still starts with `gd.c`'s recorded caveats (G1-mirror coherence, DMA
+completion IRQ masked — the Cleopatra lesson) and is its own task with
+its own approval.
 
 ### Attribution rules (the T2 verdicts, decided before the data)
 

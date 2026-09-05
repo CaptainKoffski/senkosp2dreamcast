@@ -1210,9 +1210,14 @@ NOT arena eviction. (c) The char-select DWELL screen does zero disc
 I/O — an idle-dwell freeze can't be a disc stall on any backend; but
 the same drip read = ~78 ms at DreamShell's ~490 KB/s ≈ the reported
 fraction-of-a-second-per-second, and this GDEMU leg reproduced the
-signature on the character LOADING screen. One operator question open:
-were T1's DreamShell freezes on the loading screens (→ same T3 remedy,
-(c) closed) or the idle dwell (→ GDDIAG on-screen leg)? Side data:
+signature on the character LOADING screen. **Operator answered
+(2026-09-06): the ~1/s freeze is on the idle DWELL screen itself
+(green swirling bg), both backends, worse on DreamShell — so (c) is
+NOT a disc stall (zero I/O measured there) and NOT closed by T3; root
+cause open (game-side periodic task, or isoldr-resident activity —
+the only backend-asymmetric candidate). Escalation designed:
+frame-gap max-hold HUD + gd-call counter (GDDIAG pattern) + emulator
+control sit — `phase7-polishing.md` §T2 verdicts (c).** Side data:
 `iea` bit-0 = the phase-5 characterized-benign ISP latch (identical
 IEE signature); **`ie2=0` — first full-session zero for the queued
 bit-2 watch item**. Full record + verdicts:
