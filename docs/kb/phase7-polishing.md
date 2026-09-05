@@ -592,8 +592,11 @@ arena telemetry) to split each into disc-transfer vs game-side unpack vs
 VRAM-arena churn. Stage 8 peaks within ~100–200 KB of the 8 MB arena
 ceiling (`docs/kb/arena-fit-options.md`) — (b) may be eviction churn, not
 disc. **T3/T4 are gated on this measurement — don't touch the driver
-before it.** → In progress: §T2 below (instrument shipped + emulator
-control leg PASS 2026-09-05; hardware leg owed).
+before it.** → **MEASURED 2026-09-05, verdicts in §T2 below:** loads
+disc-bound at the 2.8 MB/s PIO ceiling (T3 gate OPEN), stage-8 freezes
+= the 15 ms blocking drip read at ~1.05 s cadence, NOT arena churn (T4
+CLOSED for this symptom); one operator question open on which
+DreamShell screen froze.
 
 **T3 — G1 DMA / async cart service** (only if T2 says disc-bound): the
 recorded upgrade path in `gd.c`'s ponytail note. Caveats already recorded
@@ -692,6 +695,93 @@ One continuous leg, five scenes, rough wall-clock notes per scene
 4. 1P match; have 2P join mid-match (the second reported long load).
 5. A stage-8 scene for a few minutes where the microfreezes live
    (VS stage select reaches it fastest), then ctrl-C.
+
+### Hardware leg — DONE (operator, 2026-09-05, `captures/phase7/t2-hw-gdemu.log`)
+
+One continuous 600 s GDEMU session, diag build (`e370a097…`), all five
+scenes walked. 420 SHIMTIME reads, 54.9 MB delivered, `tcr=00000002`
+live (the T1 TMU0 verdict's exact value). Operator felt-times: char
+select (descending tone) ~3 s, 1P stage load ~2 s, 2P join
+("hi-rounder" screen) ~3 s, stage-8 load ~3 s; background microfreezes
+on the character **loading** screen and during stage 8, a fraction of a
+second each, ~1/s.
+
+**Headline measurement: raw-ATA PIO tops out at ≈2.8 MB/s** (2,825
+KB/s at every saturated burst — the number the emulator control leg
+could not give). The read timeline maps to the operator's scenes
+exactly (times = seconds from first read; duty = in-driver fraction of
+the burst wall):
+
+| t (s) | scene | bytes | wall | duty | felt |
+|---|---|---|---|---|---|
+| 0–2 | boot burst + 1.5 MB preload | 1.65 MB | — | — | — |
+| 14–99 | attract drip | 38,912 B per ~1.5 s, 15 ms each | — | — | — |
+| 108.7 | char-select entry (descending tone) | 2,723,840 | 1.18 s | 80.3% | ~3 s |
+| 189.9, 206.1 | character picks | 63,488 + 30,720 | ms-scale | — | — |
+| 226.3 | 1P beginner stage load | 6,131,712 | 2.32 s | 91.5% | ~2 s |
+| 241.9 | 2P join reload | 8,400,896 | 2.98 s | 97.6% | ~3 s |
+| 245–345 | 2P match drip | 38,912 B per ~1.05 s, 15 ms each | — | — | — |
+| 347.4 | rematch reload (byte-identical 8,400,896) | 8,400,896 | 2.98 s | 97.6% | — |
+| 386.0 | stage-8 load (VS stage select) | 6,082,560 | 2.44 s | 86.3% | ~3 s |
+| 389–575 | stage-8 match drip | same 1.05 s cadence | — | — | freezes ~1/s |
+| 599.0 | match exit read | 1,417,216 | 0.49 s | 100% | — |
+
+The in-match drip is 6×38,912 B + 1×18,432 B per ~7.4 s ≈ 34 KB/s
+(attract: same reads at 1.5 s cadence ≈ 25 KB/s — in family with
+phase 2's 39 KB/s steady rate). Churn: 33 tuples ×2, 14.5 MB — ALL of
+it whole-load repeats (the 8.4 MB stage pak twice = the rematch, etc.);
+**zero cyclic mid-match re-reads**. Instrument overhead: 420 lines ≈
+1.9 s serial total over 600 s, excluded from `d=` by construction;
+TEXHUD mirrored only 68 summary lines (~1/9 s) — neither can fake a
+~1/s symptom.
+
+Side observations, dispositioned: `iea=00000001` sticky = SB_ISTERR
+bit 0, the phase-5 **characterized-benign** per-tile ISP latch
+(`phase5-hardware.md` §Round 8 — this leg's 16 IEE detail lines show
+the identical signature: `itp` ≈ 22% of `lim`, both banks, space never
+near exhaustion); `iee=0x4f08` (20,232 latches/10 min) is in family
+with round 8's 33,033/45 min given these are all heavy match scenes;
+**`ie2=00000000` — the queued bit-2 (TA parameter overflow) watch item
+gets its first full-session ZERO** from the upgraded logger: bit 2
+never fired across two 2P matches + stage 8.
+
+### T2 verdicts (by the pre-registered attribution rules)
+
+- **(a) Loads: DISC-BOUND — T3 gate OPEN.** The stage and join loads
+  run at 91.5–97.6% in-driver duty, saturated at the 2.8 MB/s PIO
+  ceiling; felt time ≈ burst wall ≈ bytes ÷ 2.8 MB/s. More throughput
+  (G1 DMA) is the lever. Honest exception: the char-select ENTRY
+  (descending tone) is only 1.18 s of disc in a felt ~3 s — the tone/
+  anim window is game-side; T3 can shave ≤1.2 s there, not 3.
+- **(b) Stage-8 microfreezes: NOT arena churn — T4 CLOSED (for this
+  symptom).** Zero mid-match re-reads (the eviction-reload signature is
+  absent; all churn is whole-stage reloads). The freeze cadence equals
+  the drip cadence exactly (~1.05 s), each drip read blocking the CPU
+  15 ms (≈1 frame) in polled PIO — the game thread IS the disc driver
+  while it drains the FIFO. Remedy is T3-shaped: either faster transfer
+  (15 ms → ~4 ms at DMA rates, under a frame) or async completion
+  (kick+poll — `gd.c`'s recorded caveats apply). Matches the original
+  (b) report coming from *release* play sessions — pre-instrument.
+- **(c) DreamShell char-screen freezes: mechanism identified, one
+  operator question open.** The char-select DWELL screen does **zero**
+  disc I/O (110–226 s: two tiny pick-blips only) — so an idle-dwell
+  freeze cannot be a disc stall on ANY backend, falsifying the "pure
+  serial-link stall" guess for that exact screen. But the same ~1/s
+  fraction-of-a-second signature appeared on THIS GDEMU leg on the
+  character **loading** screen — where reads run — and the arithmetic
+  closes cleanly there: the 38,912 B drip read = 15 ms at 2.8 MB/s
+  (subtle) but **~78 ms at DreamShell's ~490 KB/s ≈ "fraction of a
+  second, once per second"**; load-screen chunks (0.7–2.8 MB) = 1.4–
+  5.7 s stalls each. Pending: operator confirms whether T1's DreamShell
+  freezes were on the loading screens (→ (c) = (b), same T3 remedy,
+  CLOSED) or genuinely on the idle dwell screen (→ escalate to the
+  GDDIAG on-screen leg). Either way no evidence points at T4.
+
+**Net: T3 (G1 DMA / async cart service) is the one funded follow-up;
+T4 stays shelved with no symptom pointing at it.** T3 still starts
+with `gd.c`'s recorded caveats (G1-mirror coherence, DMA completion
+IRQ masked — the Cleopatra lesson) and is its own task with its own
+approval.
 
 ### Attribution rules (the T2 verdicts, decided before the data)
 

@@ -1193,9 +1193,28 @@ rate is measured); `scripts/parse_shimtime.py` rebuilds the timeline
 Verified: `make test` green, knob-off build md5-identical to release
 v8, diag build `track04` `e370a097faf2d23403d581447be31e63`, ~106 s
 emulator attract leg parses to known ground truth (26-read boot burst,
-attract drip = phase-2 rate, 0 churn). Next: operator GDEMU serial leg
-(`phase7-polishing.md` §T2 hardware leg brief — five scenes incl.
-char-select dwell + stage-8), then per-symptom verdicts by the
-§Attribution rules; (c) DreamShell char-select resolves by arithmetic
-against the ~490 KB/s link (dongle owns SCIF — no capture possible
-there). T3/T4 stay gated on those verdicts.
+attract drip = phase-2 rate, 0 churn).
+
+**Phase 7 T2 MEASURED (2026-09-05, operator GDEMU leg
+`captures/phase7/t2-hw-gdemu.log`): verdicts in, T3 gate OPEN, T4
+CLOSED for these symptoms.** 600 s, 420 reads, 54.9 MB; **raw-ATA PIO
+ceiling measured ≈2.8 MB/s**; timeline maps 1:1 to the operator's felt
+times. (a) Loads are DISC-BOUND — stage/join loads run 91.5–97.6%
+in-driver duty, felt time ≈ bytes ÷ 2.8 MB/s (exception: char-select
+entry is only 1.18 s disc of a felt 3 s — the tone/anim window is
+game-side). (b) Stage-8 microfreezes are the in-match streaming drip:
+one 38,912 B read every ~1.05 s, each blocking the CPU 15 ms (≈1
+frame) in polled PIO — cadence matches the ~1/s report exactly; zero
+mid-match re-read churn (all churn = whole-stage rematch reloads), so
+NOT arena eviction. (c) The char-select DWELL screen does zero disc
+I/O — an idle-dwell freeze can't be a disc stall on any backend; but
+the same drip read = ~78 ms at DreamShell's ~490 KB/s ≈ the reported
+fraction-of-a-second-per-second, and this GDEMU leg reproduced the
+signature on the character LOADING screen. One operator question open:
+were T1's DreamShell freezes on the loading screens (→ same T3 remedy,
+(c) closed) or the idle dwell (→ GDDIAG on-screen leg)? Side data:
+`iea` bit-0 = the phase-5 characterized-benign ISP latch (identical
+IEE signature); **`ie2=0` — first full-session zero for the queued
+bit-2 watch item**. Full record + verdicts:
+`phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
+async cart service per `gd.c`'s recorded caveats.
