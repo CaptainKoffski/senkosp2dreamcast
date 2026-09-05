@@ -532,20 +532,23 @@ unzipped into a subfolder isn't re-fed the ambiguous wording. Never
 distributed. Attract regression re-run on the final bytes:
 `phase7/preset-regress2`, clean — demo + FREE PLAY, 0 `MDODMA`.)*
 
-**Hardware round owed (operator, stop-and-wait) — the real gate:**
+**Hardware round — PASS, all three legs (operator-attested
+2026-09-05, v8 build `track04 = ba63905c…`):**
 1. DreamShell, image on card, **no preset, defaults untouched** →
-   expect the blue note screen (photo), not a reboot.
-2. Fresh unzip of the release zip onto the DS SD (merges `DS/`), launch
-   with defaults untouched → auto-preset applies, boots to attract,
-   plays. This leg also validates the generated cfg against the GUI's
-   parsing for real.
-3. GDEMU regression boot (loader bytes changed).
-Bonus check, zero cost: the preset file the operator's T1 session saved
-on their card should be named exactly
-`sd_f9b8dd28f12a741cd2ae1526f544aecb.cfg` — a filename match confirms
-the boot-sector derivation end-to-end; a content diff vs the shipped
-cfg would surface any GUI-default mismatch (async=8 is the one guessed
-from app.xml rather than observed).
+   blue note screen shown, no reboot. ✅
+2. Fresh release-zip contents on the DS SD, launch with defaults
+   untouched → auto-preset applied, game boots and plays. ✅
+   This leg also subsumes the planned filename/content bonus check:
+   the game *playing* (rather than hitting the note screen or the
+   characterized reboot) is end-to-end hardware proof that the
+   boot-sector-md5 filename derivation is right, that stock isoldr
+   found and parsed the generated cfg, and that its values (incl. the
+   app.xml-derived `async = 8`) launch the game correctly.
+3. GDEMU regression boot (loader bytes changed): works. ✅
+Honest limit, same as every DreamShell verdict: single rig, operator
+attestation without photos this round (the tripwire screen's renderer
+is otherwise hardware-proven machinery; the phase-6 red-halt photo is
+the precedent for it scanning out).
 
 **Out of scope, recorded:** upstreaming the preset to DC-SWAT's
 built-in pack (one-file PR, future DreamShell installs work with zero

@@ -1174,8 +1174,11 @@ Layout rule shipped in README + blue screen: game files anywhere on
 the card, `DS` folder at the ROOT (preset lookup is md5-keyed, not
 path-keyed); the zip wraps the disc files in a `Senko no Ronde
 Special/` folder per the Sushi Bar / Dolphin Blue release convention
-(operator-directed). Hardware legs
-owed (operator): defaults-no-preset → blue screen photo; fresh-unzip →
-auto-preset boots + plays; GDEMU boot sanity. Full record:
+(operator-directed). **Hardware round PASS, all three legs
+(operator-attested 2026-09-05):** defaults-no-preset → blue note
+screen (no reboot); fresh zip contents → auto-preset applies and the
+game plays (end-to-end proof of the filename derivation + generated
+cfg); GDEMU regression boot clean. T1 follow-up **CLOSED**. Full
+record:
 `phase7-polishing.md` §T1 follow-up; recipe + `PRESET_NOTE=1` knob (and
 its make-dependency gotcha) in `tooling.md`.
