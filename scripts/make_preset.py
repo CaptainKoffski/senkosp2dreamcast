@@ -63,9 +63,12 @@ GDEMU / ODE:
   Copy disc.gdi + track01-04 into a game folder on your card, as usual.
 
 DreamShell (SD card on the serial port):
-  1. Copy disc.gdi + track01-04 onto your SD card, as usual.
-  2. Copy the DS folder from this zip onto the SD card too, keeping the
-     folder structure (merge it with the existing DS folder).
+  1. Copy disc.gdi + track01-04 onto your SD card -- at the root or in
+     any folder you like (e.g. /senkosp/), your choice.
+  2. Copy the DS folder from this zip to the ROOT of the SD card,
+     keeping its folder structure (merge with an existing DS folder if
+     you have one). This part must be at the root; the game files can
+     be anywhere.
   3. In DreamShell, open ISO Loader, select the game, press Play.
      No settings needed -- the file from step 2 applies them for you.
 
