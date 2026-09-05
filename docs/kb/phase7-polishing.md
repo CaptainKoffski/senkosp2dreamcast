@@ -469,8 +469,11 @@ parked. Two pieces shipped:
 code).** `make release` now runs `scripts/make_preset.py`, which derives
 the preset filename from the built image and adds
 `DS/apps/iso_loader/presets/sd_<md5>.cfg` + a tester `README.txt` to the
-zip **with paths** — tester instruction collapses to "unzip onto the SD
-card root, launch, touch nothing". Chain, all source-verified in the
+zip **with paths**; the disc files are wrapped in a `Senko no Ronde
+Special/` folder (the Sushi Bar / Dolphin Blue release convention,
+operator-directed 2026-09-05 — never loose files at the card root).
+Tester instruction: copy the game folder anywhere, merge `DS/` at the
+card root, launch, touch nothing. Chain, all source-verified in the
 v4.0.4 tree: on image select the GUI auto-loads a matching preset
 (`applications/iso_loader/modules/module.c:1758` isoLoader_LoadPreset →
 `modules/isoldr/preset.c:191` isoldr_find_preset — user file beats the

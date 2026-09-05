@@ -8,7 +8,9 @@
 #                  §GDI mastering (Task 8)
 #   make disc    = alias for gdi (Cleopatra's name for the same thing)
 #   make release = disc + "build/[GDI] Senko no Ronde Special.zip"
-#                  (gdi + 4 tracks, the exact set GDMENUCardManager wants).
+#                  ("Senko no Ronde Special/" folder with gdi + 4 tracks --
+#                  the Sushi Bar / Dolphin Blue release convention -- plus
+#                  DS/ auto-preset tree + README at archive root).
 #                  CONTAINS THE FULL COMMERCIAL ROM — local use only, never
 #                  upload/commit (build/ is gitignored for this reason).
 #   make test    = shims host tests + the maple-literal scan
@@ -89,11 +91,16 @@ gdi: loader
 
 disc: gdi
 
+# Zip layout follows the scene convention (Sushi Bar / Dolphin Blue
+# releases): disc files wrapped in a game-named folder, DreamShell DS/
+# tree + README at archive root (phase 7 T1 follow-up).
+GAMEDIR = Senko no Ronde Special
 release: disc
 	rm -f "$(ZIP)"
-	cd build && zip -j "../$(ZIP)" disc.gdi track01.iso track02.raw \
-	  track03.iso track04.iso
 	python3 scripts/make_preset.py        # DreamShell auto-preset (phase 7)
+	rm -rf "build/release-extras/$(GAMEDIR)"
+	mkdir -p "build/release-extras/$(GAMEDIR)"
+	ln -f $(DISC_FILES) "build/release-extras/$(GAMEDIR)/"
 	cd build/release-extras && zip -r "../../$(ZIP)" .
 	@echo "NOTE: archive embeds the commercial ROM -- do not upload."
 

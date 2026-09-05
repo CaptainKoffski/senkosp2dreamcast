@@ -1172,7 +1172,9 @@ attract regression clean (re-run on final bytes). **Release md5s v8**:
 (same-day text revision, `phase7-polishing.md` §T1 follow-up).
 Layout rule shipped in README + blue screen: game files anywhere on
 the card, `DS` folder at the ROOT (preset lookup is md5-keyed, not
-path-keyed). Hardware legs
+path-keyed); the zip wraps the disc files in a `Senko no Ronde
+Special/` folder per the Sushi Bar / Dolphin Blue release convention
+(operator-directed). Hardware legs
 owed (operator): defaults-no-preset → blue screen photo; fresh-unzip →
 auto-preset boots + plays; GDEMU boot sanity. Full record:
 `phase7-polishing.md` §T1 follow-up; recipe + `PRESET_NOTE=1` knob (and
