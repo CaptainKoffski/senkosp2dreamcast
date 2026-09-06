@@ -1588,6 +1588,37 @@ is byte-for-byte unaffected.
   (main.c:~716). The first FRAMEGAP build compiled clean with the
   instrument in the dead block and shipped a knob-less shim; `strings
   shims/build/shim.bin | grep SHIMGAP` is the proof-of-life check.
+- **`PREFETCH=0` / `G1DMA=0` (T3, 2026-09-06; the fix knobs — DEFAULT ON,
+  these flags DISABLE)** → `-DSHIM_PREFETCH=0` / `-DSHIM_G1DMA=0`
+  (defaults live in `shim_iface.h` / `gd.c`). PREFETCH is the 64 KB
+  read-ahead ring at `PF_RING_BASE 0x8c1de200` (heap-base steal, reloc
+  entry `"0x13ae68"`; `phase7-polishing.md` §T3); G1DMA is the real
+  `SB_GD*` DMA path for multi-sector bodies (raw backend only). A/B legs
+  only — with both off the shim behaves like T2b's, but track04 is NOT
+  byte-identical to release v8 anymore: the loader's patch table now
+  carries the heap-base reloc word unconditionally (66 main entries, was
+  65), which is the correct A/B control baseline anyway. The T2b "knob-off
+  = v8 md5" identity is retired from this commit on.
+- **`PFVERIFY=1` (T3 control instrument; needs `SERIAL=1`)** →
+  `-DSHIM_PF_VERIFY=1`. Every ring hit is re-read from disc through
+  SHIM_BOUNCE and byte-compared: one `PFVFY o= l= bad=` line per hit,
+  `bad=0` expected, any mismatch disarms the ring (site 5). Emulator legs
+  only (doubles hit-path disc traffic). 2026-09-06 leg: 44/44 `bad=0`.
+  Never ship.
+- **T3 build md5s (each after `make clean`):** defaults (silent,
+  PREFETCH+G1DMA on) track04 `e731e34bc43b8612613efc1f1e74b4c0` =
+  **release-v9 candidate** (respin after hardware acceptance); `FRAMEGAP=1`
+  silent meter build `b77e56d8b8b76c22e1e5821ad22fb8f3` (dongle-safe; HUD
+  gains row y278 = ring hits, and SHIMGAP grows a ` p=<hits>` field under
+  SERIAL=1 — parse scripts unaffected, field is additive). Staged under
+  `build-t3/{release,meter}/` (gitignored — ROM bytes).
+- **Emulator-vs-hardware DMA caveat (T3):** flycast MODELS transfer time
+  on the GD-DMA path (1.8 MB/s large-transfer rate, `gdromv3.cpp:
+  1255-1262`) but served PIO in one poll — so emulator load times got
+  *slower* with DMA on (boot max-hold 0x1b1 → 0x3ae) purely by model,
+  while flycast never enforces `SB_GDAPRO` (`sb.cpp:430`) or needs the
+  ISTNRM bit-14 mask the way real hardware does. DMA claims are settled
+  only by the hardware leg's SHIMTIME `d=`.
 - **`FORCE_SYSCALL=1` (retired as a verification leg, kept as a primitive)**
   → `-DGD_FORCE_SYSCALL=1`. Skips the raw rehearsal and seeds
   `backend=1` directly. `task-6-report.md` DEBUG ROUND 1 found this leg

@@ -40,6 +40,13 @@
 #define SHIM_FRAMEGAP 0 /* diagnostic: count gd_read_cart calls for main.c's
                          * frame-gap HUD (phase-7 T2b dwell-hitch leg) */
 #endif
+#ifndef SHIM_G1DMA
+#define SHIM_G1DMA 1    /* T3 stage 2: real G1 DMA for multi-sector bodies
+                         * into main RAM (loads 2.8 MB/s PIO -> DMA rates).
+                         * Ships ON; G1DMA=0 (top Makefile) for A/B legs.
+                         * Raw-ATA backend only -- the syscall backend never
+                         * enters gd_read_fad, so isoldr's policy is untouched. */
+#endif
 #if SHIM_CRC || SHIM_TIME || SHIM_PF_VERIFY
 void scif_puts(const char *); void scif_puthex(unsigned int);
 #endif
@@ -144,6 +151,18 @@ unsigned int shim_crc32(const void *p, unsigned len) {
 #define ATA_SPI_PACKET 0xa0   /* gdromv3.h:347 */
 #define SPI_CD_READ    0x30   /* gdromv3.h:366 */
 #define GD_SECSZ       2048u  /* track04 data sectors (B5 GDI layout, make_gdi.py) */
+
+/* G1 DMA engine (T3 stage 2). Register map: KOS g1ata.c:105-118 (its
+ * G1_ATA_DMA_* block -- same engine, GD-ROM is the G1 master) and flycast
+ * sb.h:183-184 (SB_GDAPRO 0x5f74b8); GDLEND 0x5f74f8 = the same cell cart.c
+ * mirrors as M_GDLEND. All accesses 32-bit (KOS OUT32/IN32). */
+#define SB_GDSTAR  (*(volatile unsigned int *)0xa05f7404)  /* phys dest, 32-aligned */
+#define SB_GDLEN   (*(volatile unsigned int *)0xa05f7408)  /* bytes, 32-multiple (flycast dies on &0x1f, gdromv3.cpp:1287-1289) */
+#define SB_GDDIR   (*(volatile unsigned int *)0xa05f740c)  /* 1 = to memory (g1ata.c:163) */
+#define SB_GDEN    (*(volatile unsigned int *)0xa05f7414)  /* 0 while GDST=1 aborts (gdromv3.cpp:1376-1379) */
+#define SB_GDST    (*(volatile unsigned int *)0xa05f7418)  /* kick; cleared when GDLEND==GDLEN (gdromv3.cpp:1333-1336) */
+#define SB_GDAPRO  (*(volatile unsigned int *)0xa05f74b8)  /* protection: key 0x8843 | window */
+#define SB_GDLEND  (*(volatile unsigned int *)0xa05f74f8)  /* bytes transferred */
 
 /* Bounded waits: ~50M polls. Each poll is an uncached G1 register read (well
  * over 200 ns on real hardware), so the ceiling is >10 s -- far past the worst
@@ -272,6 +291,8 @@ static int gd_wait_drq(void) {
 #define GD_E_CHECK  6   /* drive raised CHECK: ERROR register holds the sense key */
 #define GD_E_ARG    7   /* caller bug: null/oversized request */
 #define GD_E_RANGE  8   /* gd_read_cart: request runs past CART_SIZE */
+#define GD_E_DMA    9   /* G1 DMA: SB_GDST never cleared, or GDLEND short
+                         * (either way gd_diag[6] holds the final GDLEND) */
 
 static int gd_fail(unsigned site, unsigned fad) {
     unsigned st = GD_ALTSTAT, er = GD_ERRREG;
@@ -317,6 +338,26 @@ static void gd_hw_init(void) {
     *(volatile unsigned int *)0xa05f6914 &= ~1u;
     *(volatile unsigned int *)0xa05f6924 &= ~1u;
     *(volatile unsigned int *)0xa05f6934 &= ~1u;
+#if SHIM_G1DMA
+    /* T3 stage 2, same class of hazard as above: (a) mask the GD-DMA
+     * completion interrupt -- ISTNRM bit 14 (holly_intc.h:31
+     * "holly_GDROM_DMA = holly_nrm | 14", raised at gdromv3.cpp:1336) -- in
+     * all three ASIC levels, IML2/4/6NRM = 0x5f6910/20/30. Cleopatra's
+     * HW-CONFIRMED lesson verbatim: the game's Naomi-legacy handler
+     * mishandles exactly this interrupt -> hang after a few reads; masking
+     * bit 14 is what made DMA cart streaming work there
+     * (../cleopatra/shims/src/gd.c:169-185). We ack the status bit after
+     * every transfer instead (ISTNRM write-1-clear, its :200).
+     * (b) open the G1-DMA protection window: unlock key 0x8843 in the high
+     * half, ALLMEM 0x007f low (KOS g1ata.c:114-118, written exactly so at
+     * its init, :1116). Flycast stores but never enforces GDAPRO (sb.cpp:430
+     * write-only reg; the DMA path checks nothing) -- real hardware does, so
+     * the BIOS boot value must not be trusted with our corridor dests. */
+    *(volatile unsigned int *)0xa05f6910 &= ~(1u << 14);
+    *(volatile unsigned int *)0xa05f6920 &= ~(1u << 14);
+    *(volatile unsigned int *)0xa05f6930 &= ~(1u << 14);
+    SB_GDAPRO = 0x8843007fu;
+#endif
 }
 #else
 #define gd_hw_init() ((void)0)
@@ -347,7 +388,43 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
     GD_DRVSEL = 0xa0;
     if (gd_wait_clear(ST_BSY | ST_DRQ)) return gd_fail(GD_E_IDLE, fad);
 
+    /* Bytes still owed. Declared up here so the DMA path can retire it (to
+     * 0) before jumping to the shared epilogue -- the epilogue's short-data
+     * verdict reads it on every path. */
+    unsigned left = sectors * GD_SECSZ;
+
+#if !GD_LOADER_BUILD && SHIM_G1DMA
+    /* T3 stage 2: real G1 DMA when the request qualifies -- multi-sector
+     * body into 32-aligned main RAM. Everything else (bounce sectors,
+     * prefetch slices, odd dests) keeps the proven PIO path; the loader
+     * keeps PIO unconditionally (KOS owns its interrupt policy, and the
+     * rehearsal has no throughput problem). Engine programmed BEFORE the
+     * packet, kicked after -- KOS dma_common's exact order (g1ata.c:358-380:
+     * ADDRESS/LENGTH/DIRECTION/ENABLE, command, then STATUS=1); flycast
+     * latches GDSTARD from GDSTAR at the GDST write (gdromv3.cpp:1358) and
+     * requires GDEN=1 first (:1353-1356), so the same order serves both.
+     * OCBI the dest range first: the engine writes physical RAM behind the
+     * CPU's back, so no line may sit cached over it -- a dirty line's
+     * write-back would land ON TOP of DMA'd data, and a clean one would
+     * serve stale reads. Discarding (not flushing) is correct: whatever the
+     * cache holds for a region the disc is about to overwrite is dead by
+     * definition (Cleopatra's DMA path, HW-proven, its gd.c:148-158). */
+    unsigned phys = (unsigned)(unsigned long)dst & 0x1fffffffu;
+    int dma = sectors >= 2 && !(phys & 31u) && phys >= 0x0c000000u
+              && left <= 0x0d000000u - phys;
+    if (dma) {
+        for (unsigned a = phys | 0x80000000u, e = a + left; a < e; a += 32u)
+            __asm__ __volatile__("ocbi @%0" : : "r"(a) : "memory");
+        SB_GDSTAR = phys;
+        SB_GDLEN  = left;
+        SB_GDDIR  = 1;
+        SB_GDEN   = 1;
+    }
+    GD_FEATURES = (unsigned char)dma;   /* bit0 = DMA data phase, latched at the
+                                         * packet exec (gdromv3.cpp:791-792,:1201) */
+#else
     GD_FEATURES = 0;                    /* PIO, not DMA (gdromv3.cpp:770 tests bit 0) */
+#endif
     GD_SECCNT = 0;                      /* transfer mode: unused for a packet read */
     GD_BCLO = (unsigned char)(GD_SECSZ & 0xffu);   /* byte-count limit per DRQ block */
     GD_BCHI = (unsigned char)(GD_SECSZ >> 8);
@@ -382,6 +459,29 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
     GD_DATA = (unsigned short)(((sectors >> 16) & 0xffu) | (((sectors >> 8) & 0xffu) << 8));
     GD_DATA = (unsigned short)(sectors & 0xffu);
 
+#if !GD_LOADER_BUILD && SHIM_G1DMA
+    if (dma) {
+        SB_GDST = 1;
+        /* The engine moves the whole request; poll the kick bit down. Same
+         * ~10 s budget and heartbeat as every other wait here. flycast
+         * clears GDST exactly when GDLEND reaches GDLEN (gdromv3.cpp:
+         * 1333-1336) and raises the (masked) bit-14 interrupt, which we ack
+         * below either way so nothing stays latched. */
+        unsigned i;
+        for (i = 0; i < GD_SPIN && (SB_GDST & 1u); i++) { GD_HEARTBEAT(i); }
+        unsigned lend = SB_GDLEND;
+        gd_diag[6] = lend;
+        *(volatile unsigned int *)0xa05f6900 = 1u << 14;   /* ack GD-DMA status */
+        if (SB_GDST & 1u) {
+            SB_GDEN = 0;    /* abort a wedged engine (clears GDST, gdromv3.cpp:1376-1379) */
+            return gd_fail(GD_E_DMA, fad);
+        }
+        if (lend != left) return gd_fail(GD_E_DMA, fad);
+        left = 0;           /* fully delivered -- retire the epilogue's short-data check */
+        goto gd_epilogue;   /* same end-of-command verdict as the PIO path */
+    }
+#endif
+
     /* Data phase. The drive delivers the sectors in DRQ blocks and announces
      * each block's size in the byte-count registers -- do NOT assume one block
      * per sector: flycast hands over up to 31 sectors (63,488 B) at a time
@@ -392,7 +492,6 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
      * sampled once, at the top of the block. */
     unsigned char *p = (unsigned char *)P2ADDR((unsigned long)dst);
     int odd = (int)((unsigned long)p & 1u);
-    unsigned left = sectors * GD_SECSZ;
     gd_diag[2] = 0; gd_diag[3] = 0xffffffffu; gd_diag[4] = 0; gd_diag[5] = 0;
     while (left) {
         int wait = gd_wait_drq();
@@ -420,6 +519,9 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
         }
     }
 
+#if !GD_LOADER_BUILD && SHIM_G1DMA
+gd_epilogue:
+#endif
     if (gd_wait_clear(ST_BSY | ST_DRQ)) {
         /* Forensics before dying: pull whatever the drive still holds and
          * count it (gd_diag[5], painted on the death screen). The leftover

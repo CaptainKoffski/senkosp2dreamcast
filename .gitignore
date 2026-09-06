@@ -14,6 +14,7 @@ __pycache__/
 # Phase 4 build outputs (ROM/BIOS-derived bytes; never commit)
 /build/
 /build-t2b/
+/build-t3/
 /shims/build/
 /shims/data/
 loader/*.o

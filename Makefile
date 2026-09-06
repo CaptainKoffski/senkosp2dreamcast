@@ -61,6 +61,13 @@ endif
 ifeq ($(PFVERIFY),1)
 DEFS += -DSHIM_PF_VERIFY=1
 endif
+# G1DMA=0: disable the T3 stage-2 real G1-DMA path (A/B legs only; DEFAULT
+# ON). Multi-sector bodies into main RAM then fall back to polled PIO at the
+# 2.8 MB/s ceiling. Raw-ATA backend only either way -- the syscall backend
+# (DreamShell isoldr) never enters gd_read_fad.
+ifeq ($(G1DMA),0)
+DEFS += -DSHIM_G1DMA=0
+endif
 # FORCE_SYSCALL=1: loader skips the raw rehearsal and seeds the syscall
 # backend -- the whole game then streams via BIOS GD syscalls. RETIRED as a
 # verification leg (task-6-report.md DEBUG ROUND 1): against this emulator's

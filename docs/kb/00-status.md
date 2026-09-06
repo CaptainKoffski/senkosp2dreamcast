@@ -1239,6 +1239,32 @@ silent}/` (gitignored). Leg protocol + verdict table:
 `phase7-polishing.md` §T2 (c). It doubles as T3's acceptance meter
 (objective before/after for the stage-8 drip stall).
 
+**Phase 7 T3 BUILT (2026-09-06, both stages; emulator legs PASS,
+hardware round owed — `phase7-polishing.md` §T3 has the full record +
+operator protocol).** Stage 1: 64 KB prefetch ring — the drip can't be
+deferred (kick→wait is one call chain; the shim learns of a kick only
+at the wait hook), so it's predicted: reloc entry `"0x13ae68"` raises
+the game heap base 0x10000 (address-invariant — the allocator carves
+from free-node TOPs; adjacent BSS-bound word deliberately untouched),
+`gd.c` chases the perfectly-sequential stream one sector per frame
+from `shim_maple_service` into `[0x8c1de200, 0x8c1ee200)`, and a
+request inside the window is served as a RAM copy. Armed only when
+the heap word reads back patched + main-mode boot; every anomaly
+(slice error, verify mismatch, fence overlap) disarms sticky — never
+fatal. Stage 2: real G1 DMA (`SB_GD*`) for ≥2-sector 32-aligned
+bodies, raw backend only — KOS `dma_common` register order, ISTNRM
+bit-14 masked in all three IML levels + acked per transfer (the
+HW-CONFIRMED Cleopatra lesson), `SB_GDAPRO` ALLMEM unlock (flycast
+never enforces it, real HW does), OCBI dest before kick. Emulator:
+44/44 `PFVFY bad=0`, 83/83 SHIMCRC byte-exact (DMA bodies included),
+`w` pinned 0x10, 0 errors. Both default ON (`PREFETCH=0`/`G1DMA=0`
+A/B knobs); v9-candidate + dongle-safe meter build staged under
+`build-t3/` — md5s + the flycast-models-DMA-time caveat in
+`tooling.md`. Hardware round: GDEMU dwell target y236 ≤0x11 (was
+0x21), DreamShell ≈0x11 (was 0x42), stage-8 = (b) + heap-steal
+regression watch, load stopwatch = (a), full campaign on the release
+build.
+
 **Phase 7 T2b MEASURED (2026-09-06, operator: all three dwell sits):
 (c) IS a disc stall after all — one root cause now spans (a)/(b)/(c),
 T3 closes everything.** The gd-call counter moved with every hitch on

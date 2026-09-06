@@ -877,3 +877,116 @@ approval.
 **Wiring for the next session:** start from this doc + `docs/kb/00-status.md`.
 T1 begins with the playbook loop (brainstorm → spec → plan), and its step 0
 (throughput measurement) needs only the operator and a stopwatch.
+
+---
+
+## T3 — G1 DMA / async cart service (2026-09-06: BUILT, emulator legs PASS; hardware round owed)
+
+Branch `phase7-pool`, commits `68fa3cc` (stage 1) + stage 2. Bounded task
+(brainstorm-approved design in chat, both stages approved; no spec file).
+Two stages, one shipping default each:
+
+### Recon verdicts that shaped the design (decided before writing code)
+
+1. **The drip cannot be deferred, only predicted.** The steady path is
+   kick→wait in ONE call chain (`FUN_8c027f54` reaches the hooked wait
+   directly — cart.c CART-WAIT-A header), and the kick itself is an
+   unhookable RAM mirror write: the shim first learns of a transfer when
+   the wait hook fires, and when that hook returns the buffer must be
+   complete. So "async service" = **read-ahead**, not deferral.
+2. **The drip is perfectly sequential.** `parse_shimtime`-domain audit of
+   `captures/phase7/t2-hw-gdemu.log`: every drip read starts exactly where
+   the previous ended (0x9800/0x4800 chunks chaining through one region,
+   e.g. `o=0c467000 → +9800 → 0c470800 → …`), so a "next = end of last
+   read" predictor hits ~100% after one miss per stream.
+3. **A safe 64 KB ring home exists at the heap BOTTOM.** The heap-top seed
+   is untouchable (16 MB-granular idiom; every corridor address depends on
+   the exact 0x1000000 shift), but the heap *base* is a statically
+   initialized pool word `[0x8c15ae68] = 0x8c1de200` (relocation-map.md
+   provenance step 5), and the allocator carves every block from free-node
+   TOPs with `remaining` derived from `size = top − base` (step 6) — so
+   raising the base by 0x10000 changes NO allocation address, only
+   capacity (−64 KB; −128 KB total on the syscall backend whose HEAP-CARVE
+   already takes the top 64 KB for isoldr). Whole-image audit: exactly two
+   words hold 0x8c1de200 — `0x13ae64` (BSS-clear bound, NOT patched) and
+   `0x13ae68` (heap base, patched). Reloc entry `"0x13ae68"` in
+   `scripts/reloc_patchset.json`; test image deliberately unpatched.
+
+### Stage 1 — prefetch ring (`SHIM_PREFETCH`, default ON)
+
+`shims/src/gd.c`: window `[pf_lo, pf_hi)` in cart-byte space over the
+stolen `[0x8c1de200, 0x8c1ee200)`; ring index = `byte & 0xFFFF` (no anchor
+state; pure math `pf_hit_plan` host-tested in `test/test_gd_math.c`).
+Fill: ONE sector per frame from `shim_maple_service` via the normal
+`gd_read` backend dispatch — no I/O state ever spans a frame, so there is
+no reentrancy or paused-transfer hazard on either backend. Serve: at the
+top of `gd_read_cart`, a request whole inside the window is a P2→P2 RAM
+copy that falls through the same SHIM_TIME/SHIM_CRC tail as a real read; a
+miss reads exactly as before and re-aims the window (sector-rounded down).
+Fill rate ~120 KB/s (even on serial-SD) vs. drip consumption ~37 KB/s.
+
+Never fatal: arming requires the heap word to read back PATCHED
+(`PF_HEAP_BASE_NEW`) AND a main-mode boot; slice read errors, PFVERIFY
+mismatches, and any game DMA dest overlapping the ring (new fence check in
+cart.c) all DISARM sticky — `pf_stat[3]` records the site (1 unpatched, 2
+test mode, 3 slice error, 4 fence overlap, 5 verify mismatch). Known
+ceiling (recorded, not built): a second interleaved stream would ping-pong
+the single window back to today's blocking behavior — visible as
+`pf_stat[1]` climbing with `[0]` flat.
+
+### Stage 2 — real G1 DMA (`SHIM_G1DMA`, default ON, raw backend only)
+
+`gd_read_fad`: multi-sector bodies (≥2 sectors) into 32-aligned main RAM
+go through the real `SB_GD*` engine (the game only ever touches the
+mirror, so the real registers are the shim's alone); everything else —
+bounce sectors, prefetch slices, the loader build, the whole syscall
+backend — keeps the proven PIO path. Recipe and citations in the code:
+KOS `dma_common` register order (g1ata.c:358-380), FEATURES bit0 latched
+at packet exec (gdromv3.cpp:791-792, :1201), GDST kick/clear + GDLEND
+convergence (:1349-1360, :1333-1336), abort via GDEN=0 (:1376-1379).
+Real-hardware-only requirements flycast can't test: ISTNRM **bit 14**
+masked in IML2/4/6NRM + acked per transfer (the HW-CONFIRMED Cleopatra
+lesson, its gd.c:169-185/:200) and `SB_GDAPRO = 0x8843007f` (KOS ALLMEM
+unlock, g1ata.c:114-118/:1116 — flycast stores but never enforces it,
+sb.cpp:430). OCBI over the dest before every kick (discard, not flush —
+Cleopatra's proven coherence rule). New failure site `GD_E_DMA` 9;
+`gd_diag[6]` holds the final GDLEND.
+
+### Emulator legs (2026-09-06, instrumented Flycast, 150 s attract each)
+
+| leg | build | result |
+|---|---|---|
+| stage-1 verify | `SERIAL=1 TIME=1 FRAMEGAP=1 PFVERIFY=1` | 123 SHIMGAP windows, `w` pinned 0x10; **44 ring hits, all `PFVFY bad=0`**; tail chunk l=0x3000 also hit |
+| stage-2 CRC | `SERIAL=1 TIME=1 CRC=1 FRAMEGAP=1` | 117 windows, same stream profile (g=0x54 p=0x2c); **83/83 SHIMCRC byte-exact vs track04** (DMA bodies included); 0 error markers, GCARVE rv=1 |
+
+Emulator caveat for the next reader: flycast MODELS transfer time on the
+DMA path (1.8 MB/s large-transfer drive rate, gdromv3.cpp:1255-1262)
+where its PIO path answered in one poll — so emulator boot max-hold rose
+0x1b1 → 0x3ae by MODEL, not by regression. GDEMU serves DMA faster than a
+real drive; the hardware leg's SHIMTIME `d=` is the only real number.
+
+### Operator hardware round (owed) — protocol + pre-registered verdicts
+
+Builds staged (gitignored): `build-t3/release/` (silent, all defaults —
+release-v9 candidate, track04 `e731e34bc43b8612613efc1f1e74b4c0`) and
+`build-t3/meter/` (`FRAMEGAP=1`, serial-silent, dongle-safe, track04
+`b77e56d8b8b76c22e1e5821ad22fb8f3`; HUD x=340: y236 window-worst ms /
+y250 max-hold / y264 gd calls / **y278 ring hits — NEW**).
+
+1. **GDEMU dwell sit** (meter build, char-select, ~60 s): target y236
+   `≤0x11` (T2b baseline 0x21). y278 climbing ~1/s = ring serving the drip.
+2. **DreamShell dwell sit** (meter build + dongle, ~60 s): target y236
+   `≈0x11` (T2b baseline 0x42).
+3. **Stage-8 match** (meter build, GDEMU): microfreezes gone = (b) closed;
+   this leg doubles as the heap-steal regression watch (stage 8 is the
+   deepest allocator — an alloc failure here is the 64/128 KB steal
+   biting; fallback = shrink `PF_RING_SZ`).
+4. **Load stopwatch** (either build, GDEMU): attract→START and 2P join
+   wall-clock vs. the T2 numbers — the stage-2 DMA win on (a).
+5. **Full-campaign sanity** (release build): normal play-through.
+
+Verdicts: targets met → respin release v9 from defaults and CLOSE
+(a)+(b)+(c). Dwell `w` unimproved with y278 frozen → ring disarmed on
+hardware — read `pf_stat[3]` (paint it via a follow-up diag) before
+touching anything. (b) improved but (a) not → DMA rate on GDEMU ≈ PIO
+rate; record, keep DMA (it can't be slower), (a) stays open honestly.
