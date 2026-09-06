@@ -1238,3 +1238,21 @@ off rebuild = release v8 md5. Builds staged `build-t2b/{serial,
 silent}/` (gitignored). Leg protocol + verdict table:
 `phase7-polishing.md` §T2 (c). It doubles as T3's acceptance meter
 (objective before/after for the stage-8 drip stall).
+
+**Phase 7 T2b MEASURED (2026-09-06, operator: all three dwell sits):
+(c) IS a disc stall after all — one root cause now spans (a)/(b)/(c),
+T3 closes everything.** The gd-call counter moved with every hitch on
+every backend: the char-select dwell screen runs the SAME ~1/s
+streaming drip as stage-8 (38,912 B + occasional smaller reads), and
+the felt cost is purely link throughput — emulator w=0x10 (0 ms,
+drip present but free), GDEMU w=0x21 (one dropped frame/s),
+DreamShell w=0x42 (66 ms/s; implied serial-SD ≈780 KB/s, revising
+the ~490 KB/s estimate). **Retraction recorded: T2's "the dwell
+screen does zero disc I/O" was a timeline misattribution** — the
+drip sits in `t2-hw-gdemu.log` from t=28.1 s, inside the char-select
+segment. Both non-disc candidates (game-side CPU task, isoldr-
+resident activity) are dead; no DreamShell-source check needed.
+Verdicts + leg records: `phase7-polishing.md` §T2. **Next: T3 (G1
+DMA / async cart service), now funded by all three symptoms, with
+the frame-gap meter as its acceptance instrument** (GDEMU dwell
+0x21→≤0x11, DreamShell dwell 0x42→≈0x11); own task, own approval.

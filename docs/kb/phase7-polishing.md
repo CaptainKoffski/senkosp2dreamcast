@@ -776,17 +776,22 @@ never fired across two 2P matches + stage 8.
   **ANSWERED (operator, 2026-09-06): the idle dwell screen itself** —
   "when I see a character and there is a green BG swirling, I see it
   freezes each ~1s"; first noticed on DreamShell where it is much more
-  noticeable, then found on GDEMU too, subtler. **Reframe: (c) is NOT a
-  disc stall and NOT closed by T3.** For the dwell screen the leg
-  measured zero disc I/O, so disc, arena, and the instrument (release
-  builds show it) are all exonerated. Root cause OPEN, two candidate
-  mechanisms: (1) a game-side periodic ~1/s task (leading — must
-  reproduce in Flycast as a guest frame-time spike; if fixed-size it
-  also explains "subtler on GDEMU" only via attention/contrast); (2)
-  isoldr-resident periodic activity (the only mechanism that could make
-  an idle screen genuinely worse on DreamShell with zero I/O — needs a
-  DreamShell-source check for timer/IRQ hooks that run without GD
-  calls). **Escalation instrument BUILT (T2b, 2026-09-06):**
+  noticeable, then found on GDEMU too, subtler. ~~Reframe: (c) is NOT a
+  disc stall and NOT closed by T3 — for the dwell screen the leg
+  measured zero disc I/O~~ **WRONG, retracted by T2b (below): the
+  "zero dwell I/O" claim was a timeline misattribution.** The drip was
+  in `t2-hw-gdemu.log` all along: from t=28.1 s — squarely inside the
+  char-select segment — single 38,912 B reads every ~1.5 s with
+  occasional smaller ones (18,432 / 12,288 B), the exact signature this
+  doc filed under "(b) in-match streaming". The dwell drip and the
+  stage-8 drip are the SAME mechanism (a ~1/s streaming read, almost
+  certainly music/voice), running on menus and in-match alike; T2's
+  scene mapping folded the dwell reads into the entry burst's tail.
+  ~~Root cause OPEN, two candidate mechanisms: (1) a game-side periodic
+  ~1/s CPU task; (2) isoldr-resident periodic activity~~ both dead —
+  killed by the T2b emulator control (drip present, `w` clean) and the
+  moving `g` counter on both hardware backends.
+  **Escalation instrument BUILT (T2b, 2026-09-06):**
   `FRAMEGAP=1` (`SHIM_FRAMEGAP`, tooling.md §Phase 7 knobs) — the live
   maple-kick hook `shim_maple_service` runs once per frame and cannot
   run during a blocking cart read, so its inter-call TCNT0 delta IS
@@ -813,13 +818,42 @@ never fired across two 2P matches + stage 8.
   pinned at 0x10-0x11 everywhere while the eye still sees hitches =
   not a CPU-loop stall at all (re-scope: video/TA-side).
 
-**Net: T3 (G1 DMA / async cart service) is the funded follow-up for
-(a) and (b); T4 stays shelved with no symptom pointing at it; (c) the
-dwell-screen hitch is a separate, non-disc open item** (candidate
-mechanisms + escalation instrument above — small, own approval). T3
-still starts with `gd.c`'s recorded caveats (G1-mirror coherence, DMA
-completion IRQ masked — the Cleopatra lesson) and is its own task with
-its own approval.
+  **T2b MEASURED (operator, 2026-09-06) — all three dwell sits done,
+  verdict: (c) IS a disc stall — the same ~1/s streaming drip as (b),
+  cost scaled by link throughput.** The `g` counter moved with every
+  hitch on every backend; the pre-registered "y236 elevated + y264
+  moving = disc path after all" row fired.
+  - **Emulator** (`captures/phase7/t2b-emu-dwell.stdout.log`, 77
+    windows): `g` steps ~1/window through the dwell — the drip is the
+    game's own behavior, reproduced under Flycast — while `w` stays
+    pinned 0x10 (reads are ~instant): 0 ms visible cost.
+  - **GDEMU** (`captures/phase7/hw-t2b-1.log`, 86 windows, coder's
+    cable): dwell runs `w=0x21` (33 ms = one dropped frame) in nearly
+    every window with `g` stepping ~1/s — the T2-measured 15 ms PIO
+    drip stall landing on a 16.7 ms frame. Transition max-hold
+    `x=0x237` (567 ms). Matches "subtler on GDEMU".
+  - **DreamShell** (TV reading, video kept by operator): dwell
+    `w=0x42` (66 ms ≈ frame + ~50 ms stall) almost all the time,
+    dropping to 0x21 twice for a couple seconds; transition peak
+    0x11B (283 ms worst chunk), max-hold latches 0x11B; `g` starts
+    0x20 and **increments on each hitch**, cadence ~1/s with
+    occasional shorter gaps — the smaller drip reads (18,432 /
+    12,288 B) visible in both hardware logs. Implied dwell-read
+    throughput ≈ 38,912 B / ~50 ms ≈ **~780 KB/s serial-SD** —
+    revises the earlier ~490 KB/s felt-time estimate upward; same
+    mechanism either way.
+
+**Net (T2b final): ONE root cause spans all three symptoms — blocking
+synchronous cart service. T3 (G1 DMA / async cart service) is the
+funded follow-up for (a), (b) AND (c); T4 stays shelved with no
+symptom pointing at it.** The DreamShell-source check is unnecessary
+(isoldr exonerated). The frame-gap meter is T3's acceptance
+instrument, with hardware-proven baselines: GDEMU dwell `w` 0x21 →
+target ≤0x11; DreamShell dwell `w` 0x42 → target ≈0x11 (an async
+service hides the drip behind frames on both). T3 still starts with
+`gd.c`'s recorded caveats (G1-mirror coherence, DMA completion IRQ
+masked — the Cleopatra lesson) and is its own task with its own
+approval.
 
 ### Attribution rules (the T2 verdicts, decided before the data)
 
