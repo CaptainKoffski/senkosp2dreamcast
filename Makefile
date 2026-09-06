@@ -17,6 +17,7 @@
 #   make deploy  = copy the five disc files to a GDEMU card entry + dot_clean
 #                  (the playbook's AppleDouble boot trap). Override target:
 #                  make deploy CARD=/Volumes/GDEMU/03
+#   make test-serial = coder's-cable two-way check (boot GDmenu slot 04 first)
 #
 # Requires: sh-elf toolchain at /opt/toolchains/dc, KOS via
 # ../cleopatra/tools/kos, BIOS at bios/naomi/epr-21576h.ic27 (gitignored).
@@ -84,7 +85,7 @@ DISC_FILES = build/disc.gdi build/track01.iso build/track02.raw \
              build/track03.iso build/track04.iso
 ZIP = build/[GDI] Senko no Ronde Special.zip
 
-.PHONY: shims loader gdi disc release test test-vmu test-vmu-play deploy deploy-dcload clean
+.PHONY: shims loader gdi disc release test test-vmu test-vmu-play deploy deploy-dcload test-serial clean
 
 shims:
 	$(MAKE) -C shims
@@ -151,6 +152,18 @@ deploy-dcload:
 	@ls -a "$(DCLOAD_CARD)" | grep '^\._' && { echo "AppleDouble junk survived!"; exit 1; } || true
 	$(if $(NOEJECT),@echo "deployed to $(DCLOAD_CARD) -- NOT ejected",\
 	  diskutil eject "$$(df '$(DCLOAD_CARD)' | tail -1 | awk '{print $$NF}')")
+
+# Two-way coder's-cable check (the Task 25 control leg, re-runnable after a
+# cable re-assembly). Operator: serial-SD dongle DETACHED (same SCIF pins),
+# boot GDmenu slot 04 "DCLOAD-SERIAL 1.0.7" and leave it on dcload's banner,
+# then run this. Upload proves host->DC, the echoed "Hello world!" +
+# "Program returned 0" prove DC->host. Known-good: captures/phase6/dcload-hello.log
+DC_TOOL    = tools/dcload-serial/host-src/tool/dc-tool-ser
+HELLO_ELF  = ../cleopatra/tools/kos/examples/dreamcast/hello/hello.elf
+SERIAL_DEV ?= $(firstword $(wildcard /dev/cu.usbserial*))
+test-serial:
+	test -n "$(SERIAL_DEV)"   # cable plugged in?
+	$(DC_TOOL) -t "$(SERIAL_DEV)" -x "$(HELLO_ELF)"
 
 clean:
 	$(MAKE) -C shims clean
