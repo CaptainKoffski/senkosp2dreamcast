@@ -1560,6 +1560,34 @@ is byte-for-byte unaffected.
   `scripts/capture_dc_leg.sh <leg> build/disc.gdi -config
   Debug:SerialConsoleEnabled=yes` (do not rely on the app's persisted
   pref, which is how `phase7/t2-emuctl1` happened to capture).
+- **`FRAMEGAP=1` (T2b, 2026-09-06; serial-silent by design)** →
+  `-DSHIM_FRAMEGAP=1`. The dwell-hitch instrument (`phase7-polishing.md`
+  §T2 (c)): `shim_maple_service` — the live maple-kick hook, once per
+  frame in the scene loop, never runnable during a blocking cart read —
+  measures its inter-call TCNT0 delta and paints three hex cells (GDDIAG
+  pattern, white-on-blue, column x=340): y236 worst frame ms in the last
+  ~1 s (64-kick) window, y250 worst since boot (max-hold), y264
+  `gd_read_cart` call count (`gd_calls`, `.data` in gd.c). TV-readable
+  with zero SCIF traffic, so it runs beside the DreamShell serial-SD
+  dongle. Combined with `SERIAL=1` it also emits one `SHIMGAP
+  w=<win ms> x=<max ms> g=<gd calls>` line per window (~2 ms at 115200,
+  landing in the *next* window = a ~2 ms floor, far under a visible
+  hitch). Gaps ≥1 s are dropped as TMU0-reload wrap, same clamp as the
+  pad cache; the multi-second load stalls are already T2-measured.
+  Builds (each after `make clean`, knob gotcha below): `FRAMEGAP=1
+  SERIAL=1` track04 `810ac4321dc667598d1209ba69478b0b` (emulator/GDEMU
+  cable leg), `FRAMEGAP=1` alone `55d3cf2960095a1950f767a3dbbc7c51`
+  (DreamShell leg), knob-off rebuild `ba63905ca7b551ca8de1451872f8420d`
+  = release v8 byte-identical (discipline check PASS). Staged under
+  `build-t2b/{serial,silent}/` (gitignored — ROM bytes). Never ship.
+  **Source gotcha, burned this build:** `shims/src/main.c:687–1745` is
+  one big `#if 0` legacy block ("re-enabled per-task: see plan Tasks
+  10-12") that still contains plausible-looking hook code —
+  `shim_maple_steady`, `la_tick`, the whole `SHIM_LOADSTAT` part-A
+  timeline. The LIVE per-frame hook is `shim_maple_service`
+  (main.c:~716). The first FRAMEGAP build compiled clean with the
+  instrument in the dead block and shipped a knob-less shim; `strings
+  shims/build/shim.bin | grep SHIMGAP` is the proof-of-life check.
 - **`FORCE_SYSCALL=1` (retired as a verification leg, kept as a primitive)**
   → `-DGD_FORCE_SYSCALL=1`. Skips the raw rehearsal and seeds
   `backend=1` directly. `task-6-report.md` DEBUG ROUND 1 found this leg

@@ -39,6 +39,14 @@ endif
 ifeq ($(TIME),1)
 DEFS += -DSHIM_TIME=1
 endif
+# FRAMEGAP=1: on-screen frame-gap meter (worst frame ms: ~1 s window + max-
+# hold) + gd-call counter, column x=340 y=236/250/264 -- TV-readable,
+# serial-silent, works beside the DreamShell dongle. The phase-7 T2b
+# dwell-hitch instrument. With SERIAL=1 also echoes one SHIMGAP line per
+# ~1 s window. Never ship.
+ifeq ($(FRAMEGAP),1)
+DEFS += -DSHIM_FRAMEGAP=1
+endif
 # FORCE_SYSCALL=1: loader skips the raw rehearsal and seeds the syscall
 # backend -- the whole game then streams via BIOS GD syscalls. RETIRED as a
 # verification leg (task-6-report.md DEBUG ROUND 1): against this emulator's

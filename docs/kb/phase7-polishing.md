@@ -786,11 +786,32 @@ never fired across two 2P matches + stage 8.
   isoldr-resident periodic activity (the only mechanism that could make
   an idle screen genuinely worse on DreamShell with zero I/O — needs a
   DreamShell-source check for timer/IRQ hooks that run without GD
-  calls). Escalation instrument designed, not yet built: a frame-gap
-  max-hold HUD row (worst inter-frame TCNT0 delta, GDDIAG pattern —
-  TV-readable, serial-silent so it works beside the dongle) + a
-  gd-call counter, read on the dwell screen on both backends; plus an
-  emulator control sit on the same screen.
+  calls). **Escalation instrument BUILT (T2b, 2026-09-06):**
+  `FRAMEGAP=1` (`SHIM_FRAMEGAP`, tooling.md §Phase 7 knobs) — the live
+  maple-kick hook `shim_maple_service` runs once per frame and cannot
+  run during a blocking cart read, so its inter-call TCNT0 delta IS
+  the felt frame time. Three GDDIAG-pattern cells at x=340
+  (white-on-blue, serial-silent, dongle-safe): y236 worst frame ms in
+  the last ~1 s window, y250 worst since boot, y264 `gd_read_cart`
+  call count. With `SERIAL=1`, one `SHIMGAP w= x= g=` line per window.
+  Emulator smoke sit (attract, ~100 s,
+  `captures/phase7/t2b-emu-attract.stdout.log`): steady attract
+  `w=0x10` = 16 ms = one clean frame; the boot attract-load burst
+  shows `w=0x1b1` (433 ms worst frame) exactly while `g` steps
+  1→0x1c, then `g` freezes and `w` returns to 0x10 — all three cells
+  discriminate as designed. Distribution across 76 windows: 63×0x10
+  (16 ms), 10×0x1d (29 ms), 1×0x18, 1×0x21, 1×0x1b1 (the boot load)
+  — the emulator's attract baseline the dwell sits are judged
+  against. **T2b leg protocol (operator):** sit on
+  the 1P char-select dwell screen ≥30 s on each of (1) emulator
+  (keyboard, stdout log — control), (2) GDEMU, (3) DreamShell; read or
+  photograph the x=340 column *while the green BG swirls*. Verdict
+  table: y236 elevated + y264 moving = disc path after all; y236
+  elevated + y264 frozen = game-side periodic task (candidate 1 —
+  emulator leg must then show it too); y236 elevated on DreamShell
+  only, y264 frozen = isoldr-resident activity (candidate 2); y236
+  pinned at 0x10-0x11 everywhere while the eye still sees hitches =
+  not a CPU-loop stall at all (re-scope: video/TA-side).
 
 **Net: T3 (G1 DMA / async cart service) is the funded follow-up for
 (a) and (b); T4 stays shelved with no symptom pointing at it; (c) the

@@ -36,6 +36,10 @@
 #define SHIM_TIME 0     /* diagnostic: TMU0-stamped SHIMTIME line per cart read
                          * (phase-7 T2 profiling; digest: parse_shimtime.py) */
 #endif
+#ifndef SHIM_FRAMEGAP
+#define SHIM_FRAMEGAP 0 /* diagnostic: count gd_read_cart calls for main.c's
+                         * frame-gap HUD (phase-7 T2b dwell-hitch leg) */
+#endif
 #if SHIM_CRC || SHIM_TIME
 void scif_puts(const char *); void scif_puthex(unsigned int);
 #endif
@@ -438,8 +442,15 @@ static int gd_read(unsigned fad, void *dst, unsigned secs) {
     return gd_read_fad(fad, dst, secs);
 }
 
+#if SHIM_FRAMEGAP
+unsigned int gd_calls = 1;      /* .data nonzero (house style); main.c paints it */
+#endif
+
 int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
     if (!len) return 0;
+#if SHIM_FRAMEGAP
+    gd_calls++;
+#endif
     if (cart_off > (unsigned)CART_SIZE || len > (unsigned)CART_SIZE - cart_off)
         return gd_fail(GD_E_RANGE, cart_off);
 

@@ -1223,3 +1223,18 @@ IEE signature); **`ie2=0` — first full-session zero for the queued
 bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
+
+**Phase 7 T2b BUILT (2026-09-06, branch phase7-pool): the dwell-hitch
+frame-gap instrument, emulator smoke PASS — awaiting the operator's
+three-leg dwell sit.** `FRAMEGAP=1` (`SHIM_FRAMEGAP`): the live
+maple-kick hook measures inter-call TCNT0 deltas — worst frame ms
+(~1 s window + boot max-hold) + `gd_read_cart` counter, painted
+GDDIAG-style at x=340 y236/250/264, serial-silent (dongle-safe);
+`SERIAL=1` adds a per-window `SHIMGAP` line. Smoke sit
+(`captures/phase7/t2b-emu-attract.stdout.log`): steady attract w=0x10
+(16 ms = 1 frame), attract-load burst w=0x1b1 while the gd counter
+steps, then freezes — all three cells discriminate. Discipline: knob-
+off rebuild = release v8 md5. Builds staged `build-t2b/{serial,
+silent}/` (gitignored). Leg protocol + verdict table:
+`phase7-polishing.md` §T2 (c). It doubles as T3's acceptance meter
+(objective before/after for the stage-8 drip stall).
