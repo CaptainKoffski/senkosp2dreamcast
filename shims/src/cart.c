@@ -47,6 +47,9 @@ typedef unsigned int u32;
 
 void shim_die(u32, u32, u32);
 int gd_read_cart(unsigned cart_off, void *dst, unsigned len);   /* gd.c: the tested path */
+#if SHIM_PREFETCH
+void gd_prefetch_off(u32 site);               /* gd.c: T3 ring disarm (sticky) */
+#endif
 extern u32 gd_last_err;                       /* gd.c: 0xda<site><status><error> */
 void scif_puts(const char *); void scif_puthex(u32);
 void shim_mark(u32 slot, unsigned short color);   /* util.c: breadcrumb HUD */
@@ -81,6 +84,16 @@ static void fence_or_die(u32 off, u32 dest, u32 len) {
         (dest & 0x1f000000u) != 0x0c000000u ||
         dest < DEST_LO || dest + len > DEST_HI)
         shim_die(2, off, dest);
+#if SHIM_PREFETCH
+    /* T3: a game dest overlapping the prefetch ring is legal by the bounds
+     * above but means the heap-base steal is not being honoured (wild
+     * pointer, or a patch that did not take past pf_armed's probe) -- the
+     * ring's bytes can no longer be trusted, so disarm sticky (gd.c site 4)
+     * rather than die: the read itself is still served correctly. */
+    if (dest < ((PF_RING_BASE & 0x1fffffffu) + PF_RING_SZ) &&
+        dest + len > (PF_RING_BASE & 0x1fffffffu))
+        gd_prefetch_off(4);
+#endif
 }
 
 /* Both boot bodies compose their cart offset as

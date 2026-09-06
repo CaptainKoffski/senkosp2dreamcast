@@ -47,6 +47,20 @@ endif
 ifeq ($(FRAMEGAP),1)
 DEFS += -DSHIM_FRAMEGAP=1
 endif
+# PREFETCH=0: disable the T3 prefetch ring (A/B legs only; DEFAULT ON -- the
+# ring IS the (b)/(c) hitch fix, docs/kb/phase7-polishing.md §T3). The
+# heap-base steal (reloc entry "0x13ae68") stays applied either way; with the
+# ring disarmed the 64 KB just sits idle.
+ifeq ($(PREFETCH),0)
+DEFS += -DSHIM_PREFETCH=0
+endif
+# PFVERIFY=1 (needs SERIAL=1 to be audible): every T3 ring hit is re-read
+# from disc through SHIM_BOUNCE and byte-compared -- one PFVFY line per hit,
+# bad=0 expected; any mismatch disarms the ring (site 5). The T3 control
+# instrument; emulator legs only, doubles hit-path disc traffic. Never ship.
+ifeq ($(PFVERIFY),1)
+DEFS += -DSHIM_PF_VERIFY=1
+endif
 # FORCE_SYSCALL=1: loader skips the raw rehearsal and seeds the syscall
 # backend -- the whole game then streams via BIOS GD syscalls. RETIRED as a
 # verification leg (task-6-report.md DEBUG ROUND 1): against this emulator's

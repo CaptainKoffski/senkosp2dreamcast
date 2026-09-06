@@ -676,9 +676,18 @@ int shim_e_prefree(int a, int b, int c, int d) {
  * of line at 115200 baud lands in the NEXT window -- a ~2 ms floor, far
  * under any visible hitch). TMU0: game-reprogrammed free-running
  * down-counter (KB §T1 TMU0 verdict); TCR0.TPSC read, never assumed. */
+#if SHIM_PREFETCH
+void gd_prefetch_tick(void);    /* gd.c: T3 ring fill, one sector per frame */
+#else
+#define gd_prefetch_tick() ((void)0)
+#endif
+
 #if SHIM_FRAMEGAP
 void hex_paint_c(u32, u32, u32, unsigned short, unsigned short);   /* util.c */
 extern unsigned int gd_calls;                                      /* gd.c */
+#if SHIM_PREFETCH
+extern u32 pf_stat[4];          /* gd.c: [0] ring hits -- T3 acceptance row */
+#endif
 #define FG_TCNT0 (*(volatile u32 *)0xffd8000c)
 #define FG_TCR0  (*(volatile unsigned short *)0xffd80010)
 static u32 fg_last, fg_beat, fg_curmax, fg_winmax, fg_allmax;      /* set on 1st tick */
@@ -700,11 +709,19 @@ static void fg_tick(void) {                 /* once per maple kick */
         scif_puts("SHIMGAP w="); scif_puthex(fg2ms(fg_winmax));
         scif_puts(" x=");        scif_puthex(fg2ms(fg_allmax));
         scif_puts(" g=");        scif_puthex(gd_calls);
+#if SHIM_PREFETCH
+        scif_puts(" p=");        scif_puthex(pf_stat[0]);   /* T3 ring hits */
+#endif
         scif_puts("\n");
     }
     hex_paint_c(340, 236, fg2ms(fg_winmax), 0xffff, 0x001f);
     hex_paint_c(340, 250, fg2ms(fg_allmax), 0xffff, 0x001f);
     hex_paint_c(340, 264, gd_calls,         0xffff, 0x001f);
+#if SHIM_PREFETCH
+    hex_paint_c(340, 278, pf_stat[0],       0xffff, 0x001f);  /* T3: ring hits --
+                                             * climbing beside a flat y264 gap
+                                             * cadence = drip served from RAM */
+#endif
 }
 #else
 #define fg_tick() ((void)0)
@@ -716,6 +733,7 @@ int shim_maple_service(void) {
     gcarve_tick();
     texhud_tick();
     fg_tick();
+    gd_prefetch_tick();     /* T3: after fg_tick so the meter samples first */
     if (SHIM_TRACE && (maple_count & 0x1ffu) == 0u) {   /* ~8 s heartbeat */
         scif_puts("MS n="); scif_puthex(maple_count & 0xffffu); scif_puts("\n");
     }

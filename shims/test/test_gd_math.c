@@ -14,6 +14,9 @@
 struct plan { unsigned fad, head_skip, head_len, body_secs, tail_len; };
 struct plan gd_plan(unsigned cart_off, unsigned len);   /* from gd.c, pure */
 unsigned int shim_crc32(const void *p, unsigned len);   /* from gd.c, pure */
+struct pf_cut { unsigned idx, first; };                 /* keep in sync (gd.c) */
+int pf_hit_plan(unsigned lo, unsigned hi, unsigned off, unsigned len,
+                struct pf_cut *c);                      /* from gd.c, pure */
 
 int main(void) {
     /* --- the task brief's three cases ---------------------------------- */
@@ -72,5 +75,32 @@ int main(void) {
     assert(shim_crc32("", 0) == 0u);
 
     printf("PASS test_gd_math shim_crc32\n");
+
+    /* --- pf_hit_plan (phase 7 T3 prefetch window math) ------------------- */
+    struct pf_cut c;
+    /* whole request inside the window, no ring wrap */
+    assert(pf_hit_plan(0x10000, 0x20000, 0x10800, 0x9800, &c) == 1
+        && c.idx == 0x0800 && c.first == 0x9800);
+    /* exact window: [lo, hi) fully consumed */
+    assert(pf_hit_plan(0x10000, 0x19800, 0x10000, 0x9800, &c) == 1
+        && c.idx == 0x0000 && c.first == 0x9800);
+    /* the T2 drip shape at a ring-wrapping position: request straddles the
+       64 KB ring edge -> two segments, first up to the edge */
+    assert(pf_hit_plan(0x1c000, 0x2c000, 0x1c800, 0x9800, &c) == 1
+        && c.idx == 0xc800 && c.first == 0x3800);   /* 0x10000 - 0xc800 */
+    /* misses: before the window, past the window, overrunning hi */
+    assert(pf_hit_plan(0x10000, 0x20000, 0x0f800, 0x800, &c) == 0);
+    assert(pf_hit_plan(0x10000, 0x20000, 0x20000, 0x800, &c) == 0);
+    assert(pf_hit_plan(0x10000, 0x20000, 0x1f000, 0x1800, &c) == 0);
+    /* off far past hi: hi - off would underflow -- the guard-order case */
+    assert(pf_hit_plan(0x10000, 0x20000, 0xf0000000u, 0x800, &c) == 0);
+    /* empty window never hits; len 0 is a miss by fiat */
+    assert(pf_hit_plan(0x800, 0x800, 0x800, 0x800, &c) == 0);
+    assert(pf_hit_plan(0x10000, 0x20000, 0x10000, 0, &c) == 0);
+    /* 1-byte request at the last window byte */
+    assert(pf_hit_plan(0x10000, 0x20000, 0x1ffff, 1, &c) == 1
+        && c.idx == 0xffff && c.first == 1);
+
+    printf("PASS test_gd_math pf_hit_plan\n");
     return 0;
 }

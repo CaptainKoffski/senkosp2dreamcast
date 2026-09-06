@@ -40,7 +40,7 @@
 #define SHIM_FRAMEGAP 0 /* diagnostic: count gd_read_cart calls for main.c's
                          * frame-gap HUD (phase-7 T2b dwell-hitch leg) */
 #endif
-#if SHIM_CRC || SHIM_TIME
+#if SHIM_CRC || SHIM_TIME || SHIM_PF_VERIFY
 void scif_puts(const char *); void scif_puthex(unsigned int);
 #endif
 #if SHIM_TIME
@@ -80,6 +80,28 @@ struct plan gd_plan(unsigned cart_off, unsigned len) {
     p.body_secs = len / 2048u;
     p.tail_len = len % 2048u;
     return p;
+}
+
+/* ---- prefetch window math (pure, host-tested: test/test_gd_math.c) -------
+ * The T3 ring holds the cart-byte window [lo, hi) at ring index
+ * (byte & (PF_RING_SZ-1)) -- PF_RING_SZ is a power of two, so the mapping
+ * needs no anchor state and any window <= PF_RING_SZ maps injectively.
+ * Returns 1 and fills `cut` when [off, off+len) lies whole inside the
+ * window: idx = ring index of off, first = bytes up to the ring edge (a
+ * wrapped request is copied in two segments -- `first` from idx, then
+ * len-first from index 0). Guard order is load-bearing: off <= hi must be
+ * established before hi - off is formed (unsigned underflow would turn a
+ * far-past-window off into a "hit"), and len == 0 is a miss by fiat
+ * (gd_read_cart returns before ever asking). */
+struct pf_cut { unsigned idx, first; };
+
+int pf_hit_plan(unsigned lo, unsigned hi, unsigned off, unsigned len,
+                struct pf_cut *c) {
+    if (!len || off < lo || off > hi || hi - off < len) return 0;
+    c->idx = off & (PF_RING_SZ - 1u);
+    c->first = PF_RING_SZ - c->idx;
+    if (c->first > len) c->first = len;
+    return 1;
 }
 
 /* CRC-32/IEEE (reflected, poly 0xEDB88320) -- matches Python zlib.crc32 and
@@ -442,6 +464,106 @@ static int gd_read(unsigned fad, void *dst, unsigned secs) {
     return gd_read_fad(fad, dst, secs);
 }
 
+/* ---- T3 prefetch ring (docs/kb/phase7-polishing.md §T3) ------------------
+ * The game's steady streaming is kick -> wait in one call chain, and the
+ * shim only learns of a kick when the wait hook fires -- so the blocking
+ * drip read (T2b: 15 ms GDEMU / ~50 ms serial-SD, one hitch per second on
+ * the dwell screen and stage 8) cannot be deferred, only PREDICTED. The T2
+ * log shows the drip is perfectly sequential (every read starts where the
+ * previous ended), so: a 64 KB ring at PF_RING_BASE (stolen from the game
+ * heap's bottom, reloc entry "0x13ae68") chases the stream one sector per
+ * frame from shim_maple_service, and a request whole inside the window is
+ * served as a RAM copy instead of a disc read. A miss is served exactly as
+ * before (no regression path) and re-aims the window at the request's end.
+ *
+ * Never fatal by design: prefetch is speculative I/O, so every failure
+ * DISARMS it (pf_state=0 sticky, site in pf_stat[3]) instead of dying --
+ * including a slice read error, whose gd_fail record (SHIM_ERR/gd_last_err)
+ * is left behind as forensics but not acted on. Arming is gated on two
+ * runtime tripwires (pf_armed): the heap-base pool word must read back
+ * PATCHED (else the game's heap still covers the ring) and the boot must be
+ * main-mode (the test image's heap is deliberately unpatched). cart.c's
+ * fence additionally disarms on any game dest overlapping the ring.
+ * Known ceiling, ponytail: one window -- two interleaved streams would
+ * ping-pong reset it and degrade to exactly today's blocking behavior
+ * (visible as pf_stat[1] misses climbing with [0] flat); second window only
+ * if a leg ever shows that. */
+#if SHIM_PREFETCH
+static unsigned pf_lo = 0x800, pf_hi = 0x800; /* window [lo,hi), cart bytes; .data
+                                          * nonzero + sector-aligned (fill
+                                          * math relies on hi's alignment) */
+static unsigned pf_state = 0xa5;     /* 0xa5 unprobed / 1 armed / 0 sticky off */
+unsigned int pf_stat[4] = {0, 0, 0, 0x9f9f9f9f}; /* [0] hits [1] misses [2] fills
+                                         * [3] disarm site (sentinel = armed);
+                                         * painted by main.c's FRAMEGAP HUD */
+
+static int pf_armed(void) {
+    if (pf_state == 1) return 1;
+    if (pf_state == 0) return 0;
+    if (*P2(PF_HEAP_BASE_WORD) != PF_HEAP_BASE_NEW) { pf_state = 0; pf_stat[3] = 1; return 0; }
+    if (P2(SHIM_STATE)[0] != 0)                     { pf_state = 0; pf_stat[3] = 2; return 0; }
+    pf_state = 1;
+    return 1;
+}
+
+/* cart.c fence: a game DMA dest overlapping the ring (site 4). */
+void gd_prefetch_off(unsigned site);
+void gd_prefetch_off(unsigned site) { pf_state = 0; pf_stat[3] = site; }
+
+/* Both sides P2 (uncached, the C1 rule end to end: gd_read filled the ring
+ * through P2, the game reads its dest uncached). u32 fast path when
+ * co-aligned -- every observed stream is sector-aligned to a 32-aligned
+ * dest; the byte tail is correctness for the rest. */
+static void pf_copy(unsigned char *d, const unsigned char *s, unsigned n) {
+    if ((((unsigned long)d | (unsigned long)s) & 3u) == 0)
+        for (; n >= 4; n -= 4) { *(unsigned *)(void *)d = *(const unsigned *)(const void *)s; d += 4; s += 4; }
+    while (n--) *d++ = *s++;
+}
+
+/* One sector per frame, called from shim_maple_service (main.c). Bounded:
+ * ~0.7 ms on GDEMU PIO, ~2.6 ms on the serial-SD dongle -- inside frame
+ * slack, and 120 KB/s of fill against the drip's ~37 KB/s consumption, so
+ * the window stays ahead after one miss. Never runs while a blocking read
+ * is in flight (hooks do not nest; loads simply starve the tick). */
+void gd_prefetch_tick(void);
+void gd_prefetch_tick(void) {
+    if (!pf_armed()) return;
+    if (pf_hi - pf_lo >= PF_RING_SZ) return;            /* window full */
+    if (pf_hi >= (unsigned)CART_SIZE) return;                /* image end */
+    unsigned char *slot = (unsigned char *)
+        P2ADDR(PF_RING_BASE + (pf_hi & (PF_RING_SZ - 1u)));
+    if (gd_read(CART_FAD + pf_hi / GD_SECSZ, slot, 1) < 0) {
+        gd_prefetch_off(3);         /* speculative -- disarm, never die */
+        return;
+    }
+    pf_hi += GD_SECSZ;
+    pf_stat[2]++;
+}
+
+#if SHIM_PF_VERIFY
+/* Control instrument: re-read every served hit from disc through the bounce
+ * and byte-compare against what the ring delivered. One PFVFY line per hit;
+ * any mismatch disarms (site 5). Emulator legs only -- doubles hit traffic. */
+static void pf_verify(unsigned off, const unsigned char *dst_p2, unsigned len) {
+    unsigned char *b = (unsigned char *)P2ADDR(SHIM_BOUNCE);
+    unsigned pos = off & ~(GD_SECSZ - 1u), bad = 0;
+    while (pos < off + len) {
+        if (gd_read(CART_FAD + pos / GD_SECSZ, b, 1) < 0) { bad = 0xffffffffu; break; }
+        unsigned s = pos > off ? pos : off;
+        unsigned e = pos + GD_SECSZ < off + len ? pos + GD_SECSZ : off + len;
+        for (unsigned i = s; i < e; i++)
+            if (b[i - pos] != dst_p2[i - off]) bad++;
+        pos += GD_SECSZ;
+    }
+    scif_puts("PFVFY o="); scif_puthex(off);
+    scif_puts(" l=");      scif_puthex(len);
+    scif_puts(" bad=");    scif_puthex(bad);
+    scif_puts("\n");
+    if (bad) gd_prefetch_off(5);
+}
+#endif
+#endif /* SHIM_PREFETCH */
+
 #if SHIM_FRAMEGAP
 unsigned int gd_calls = 1;      /* .data nonzero (house style); main.c paints it */
 #endif
@@ -463,6 +585,27 @@ int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
     unsigned t_in = TIME_TCNT0;
 #endif
 
+#if SHIM_PREFETCH
+    /* T3 hit path: the whole request is in the ring window -- serve it as a
+     * RAM copy (the C1 rule holds: ring filled via P2, copied out via P2),
+     * consume the window up to the request's end, and fall through to the
+     * same TIME/CRC tail as a real read (a hit's SHIMTIME d= is the copy
+     * cost; a CRC leg validates ring bytes for free). */
+    struct pf_cut cut;
+    if (pf_armed() && pf_hit_plan(pf_lo, pf_hi, cart_off, len, &cut)) {
+        pf_copy(d, (const unsigned char *)P2ADDR(PF_RING_BASE + cut.idx), cut.first);
+        if (cut.first < len)
+            pf_copy(d + cut.first,
+                    (const unsigned char *)P2ADDR(PF_RING_BASE), len - cut.first);
+        pf_lo = cart_off + len;
+        pf_stat[0]++;
+#if SHIM_PF_VERIFY
+        pf_verify(cart_off, d, len);
+#endif
+        goto pf_served;
+    }
+#endif
+
     if (pl.head_len) {
         if ((r = gd_read(fad, b, 1)) < 0) return r;      /* head */
         for (i = 0; i < pl.head_len; i++) d[i] = b[pl.head_skip + i];
@@ -478,6 +621,16 @@ int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
         if ((r = gd_read(fad, b, 1)) < 0) return r;      /* tail */
         for (i = 0; i < pl.tail_len; i++) d[i] = b[i];
     }
+#if SHIM_PREFETCH
+    if (pf_state == 1) {            /* miss: re-aim the window at the stream's
+                                     * new position, sector-rounded DOWN so a
+                                     * chained unaligned stream still lands
+                                     * inside next time (<= 2047 B refetched) */
+        pf_stat[1]++;
+        pf_lo = pf_hi = (cart_off + len) & ~(GD_SECSZ - 1u);
+    }
+pf_served:;
+#endif
 #if SHIM_TIME
     {
         /* Exit stamp sampled BEFORE any serial output (one line is ~4 ms at

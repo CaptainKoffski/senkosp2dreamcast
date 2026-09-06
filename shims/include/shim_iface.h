@@ -81,6 +81,26 @@
  * compiled out of the loader build (GD_LOADER_BUILD). */
 #define CART_SIZE       0x0efb3000  /* 251,342,848 = len(senkosp.dat) */
 
+/* Phase 7 T3: prefetch ring -- 64 KB stolen from the game heap's BOTTOM by
+ * reloc_patchset.json entry "0x13ae68" (heap-base pool word 0x8c1de200 ->
+ * 0x8c1ee200; address-invariant, see that entry's why). The ring caches the
+ * game's sequential streaming drip so the blocking cart service becomes a RAM
+ * copy; filled one sector per frame from shim_maple_service (gd.c
+ * gd_prefetch_tick). Keep BASE/SZ/NEW and the json entry in sync. */
+#define PF_RING_BASE      0x8c1de200  /* old heap base; ring = [BASE, BASE+SZ) */
+#define PF_RING_SZ        0x00010000  /* power of two: ring idx = byte & (SZ-1) */
+#define PF_HEAP_BASE_WORD 0x8c15ae68  /* pool word FUN_8c085b00 reads as heap base */
+#define PF_HEAP_BASE_NEW  0x8c1ee200  /* = PF_RING_BASE + PF_RING_SZ */
+#ifndef SHIM_PREFETCH
+#define SHIM_PREFETCH 1         /* the T3 (b)/(c) hitch fix -- ships ON.
+                                 * PREFETCH=0 (top Makefile) for A/B legs. */
+#endif
+#ifndef SHIM_PF_VERIFY
+#define SHIM_PF_VERIFY 0        /* diagnostic: re-read every ring hit from disc
+                                 * and byte-compare (PFVFY serial line). Never
+                                 * ship 1 (doubles hit-path disc traffic). */
+#endif
+
 #define P2ADDR(a)       ((a) | 0xa0000000)
 #ifndef HOST_TEST
 #define P2(a)           ((volatile unsigned int *)P2ADDR(a))
