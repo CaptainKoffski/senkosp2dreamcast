@@ -1768,8 +1768,8 @@ excursion then exact splash-raster restore; composite: restore
 byte-equal to the retired `vid_geom_ntsc` table. Dead end recorded:
 `-config config:Dreamcast.Cable=0` on the CLI does NOT override the
 cable — edit `emu.cfg` line 25 and restore after (the phase-6
-`emu.cfg.bak-cable3` convention). **Release v10 CANDIDATE md5s:**
-tracks 01–03 unchanged since v2; `track04.iso` =
-`a77856d801e613d090cb879597921d60` (`make release` + `make test`
-green). Promotion pending the operator hardware round
-(phase7-polishing.md §T8 BUILT).
+`emu.cfg.bak-cable3` convention). **Release v10 md5s** (hardware round
+PASS 2026-09-07, operator capture-device verdict; respin from defaults
+reproduced the candidate byte-identical): tracks 01–03 unchanged since
+v2; `track04.iso` = `a77856d801e613d090cb879597921d60`. Supersedes v9.
+Full round record: phase7-polishing.md §T8 hardware round.

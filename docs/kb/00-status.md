@@ -1224,6 +1224,16 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T8 CLOSED (2026-09-07, operator hardware round PASS —
+`phase7-polishing.md` §T8 hardware round).** Verdict via the operator's
+new capture device (color bars the instant signal drops — 100%
+detection vs ~1-in-5 by eye): v9 control re-test confirmed drops are
+boot-only on both backends; v10 pin build holds signal end-to-end on
+VGA (black gap stays black, no bars) and composite is centered/clean.
+**Release v10 promoted** (`track04` `a77856d801e613d090cb879597921d60`,
+respin byte-identical, tracks 01–03 unchanged; supersedes v9). Next
+per operator: T7 revival design (gap decoration) — gate pending.
+
 **Phase 7 T8 BUILT (2026-09-07, pin-only approved; emulator legs PASS,
 hardware round owed — `phase7-polishing.md` §T8 BUILT).** Operator
 confirmed drops are boot-only, matching the census. SPG-GEOMETRY-PIN:

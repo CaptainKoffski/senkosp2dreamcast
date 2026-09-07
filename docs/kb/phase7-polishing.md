@@ -656,7 +656,9 @@ that skips the reprogram when the values are unchanged. Highest-value
 open item per the operator. → **RECON DONE 2026-09-07** (§T8 below):
 mechanism = the boot-time takeover mode-set really changing the raster
 on VGA (old "same-values no-op" claim falsified); in-game loads are
-video-silent. SPG-GEOMETRY-PIN fix designed, pending gate.
+video-silent. SPG-GEOMETRY-PIN fix designed, pending gate. →
+**CLOSED 2026-09-07** (§T8 hardware round): pin shipped, operator
+capture-device verdict PASS on VGA + composite; release v10.
 
 **T9 — Pre-game settings screen** (operator ask 2026-09-07): let players
 set difficulty, round time, game mode before the game starts. Stateless
@@ -1234,3 +1236,36 @@ upload).
 
 After a PASS, decide T7 revival (splash-persist through the gap) by
 taste: watch one stable-signal boot first — pool entry has the plan.
+
+### T8 hardware round (2026-09-07, operator) — PASS, T8 CLOSED
+
+**Operator instrument upgrade (record for all future video legs):** a
+video capture device that switches to a color-bar test pattern the
+instant the input signal drops — zero buffer time, 100% detection. By
+eye the v9 drop was only catchable ~1 in 5 boots because its duration
+sits right at the monitor's own timeout boundary; the capture device
+ends that ambiguity.
+
+**v9 re-characterization (control test on the old build first):** with
+the capture device, drops re-confirmed on BOTH GDEMU and the serial
+backend, and **only during the game's initial loading — never at any
+later screen transition**. Matches the T8 census (the mode-set is
+takeover-only, backend-agnostic) and retires the "almost every load"
+reading for good.
+
+**v10 candidate verdicts:**
+
+| leg | verdict |
+|---|---|
+| 1. VGA boot watch (capture device) | **PASS — black screen through the load window, no color bars: signal held end-to-end** |
+| 2. Composite regression | PASS — image correct, centered, no issues |
+
+Per the pre-registered table: **T8 CLOSED, v10 promoted to release.**
+Escalation path (FUN_8c032140 write filter) not needed — the ~1 ms
+excursion rides through on real monitors, as bet.
+
+**Release md5s v10** (respin from defaults, `make clean` →
+`make release`, `make test` green): `track04.iso` =
+`a77856d801e613d090cb879597921d60` — byte-identical to the staged
+candidate (reproducibility check PASS); tracks 01–03 unchanged since
+v2. Supersedes v9. Zip re-packaged (embeds the ROM — never upload).
