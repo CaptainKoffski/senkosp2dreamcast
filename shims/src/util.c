@@ -131,41 +131,52 @@ int shim_monitor_sense(void) {
     return r;
 }
 
-/* 15 kHz geometry override (Task 31 round 2). The SDK's class-0 builder is
- * tuned for arcade monitors: 536-line frame (SPG_LOAD=0x02180353), active
- * start line 0x17 -- on the operator's TV the picture sits ~10% low with
- * FREE PLAY cut off (docs/kb/img/phase6-composite-shift.jpeg). Our KOS
- * loader's splash on the SAME boot displays centered, so after the SDK
- * finishes its 15 kHz mode-set we restore exactly the six geometry regs to
- * KOS's DC-native NTSC-IL values (measured from KOS's own boot writes,
- * pc=8c00b87c, captures/phase6/comp-leg + rel-comp3; offsets per Flycast
- * core/hw/pvr/pvr_regs.h). Everything the SDK computed for itself -- FB
- * layout, interlace fields, vclk -- is left alone. VIDEO-GEOM-HOOK wraps
- * the game's one display-init call (fn-ptr pool word per image, main dat
- * 0x4edcc, test dat 0x1aa9c0); mode word passes through UNTOUCHED (the
- * bit30 lesson, §composite fix) -- this is a post-init reg fixup only. */
-static void vid_geom_ntsc(void) {
+/* SPG-GEOMETRY-PIN (phase 7 T8; generalizes the Task 31 round-2 15 kHz
+ * geometry override). The game's one-time takeover mode-set rewrites the
+ * six SPG/VO geometry regs FOR REAL on every cable -- on VGA it moves the
+ * raster from KOS's 525x858 to the arcade 529x852 (SPG_LOAD
+ * 020c0359->02110353 etc., captures/phase6/geo-vga0 + phase7 t8 census) --
+ * a genuine sync-frequency change, so VGA monitors drop signal and relock
+ * ~1 s at NOW LOADING on every boot (operator report; the arcade class-0
+ * builder did the same to TVs: picture ~10% low, phase6-composite-shift
+ * .jpeg). Fix: snapshot the live raster -- the one the monitor has been
+ * locked to since the loader splash -- right before the SDK display-mode
+ * entry, restore it right after. The wrong-timing excursion shrinks to
+ * ~2 ms / one partial frame (census: the old post-fixup already landed
+ * there and TVs rode through it). Everything the SDK computed for itself
+ * stays game-owned: FB layout (FB_R_SIZE), vclk_div + fb enable
+ * (FB_R_CTRL), blank (VO_CONTROL); SPG_CONTROL is measured pre==post on
+ * both cables (0x100 VGA / 0x150 NTSC, geo-vga0 + t8-same-attract) so it
+ * is not pinned. On composite the live pre-call values ARE the old
+ * hardcoded vid_geom_ntsc table (KOS's boot writes, pc=8c00b87c), so this
+ * is byte-equivalent there; on the dcload path it preserves dcload's
+ * raster (fixes that drop too). VIDEO-GEOM-HOOK wraps the game's one
+ * display-init call (fn-ptr pool word per image, main dat 0x4edcc, test
+ * dat 0x1aa9c0); mode word passes through UNTOUCHED (the bit30 lesson,
+ * §composite fix). Reg offsets per Flycast core/hw/pvr/pvr_regs.h.
+ * Record: docs/kb/phase7-polishing.md §T8. */
+static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
+                                        unsigned int, unsigned int),
+                           unsigned int mode, unsigned int b,
+                           unsigned int c, unsigned int d) {
+    /* SPG_HBLANK, SPG_LOAD, SPG_VBLANK, SPG_WIDTH, VO_STARTX, VO_STARTY */
+    static const unsigned char off[6] = { 0xd4, 0xd8, 0xdc, 0xe0, 0xec, 0xf0 };
     volatile unsigned int *pvr = (volatile unsigned int *)0xa05f8000;
-    pvr[0xd4 / 4] = 0x007e0345;    /* SPG_HBLANK */
-    pvr[0xd8 / 4] = 0x020c0359;    /* SPG_LOAD: 525-line NTSC frame */
-    pvr[0xdc / 4] = 0x00240204;    /* SPG_VBLANK */
-    pvr[0xe0 / 4] = 0x07d6c63f;    /* SPG_WIDTH */
-    pvr[0xec / 4] = 0x000000a4;    /* VO_STARTX */
-    pvr[0xf0 / 4] = 0x00120012;    /* VO_STARTY: line 18, not 23 */
+    unsigned int save[6];
+    for (unsigned int i = 0; i < 6; i++) save[i] = pvr[off[i] / 4];
+    int r = entry(mode, b, c, d);
+    for (unsigned int i = 0; i < 6; i++) pvr[off[i] / 4] = save[i];
+    scif_puts("VIDPIN load="); scif_puthex(save[1]);
+    scif_puts(" ret="); scif_puthex((unsigned int)r); scif_puts("\n");
+    return r;
 }
 int shim_vid_init_main(unsigned int mode, unsigned int b, unsigned int c, unsigned int d) {
-    int r = ((int (*)(unsigned int, unsigned int, unsigned int, unsigned int))
-             0x8c03d48e)(mode, b, c, d);
-    if (!shim_cable_is_vga())
-        vid_geom_ntsc();
-    return r;
+    return vid_init_pinned((int (*)(unsigned int, unsigned int, unsigned int,
+                                    unsigned int))0x8c03d48e, mode, b, c, d);
 }
 int shim_vid_init_test(unsigned int mode, unsigned int b, unsigned int c, unsigned int d) {
-    int r = ((int (*)(unsigned int, unsigned int, unsigned int, unsigned int))
-             0x8c03cf0e)(mode, b, c, d);
-    if (!shim_cable_is_vga())
-        vid_geom_ntsc();
-    return r;
+    return vid_init_pinned((int (*)(unsigned int, unsigned int, unsigned int,
+                                    unsigned int))0x8c03cf0e, mode, b, c, d);
 }
 
 void shim_die(unsigned int code, unsigned int a, unsigned int b) {

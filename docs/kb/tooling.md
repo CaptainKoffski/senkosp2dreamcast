@@ -1761,3 +1761,15 @@ are blocked for the CLI host (error -1743, no Accessibility grant).
 Working substitutes: savestate-resume legs (above) and the game's own
 auto-advance timers; if T8/T9 ever need real scripted input, either
 grant Accessibility or rebuild the fork with Lua present.
+
+**T8 pin legs + candidate (2026-09-07):** `phase7/t8-pin-vga` /
+`t8-pin-comp` (150 s unattended each, pin build) — VGA: ~1 ms
+excursion then exact splash-raster restore; composite: restore
+byte-equal to the retired `vid_geom_ntsc` table. Dead end recorded:
+`-config config:Dreamcast.Cable=0` on the CLI does NOT override the
+cable — edit `emu.cfg` line 25 and restore after (the phase-6
+`emu.cfg.bak-cable3` convention). **Release v10 CANDIDATE md5s:**
+tracks 01–03 unchanged since v2; `track04.iso` =
+`a77856d801e613d090cb879597921d60` (`make release` + `make test`
+green). Promotion pending the operator hardware round
+(phase7-polishing.md §T8 BUILT).

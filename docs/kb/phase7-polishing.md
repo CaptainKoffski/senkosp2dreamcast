@@ -624,7 +624,17 @@ GDEMU button-swap dance. Quality-of-life for us, invisible to users.
 bar no better on hardware, commit `7476d47` has the whole implementation
 + recon): only revisit with a new idea, e.g. keeping the splash visible
 through the gap (BOOT-UNBLANK recon in `docs/kb/phase5-hardware.md`
-§Black-gap decorate has the scanout facts).
+§Black-gap decorate has the scanout facts). → **REVIVAL REGISTERED
+2026-09-07 (operator ask, T8 follow-on):** the T8 pin plausibly explains
+the rollback — on VGA the monitor was dropping/relocking during the gap,
+so the decoration was invisible behind the "no signal" toast; with sync
+held stable the gap becomes watchable for the first time. Plan when
+funded: splash-persist through the gap (suppress the game's blank-set;
+three redundant blank sites + splash-at-scanout-base proof already in
+the recon), NOT a progress bar — the gap interior is 3.3 s of zero-I/O
+CPU work (§Black-gap control test), nothing real to measure. Decide
+AFTER the T8 pin's hardware verdict: operator watches one stable-signal
+boot first, then judges whether the authentic black still bothers them.
 
 **T8 — Video-signal dropout during loads** (operator, recurring; promoted
 2026-09-07 from the T3 hardware round): the monitor loses sync and goes
@@ -1171,3 +1181,56 @@ no monitor drop at NOW LOADING = PASS.
 Lua input scripting for legs: dead end, recorded in tooling.md (the
 fork binary ships without USE_LUA compiled in); savestate +
 auto-advance legs and the census sufficed.
+
+### T8 BUILT (2026-09-07): SPG-GEOMETRY-PIN — emulator legs PASS, hardware round owed
+
+**Implementation** (`shims/src/util.c`, design approved pin-only):
+`vid_init_pinned()` snapshots the six geometry regs (SPG_HBLANK/LOAD/
+VBLANK/WIDTH, VO_STARTX/STARTY) live at wrapper entry — i.e. the raster
+the monitor has been locked to since the loader splash, including the
+relocated-BIOS blob's interim VBLANK/STARTX tweaks — calls the SDK
+display-mode entry, restores them right after, and prints one `VIDPIN`
+line on SERIAL builds. Both VIDEO-GEOM-HOOK wrappers
+(`shim_vid_init_main`/`_test`) route through it; the hardcoded
+composite-only `vid_geom_ntsc` table is deleted (subsumed). SPG_CONTROL
+left unpinned by measurement: pre==post on both cables (0x100 VGA /
+0x150 NTSC — geo-vga0 + t8-same-attract censuses; the ernula-lili
+`150→100` change was an old-loader-era artifact). FB_R_SIZE, FB_R_CTRL
+(vclk_div), VO_CONTROL (blank) stay game-owned. No knob: the pin
+replaces the existing always-on fixup; the v9 build is the A-side.
+
+**Emulator census legs** (fork `ec9ac9dab`, 150 s each, unattended;
+emu.cfg Cable edit per phase-6 convention — the CLI override
+`-config config:Dreamcast.Cable=0` does NOT take, see tooling.md):
+
+| leg | cable | verdict |
+|---|---|---|
+| `phase7/t8-pin-vga` | 0 (VGA) | PASS — mode-set writes the arcade 31 kHz raster (SPG_LOAD `020c0359→02110353` etc.) at 18:23:16.665, pin restores all six at **.668 (~1 ms excursion)** to the exact live pre-call values (`020c0359/007e0345/00240204/03f1933f/ac/0028`); zero further SPG writes through attract; 0 SHIMERR; 195k cart-log lines, TA active at kill |
+| `phase7/t8-pin-comp` | 3 (composite) | PASS — restore values byte-equal to the old `vid_geom_ntsc` table (`007e0345/020c0359/00240204/07d6c63f/a4/00120012`): behavior-identical to v9 on TVs by construction; 0 SHIMERR; attract renders |
+
+**Release v10 CANDIDATE** (`make release` + `make test` green,
+2026-09-07): `track04.iso` = `a77856d801e613d090cb879597921d60`;
+tracks 01–03 unchanged since v2. Promotion to release v10 waits on the
+operator hardware round below. Zip staged
+(`build/[GDI] Senko no Ronde Special.zip` — embeds the ROM, never
+upload).
+
+**Operator hardware round — pre-registered verdicts:**
+
+1. **VGA boot watch (the fix check):** cold boot the candidate on
+   GDEMU + VGA, watch splash → black gap → NOW LOADING → attract.
+   PASS = the monitor never loses signal after its first lock at the
+   splash (v9 baseline: ~1 s drop/standby at NOW LOADING on almost
+   every boot). PASS → T8 CLOSED, v10 promoted.
+2. **Composite regression:** one boot on the TV — picture still
+   centered, FREE PLAY visible (equivalence proven byte-level in the
+   comp leg; this is the belt-and-braces look).
+3. **Sanity:** brief play to char-select + one stage; DreamShell one
+   boot if convenient (the pin runs at takeover, backend-agnostic).
+4. **If VGA still drops at NOW LOADING:** the ~1 ms excursion is still
+   too much for that monitor — escalation already sketched: filter the
+   six regs inside a `FUN_8c032140` replacement (skip-while-pinned,
+   zero excursion). Report, don't improvise.
+
+After a PASS, decide T7 revival (splash-persist through the gap) by
+taste: watch one stable-signal boot first — pool entry has the plan.

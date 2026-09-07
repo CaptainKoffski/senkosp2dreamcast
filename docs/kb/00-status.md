@@ -1224,6 +1224,20 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T8 BUILT (2026-09-07, pin-only approved; emulator legs PASS,
+hardware round owed — `phase7-polishing.md` §T8 BUILT).** Operator
+confirmed drops are boot-only, matching the census. SPG-GEOMETRY-PIN:
+`vid_init_pinned()` snapshots the six geometry regs at the game's one
+display-init call and restores them after — VGA leg shows a ~1 ms
+excursion then the exact splash raster (was: permanent 525→529 change =
+the drop); composite restore is byte-equal to the retired
+`vid_geom_ntsc` table. SPG_CONTROL measured pre==post both cables →
+unpinned. **Release v10 CANDIDATE** `track04` `a77856d8…`, tracks 01–03
+unchanged; promotion on the operator's VGA boot-watch PASS (no signal
+loss after splash lock). T7 revival registered (splash-persist through
+the gap, decided after the pin verdict); loading-screen progress bar
+rejected — the gap interior is zero-I/O, nothing real to measure.
+
 **Phase 7 T8 RECON (2026-09-07, branch phase7-t8-videodrop; v9 merged
 to main + tagged 0.2.0 first): video-dropout mechanism pinned to the
 BOOT mode-set — fix designed, pending gate.** New fork instrument
