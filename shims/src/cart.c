@@ -46,7 +46,6 @@ typedef unsigned int u32;
 #define DEST_HI  0x0d000000u
 
 void shim_die(u32, u32, u32);
-void spinner_tick(u32 bytes);                 /* util.c: boot splash spinner */
 int gd_read_cart(unsigned cart_off, void *dst, unsigned len);   /* gd.c: the tested path */
 #if SHIM_PREFETCH
 void gd_prefetch_off(u32 site);               /* gd.c: T3 ring disarm (sticky) */
@@ -174,10 +173,6 @@ static void cart_stream(void) {
      * far (all 32-byte-aligned lengths). */
     m[M_GDLEND / 4] = (len + 31u) & ~31u;
     m[M_GDST / 4] = 0;
-
-    spinner_tick(len);   /* T7 round 2: boot splash spinner (util.c) --
-                          * self-gated on scanout, inert after the game's
-                          * first scene flip */
 }
 
 /* Plausibility guard for a game object pointer handed to us in a register: P1

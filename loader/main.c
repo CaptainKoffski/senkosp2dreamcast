@@ -213,11 +213,11 @@ int main(void) {
      * photo). Splash bytes thus scan right through takeover until the game
      * blanks for its own boot scene. KOS picks the cable-correct 640x480
      * variant. */
-    /* T7 round 2: "NOW LOADING..." is baked into splash.bin at build time
-     * (loader/Makefile splash rule + scripts/splash_text.py -- typeset to
-     * match the logo, replacing round 1's bfont draw). The shim copies this
-     * framebuffer to a side buffer at the game's mode-set and scans THAT
-     * through the boot gap; see shims/src/util.c SPLASH-SIDE-BUFFER. */
+    /* T7 round 3: the splash is shown bare -- no text, no spinner (operator
+     * judged the round-2 typeset line off-style, and nothing of ours can
+     * execute during the boot gap to animate anything; see util.c). The shim
+     * copies this framebuffer to a side buffer at the game's mode-set and
+     * scans THAT through the boot gap; see util.c SPLASH-SIDE-BUFFER. */
     if (LOADER_QUIET) {
         vid_set_mode(DM_640x480, PM_RGB565);
         memcpy(vram_s, splash_bin, 640 * 480 * 2);

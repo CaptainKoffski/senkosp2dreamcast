@@ -646,8 +646,13 @@ boot-watch owed. → **Round 1 FAIL 2026-09-07 (operator: garbage band
 + gauge ticks over the splash — the game's own compose, unhidden);
 ROUND 2 BUILT 2026-09-08 (§T7 ROUND 2): side-buffer scanout at
 measured-free 0x260000 + cart-read spinner + typeset text; both-cable
-legs 0 foreign words; v11 candidate now `ca05d568…`; operator round
-owed.**
+legs 0 foreign words. → **Round 2 hardware verdict 2026-09-08:
+side-buffer PASS (splash byte-clean on HW), text off-style, spinner
+never visible (design-dead: no cart reads in the gap). ROUND 3 SHIPPED
+(operator chose bare splash): text + spinner deleted; v11 candidate
+now `21494430…`; GAPISR recon found the vblank ISR live all gap
+(~60 Hz) = a real spinner is a bounded round-4 if ever asked
+(§T7 round 2 hardware verdict).**
 
 **T8 — Video-signal dropout during loads** (operator, recurring; promoted
 2026-09-07 from the T3 hardware round): the monitor loses sync and goes
@@ -1447,3 +1452,67 @@ Supersedes the round-1 candidate `5c5e1cc6…` (never released).
 4. **Composite:** centered/clean (v10 regression).
 5. **Note but tolerate:** the single-frame blink at gap end; report
    if it reads worse than a blink.
+
+### T7 round 2 hardware verdict (2026-09-08, operator) — side-buffer PASS, decorations FAIL; ROUND 3 SHIPPED (bare splash)
+
+**Operator round 2 verdict** (screenshot 2026-09-08 1.00.56 AM, repo
+root, untracked): the splash survives the whole gap **byte-clean on
+real hardware** — no garbage band, no gauge ticks, round 1's artifacts
+gone. SPLASH-SIDE-BUFFER is hardware-proven. But both decorations
+failed the eye: the typeset "NOW LOADING..." reads off-style against
+the logotype, and **the spinner never appeared at all**.
+
+**Spinner root cause — design-dead, not a bug.** The ring could only
+advance from `cart_stream()`, and the gap interior has no cart reads:
+the first read lands ~0.1 s before the game's first scene flip
+(`phase5-hardware.md` §Loading bar v2 timeline: blank → 3.3 s of init →
+first read at +3.319 s → flip). One ring draw right before the flip is
+all it ever painted — the round-2 flip-off diff's "spinner-box diffs:
+64" (= exactly one 8-dot ring) said this already; the emulator leg
+verified the mechanism and could not model the perception.
+
+**ROUND 3 (operator approved option A: bare splash).** Typeset-text
+bake and spinner **deleted**: `scripts/splash_text.py`,
+`scripts/gen_nowloading_strip.py`, `loader/nowloading_strip.bin`
+removed, `loader/Makefile` splash rule back to plain bmp2rgb565,
+`spinner_tick` gone from `shims/src/util.c`/`cart.c` (shim.map clean).
+The side-buffer stays — the gap is the untouched splash, nothing else.
+
+**Verification (subtractive change, one leg + byte-identity):**
+
+| check | result |
+|---|---|
+| `make clean` → gdi → test | BUILD-TEST-GREEN |
+| leg `t7r3-comp` (composite, dump-armed) SOF in/out | `val=00260000 pc=8c01089a pr=8c010864` in; `val=0008d000 pc=8c032140 pr=8c037396` out |
+| SHIMERR | 0 |
+| flip-off copy region vs `build/splash.bin` | **0 / 153600 words differ** (byte-identical — stronger than round 2's dump-to-dump diff: round 3's copy must equal the ground-truth splash exactly, and does) |
+| VGA | not re-legged: change is subtractive, cable-dependent paths untouched since round 2's both-cable PASS |
+
+**v11 candidate (round 3): track04 = `2149443002362b543ade8309c6294fcd`**
+(tracks 01–03 unchanged since v2). Round-2 candidate `ca05d568…`
+superseded, never released.
+
+**GAPISR recon — the vblank ISR RUNS during the gap (round-4 lead,
+not built).** Fork probe (holly_intc.cpp `Write_SB_ISTNRM`, commits
+`c78d22f3d` v1 / `9a763076c` v2): count ISTNRM vblank-in/out acks while
+FB_R_SOF1 == 0x260000. Result: **203 acks across the ~3.4 s window
+(~60 Hz), ack site `pc=8c038f00 pr=8c02bf18` throughout**, consistent
+on a plain leg (`t7r3-isr2a`, GAPISR-TOTAL n=203) and a dump-armed leg
+(`t7r3-comp`, probe v1 hit its 40-line cap ~0.7 s in). This REVISES the
+chat-round claim "no interrupts during the gap": that came from one
+acks=0 leg (`t7r3-gapisr`, round-2 disc) which did not reproduce —
+recorded as an unexplained outlier, suspected leg-hygiene artifact
+(same-name rm+relaunch churn; see tooling.md). Mechanism agrees with
+phase 5's vblank-registered per-frame callback (`FUN_8c02e7d8`'s
+caller). **Implication:** a real gap spinner is a bounded follow-up —
+trampoline a TCNT0-clocked ticker into the vblank path, self-gated on
+`FB_R_SOF1 == 0x260000` (inert after the flip, draws only into our
+copy). Operator chose the bare splash; build only on a fresh ask.
+
+**Operator protocol (round 3, when next at the hardware):**
+1. GDEMU boot: splash → ~2 s BIOS-blob window (unchanged) → splash
+   back, **bare** (no text, no dots), clean through the gap → game's
+   own NOW LOADING → attract. FAIL = any garbage or leftover text.
+2. Composite + VGA capture device: same regressions as round 2
+   (centered/clean; no color bars).
+3. Still tolerated/known: the single-frame blink at gap end.

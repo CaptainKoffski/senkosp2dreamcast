@@ -1825,3 +1825,50 @@ across the compose window, 0 SHIMERR. **Release v11 candidate
 `ca05d568a2769acec9d392ef9583d69c`, defaults respin byte-identical,
 BUILD-TEST-GREEN. Round-1 candidate `5c5e1cc6…` superseded, never
 released.
+
+## T7 round 3 tooling (2026-09-08)
+
+- **Text-bake pipeline retired**: `scripts/splash_text.py`,
+  `scripts/gen_nowloading_strip.py`, `loader/nowloading_strip.bin`
+  deleted (git history has them); `loader/Makefile` splash rule back to
+  plain bmp2rgb565. `tools/venv-pil` (Pillow 12.3.0) no longer needed by
+  any build path — kept on disk, harmless, gitignored.
+- **Fork GAPISR probe** (`core/hw/holly/holly_intc.cpp`
+  `Write_SB_ISTNRM`; v1 `c78d22f3d`, v2 `9a763076c`, both pushed):
+  counts ISTNRM vblank-in/out acks (bits 3/4) while
+  `PvrReg(FB_R_SOF1) == 0x00260000` (= the splash side-buffer window);
+  v2 prints `GAPISR-TOTAL n=` at window close. Answers "does a vblank
+  ISR run during the boot gap": **yes — 203 acks/~3.4 s (~60 Hz), ack
+  site pc=8c038f00 pr=8c02bf18**, reproduced with and without
+  FLYCAST_VRAMDUMP (`t7r3-isr2a` plain, `t7r3-comp` dump-armed).
+- **False-negative post-mortem (one leg said acks=0).** Leg
+  `t7r3-gapisr` (round-2 disc) logged 0 acks over a provably live
+  window. Not reproduced in 2 later legs. Two burned lessons, either of
+  which can fabricate a zero:
+  1. **NOTICE_LOG → stdout is block-buffered** when redirected to a
+     file; a SIGKILLed leg loses the tail (both 10 KB-truncated stdout
+     logs tonight). Instruments that must survive `pkill -9` go through
+     `cartlog()` (its file writer flushes) — same lesson class as
+     phase 5's "buffered fork logging" note, now with a false
+     MEASUREMENT to its name, not just missing lines.
+  2. **Same-name leg churn interleaves writers**: `rm` + relaunch of
+     the same leg name while the old instance dies async → the old
+     instance's cartlog can recreate the path and land tail lines in
+     the "new" log (observed: a fresh log whose first two lines were
+     the OLD run's scene flips, before MMUCRWR). Use a FRESH leg name
+     per attempt; treat any log whose first line is not `MMUCRWR
+     pc=a0000018` as contaminated.
+- **Harness gotchas (leg runners):** foreground `sleep` inside a
+  plain compound command is blocked mid-line (watcher dies, emulator
+  keeps running; two legs tonight lost their pkill+report tails this
+  way) — put watchers in `run_in_background` commands or use the
+  Monitor tool. zsh `nomatch`: an unmatched glob (`rm f*`) aborts the
+  whole command line, not just that word — quote or list exact names.
+- **Round-3 verification** (`captures/phase7/`, gitignored):
+  `t7r3-comp` — SOF in/out clean, 0 SHIMERR, and the flip-off dump's
+  copy region is **byte-identical to `build/splash.bin`** (0/153600
+  words; `cmp_copy_vs_splash.py`, session scratchpad — same pvr_map32
+  decode as round 2). **Release v11 candidate (round 3)**: tracks
+  01–03 unchanged; `track04.iso` = `2149443002362b543ade8309c6294fcd`,
+  BUILD-TEST-GREEN. Round-2 candidate `ca05d568…` superseded, never
+  released.

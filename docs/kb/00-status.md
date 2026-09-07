@@ -1224,6 +1224,24 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T7 ROUND 3 SHIPPED (2026-09-08, round-2 hardware verdict:
+side-buffer PASS / decorations FAIL → operator chose bare splash —
+`phase7-polishing.md` §T7 round 2 hardware verdict).** Round 2 on
+hardware: splash byte-clean through the whole gap (round-1 garbage
+gone — SPLASH-SIDE-BUFFER proven), but the typeset text read
+off-style and the spinner never appeared (design-dead: the gap has
+no cart reads; first read lands ~0.1 s before the game's flip).
+Round 3 deletes both — the gap is now the untouched splash. Leg
+`t7r3-comp`: SOF in/out clean, 0 SHIMERR, flip-off copy region
+byte-identical to splash.bin (0/153600 words). **v11 candidate
+(round 3)** `track04` `2149443002362b543ade8309c6294fcd`, tracks
+01–03 unchanged; operator boot-watch owed. Recon for a possible
+round 4: fork GAPISR probe (`c78d22f3d`/`9a763076c`) shows the
+game's vblank ISR runs ALL gap (~60 Hz, 203 acks, ack site
+pc=8c038f00 pr=8c02bf18) — a vblank-hooked spinner is a bounded
+follow-up if ever asked; one acks=0 outlier leg recorded +
+post-mortemed in `tooling.md` §T7 round 3.
+
 **Phase 7 T7 round 2 BUILT (2026-09-08, operator round-1 FAIL
 root-caused; SPLASH-SIDE-BUFFER + spinner + typeset text —
 `phase7-polishing.md` §T7 ROUND 2).** Round 1's exposed garbage =

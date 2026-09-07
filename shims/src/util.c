@@ -209,37 +209,13 @@ static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
     scif_puts(" ret="); scif_puthex((unsigned int)r); scif_puts("\n");
     return r;
 }
-/* T7 round 2 spinner: called from cart_stream() (shims/src/cart.c) on every
- * serviced cart read. Live ONLY while scanout is our splash copy (the
- * FB_R_SOF1 guard) -- from the game's first cart read at gap end until its
- * first scene flip; after that, permanently inert (the game's scan
- * buffers are 0x08d000/0x48d000/0x600000-era addresses, never our
- * 0x260000). Draws into OUR copy, so it can
- * never deface a game frame -- the v1 loadbar's fatal flaw, avoided by
- * construction. Liveness is honest: the dots appear when disc work starts
- * and advance one step per 32 KB streamed; during the fixed ~3.3 s
- * zero-I/O CPU init nothing executes, so nothing is shown yet. Colors:
- * splash-logo orange active, light gray trail. Statics may start as
- * garbage if .bss init ever changes -- harmless: pos is masked, acc only
- * paces the rotation. */
-void spinner_tick(unsigned int bytes) {
-    static unsigned int spin_acc;
-    volatile unsigned int *pvr = (volatile unsigned int *)0xa05f8000;
-    if (pvr[0x50 / 4] != 0x00260000u) return;
-    spin_acc += bytes;
-    unsigned int pos = (spin_acc >> 15) & 7u;           /* one step / 32 KB */
-    /* 8 dots on a radius-14 ring centered (320,445), 4x4 px each --
-     * sized/toned to survive 480i flicker + composite blur */
-    static const signed char dx[8] = { 0, 10, 14, 10, 0, -10, -14, -10 };
-    static const signed char dy[8] = { -14, -10, 0, 10, 14, 10, 0, -10 };
-    for (unsigned int i = 0; i < 8; i++) {
-        unsigned short c = (i == pos) ? 0xf345 : 0xad55; /* orange / gray */
-        volatile unsigned short *fb = (volatile unsigned short *)0xa5260000u
-            + (445 + dy[i]) * 640 + (320 + dx[i]);
-        for (unsigned int y = 0; y < 4; y++)
-            for (unsigned int x = 0; x < 4; x++) fb[y * 640 + x] = c;
-    }
-}
+/* T7 round 3: the round-2 spinner (drawn from cart_stream into the copy) is
+ * DELETED, not broken -- measured twice over, nothing of ours can run during
+ * the gap: no cart reads (phase5-hardware.md loadbar-v1 timeline: first read
+ * lands ~0.1 s before the game's first scene flip) and no vblank ISR (fork
+ * GAPISR probe, leg phase7/t7r3-gapisr: zero ISTNRM vblank acks while
+ * 0x260000 is on scan). One ring draw right before the flip is all it could
+ * ever paint. The gap stays a clean splash by design. */
 
 int shim_vid_init_main(unsigned int mode, unsigned int b, unsigned int c, unsigned int d) {
     return vid_init_pinned((int (*)(unsigned int, unsigned int, unsigned int,
