@@ -1796,3 +1796,32 @@ PNG). **Release v11 candidate:** tracks 01–03 unchanged since v2;
 `track04.iso` = `5c5e1cc6a2958aab988875b49c90b303`, defaults respin
 byte-identical, BUILD-TEST-GREEN. Promotion awaits the operator
 boot-watch: phase7-polishing.md §T7 REVIVAL BUILT.
+
+**T7 round 2 tooling (2026-09-08):** (1) **Pillow venv** —
+`python3 -m venv tools/venv-pil && tools/venv-pil/bin/pip install
+Pillow` (12.3.0; system python is PEP-668 managed, refuses `--user`).
+Needed ONLY to regenerate `loader/nowloading_strip.bin`
+(`scripts/gen_nowloading_strip.py`, Avenir Next Medium — macOS ships
+no Futura); the strip is committed, so normal builds never touch the
+venv. Build-time blend: `scripts/splash_text.py`, wired into the
+loader/Makefile splash rule. (2) **Fork instrument** (commit
+`2215dbe48`, pushed): VRAM dump `-flipoff.bin` at the exact
+FB_R_SOF1 write that moves scanout off the shim's side-buffer
+(0x260000) — the integrity endpoint for diffing the scanned copy
+over the boot compose window. Gotcha recorded: `pvr_WriteReg`'s
+switch runs on `addr = paddr & pvr_RegMask`; comparing raw `paddr`
+against `FB_R_SOF1_addr` never matches (first instrument build was
+silent for exactly this). (3) **VRAM placement is measured, never
+assumed**: scratchpad `vram_usage_map.py` (per-128KB diff buckets
+between dumps, both banks via the pvr_map32 inversion) found the
+game's boot allocator at [0x08d000..0x140000) pre-flip →
+[..0x200000) by attract + bank-1 mirror — the first side-buffer try
+(0x100000) sat in its path and was overwritten pre-flip. Quiet band
+[0x200000,0x460000); shipped base 0x260000. (4) **t7r2 legs**
+(`t7r2-comp`/`t7r2-vga` + flip-off dumps + decoded PNGs in
+captures/phase7/): both cables 0 foreign words in the copy region
+across the compose window, 0 SHIMERR. **Release v11 candidate
+(round 2)**: tracks 01–03 unchanged; `track04.iso` =
+`ca05d568a2769acec9d392ef9583d69c`, defaults respin byte-identical,
+BUILD-TEST-GREEN. Round-1 candidate `5c5e1cc6…` superseded, never
+released.

@@ -102,10 +102,15 @@ bios_data.o: ../build/bios_data.bin
 # splash.png is gitignored (BIOS-rendered output, same category as the BIOS
 # ROM) -- regenerate with ../cleopatra's scripts/capture_naomi_splash.sh if
 # ever missing. sips is stock macOS; converter is stdlib-only.
-../build/splash.bin: splash.png ../scripts/bmp2rgb565.py
+# T7 round 2: "NOW LOADING..." is baked in at build time from the committed
+# strip (our own rendering -- scripts/gen_nowloading_strip.py), so it
+# survives splash.png regeneration and needs no runtime draw.
+../build/splash.bin: splash.png ../scripts/bmp2rgb565.py \
+		../scripts/splash_text.py nowloading_strip.bin
 	mkdir -p ../build
 	sips -s format bmp splash.png --out ../build/splash.bmp > /dev/null
 	python3 ../scripts/bmp2rgb565.py ../build/splash.bmp $@
+	python3 ../scripts/splash_text.py $@ nowloading_strip.bin
 splash_blob.o: ../build/splash.bin
 	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
 	  --redefine-sym _binary____build_splash_bin_start=_splash_bin \

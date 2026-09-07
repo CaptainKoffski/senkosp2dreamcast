@@ -642,7 +642,12 @@ VIDEO-GEOM-HOOK wrapper exit — the census proves all three blank sites
 fire inside the wrapped call, so this sticks without touching the
 display-off routine (the v5 glitch-row class excluded by ordering).
 Both-cable emulator legs PASS; v11 candidate `5c5e1cc6…`; operator
-boot-watch owed.
+boot-watch owed. → **Round 1 FAIL 2026-09-07 (operator: garbage band
++ gauge ticks over the splash — the game's own compose, unhidden);
+ROUND 2 BUILT 2026-09-08 (§T7 ROUND 2): side-buffer scanout at
+measured-free 0x260000 + cart-read spinner + typeset text; both-cable
+legs 0 foreign words; v11 candidate now `ca05d568…`; operator round
+owed.**
 
 **T8 — Video-signal dropout during loads** (operator, recurring; promoted
 2026-09-07 from the T3 hardware round): the monitor loses sync and goes
@@ -1349,3 +1354,96 @@ it byte-identical, BUILD-TEST-GREEN.
 3. **VGA regression (capture device):** no color bars — the T8 pin
    must still hold signal end-to-end.
 4. **Composite regression:** image centered/clean as v10.
+
+### T7 round 1 hardware verdict (2026-09-07, operator) — FAIL (cosmetic), root-caused
+
+Operator boot-watch on the v11 candidate (`5c5e1cc6…`): splash + NOW
+LOADING clean for ~3 s, then a flicker, then a garbage band near the
+bottom (capture `Screenshot … 11.52.49 PM.png`), then — a fraction of
+a second before the game's own NOW LOADING — evenly spaced red
+vertical ticks across the lower third (`… 11.53.03 PM.png`). Also
+vetoed on style: the bfont line "does not correspond to the splash
+style" and shows no liveness; operator asked for a spinner in logo
+colors.
+
+Root cause (leg t7r2 series): the game pre-composes its NOW LOADING
+scene INTO the framebuffer the splash occupies during the gap tail —
+the red ticks are its loading-gauge frame, the band is tile data
+copied from then-uninitialized memory (zeroed in Flycast = the
+phase-6 "splash-white, invisible-to-harmless" reading; garbage on
+real RAM). The blank always hid this; round 1's unblank exposed it.
+The flicker is the game's own one-frame FB_R_CTRL enable toggle at
+its (now no-op) unblank moment — present in v10 too, hidden by black.
+Emulator could never catch the band/ticks: uninitialized-memory
+content differs, and the single blank-edge dump sampled one moment of
+a progressive compose.
+
+### T7 ROUND 2 BUILT (2026-09-08): SPLASH-SIDE-BUFFER + spinner + typeset text — emulator legs PASS, operator round owed
+
+Approved design, three parts:
+
+1. **Side-buffer scanout** (`shims/src/util.c` vid_init_pinned): at
+   wrapper exit the shim copies the splash frame (0x96000 bytes, P2
+   32-bit path) to 32-path `0x260000` and points FB_R_SOF1/2 there,
+   then unblanks. The game composes at its own base unseen; its first
+   scene flip (`pr=8c037396`, ~+3.4 s) moves scanout off the copy by
+   itself. **Placement is measured, not assumed** — first try
+   0x100000 collided (game boot allocator packs VRAM upward from its
+   0x08d000 scan buffer; flip-off dump showed writes at 0x123000+
+   pre-flip). VRAM usage map (unblank→flip and flip→attract dump
+   diffs): boot writes [0x08d000..0x140000), reaching 0x200000 by
+   early attract, bank-1 mirror [0x48d000..0x600000); quiet band both
+   windows = [0x200000,0x460000); 0x260000 = ~768 KB margin. Only the
+   boot window matters — post-flip reuse of the copy is off-scan.
+2. **Spinner** (`spinner_tick` in util.c, called from
+   `cart_stream()`): 8-dot ring (4x4 px, radius 14, center 320,445),
+   logo orange active dot / mid-gray trail, one step per 32 KB
+   streamed. Gated on `FB_R_SOF1 == 0x260000` — appears at the game's
+   first cart read, advances only while the disc actually works,
+   permanently inert after the game's flip. Draws into OUR copy only
+   (the v1 loadbar's defacing flaw is excluded by construction).
+   Honest limit: during the fixed ~3.3 s zero-I/O CPU init nothing
+   executes, so the ring appears only when disc work starts.
+3. **Typeset text**: bfont draw deleted; "NOW LOADING..." is baked
+   into splash.bin at build time (`loader/Makefile` splash rule →
+   `scripts/splash_text.py` blends the committed coverage strip
+   `loader/nowloading_strip.bin`, generated once by
+   `scripts/gen_nowloading_strip.py` — Avenir Next Medium 30 px,
+   +7 px tracking, the closest system face to the NAOMI logotype).
+   Rows 396-417; strip is our own rendering, safe to commit.
+
+**Verification (fork instrument `2215dbe48`: VRAM dump at the exact
+FB_R_SOF1 write that leaves 0x260000):**
+
+| leg | verdict |
+|---|---|
+| `t7r2-comp` (Cable=3) | PASS — repoint `val=00260000 pc=8c01089a`, unblank from shim, flip `val=0008d000 pr=8c037396`; copy-region diff unblank→flip: **0 foreign words** (64 = spinner's own dots); 0 SHIMERR |
+| `t7r2-vga` (Cable=0) | PASS — identical signature, 0 foreign, 0 SHIMERR |
+
+Decoded flip-off frame (`t7r2-comp-flipoff.png`): splash + typeset
+NOW LOADING + spinner ring — the last frame shown before the game's
+own scene, byte-clean. Round 1's garbage/ticks are structurally
+invisible now (they land at the game's base, which nothing scans).
+
+**Known residual (pre-registered):** the game's one-frame FB_R_CTRL
+enable blink at its former unblank moment stays (game-owned, no hook
+at that instant). Escalation if the operator objects: patch the
+display-on arm's fb-disable toggle site.
+
+**Release v11 candidate (round 2):** `track04.iso` =
+`ca05d568a2769acec9d392ef9583d69c`; tracks 01–03 unchanged since v2.
+Supersedes the round-1 candidate `5c5e1cc6…` (never released).
+
+**Pre-registered operator protocol (round 2):**
+
+1. **GDEMU boot:** splash + NOW LOADING (typeset) → ~2 s BIOS-blob
+   window (unchanged) → splash returns; spinner ring appears when
+   disc work starts and steps; NO garbage band, NO red ticks → game's
+   own NOW LOADING → attract. FAIL = any garbage over the splash.
+2. **Serial backend:** same; spinner should visibly rotate during the
+   longer asset load.
+3. **VGA (capture device):** no color bars end-to-end (T8 pin
+   regression).
+4. **Composite:** centered/clean (v10 regression).
+5. **Note but tolerate:** the single-frame blink at gap end; report
+   if it reads worse than a blink.

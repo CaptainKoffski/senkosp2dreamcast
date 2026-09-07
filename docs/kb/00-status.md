@@ -1224,6 +1224,24 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T7 round 2 BUILT (2026-09-08, operator round-1 FAIL
+root-caused; SPLASH-SIDE-BUFFER + spinner + typeset text —
+`phase7-polishing.md` §T7 ROUND 2).** Round 1's exposed garbage =
+the game pre-composing its NOW LOADING scene into the splash's
+framebuffer (gauge ticks + tiles from uninitialized RAM — invisible
+in the emulator's zeroed memory). Fix: the shim now copies the splash
+to measured-free VRAM (32-path 0x260000; usage map: game boot
+allocator owns [0x08d000..0x140000) pre-flip) and scans the copy —
+the game's compose is off-scan, and its own first scene flip retires
+the copy. Plus an 8-dot logo-color spinner stepped per 32 KB of cart
+streaming from `cart_stream()` (draws only into our copy, inert
+after the flip), and "NOW LOADING..." typeset (Avenir Next, baked
+into splash.bin at build). Both-cable legs: 0 foreign words in the
+scanned copy across the whole compose window (flip-off dump
+instrument, fork `2215dbe48`), 0 SHIMERR. **v11 candidate (round 2)**
+`track04` `ca05d568a2769acec9d392ef9583d69c`, respin byte-identical.
+Operator round owed.
+
 **Phase 7 T7 revival BUILT (2026-09-07, splash-persist approved as
 option A; emulator legs PASS both cables, operator boot-watch owed —
 `phase7-polishing.md` §T7 REVIVAL BUILT).** The boot black gap now

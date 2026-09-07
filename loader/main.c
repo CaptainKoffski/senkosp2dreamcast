@@ -213,18 +213,14 @@ int main(void) {
      * photo). Splash bytes thus scan right through takeover until the game
      * blanks for its own boot scene. KOS picks the cable-correct 640x480
      * variant. */
+    /* T7 round 2: "NOW LOADING..." is baked into splash.bin at build time
+     * (loader/Makefile splash rule + scripts/splash_text.py -- typeset to
+     * match the logo, replacing round 1's bfont draw). The shim copies this
+     * framebuffer to a side buffer at the game's mode-set and scans THAT
+     * through the boot gap; see shims/src/util.c SPLASH-SIDE-BUFFER. */
     if (LOADER_QUIET) {
         vid_set_mode(DM_640x480, PM_RGB565);
         memcpy(vram_s, splash_bin, 640 * 480 * 2);
-        /* T7 revival (splash-persist, phase7-polishing.md §T7): the shim now
-         * keeps this framebuffer scanned out through the game's ~3.3 s boot
-         * gap, so label it. Rows 400-423 sit inside the window the game's
-         * own boot code repaints mid-gap (splash-white + its first NOW
-         * LOADING glyphs, rows 385-434 -- phase-6 blankrecon), so our line
-         * hands off to the game's authentic text instead of stacking with
-         * it. Dark gray on the white splash; transparent draw. */
-        bfont_draw_str_ex(vram_s + 400 * 640 + 236, 640, 0x2104, 0, 16, false,
-                          "NOW LOADING...");
     }
 
     say("SENKOSP LOADER PHASE4 TASK10");

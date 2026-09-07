@@ -166,24 +166,81 @@ static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
     for (unsigned int i = 0; i < 6; i++) save[i] = pvr[off[i] / 4];
     int r = entry(mode, b, c, d);
     for (unsigned int i = 0; i < 6; i++) pvr[off[i] / 4] = save[i];
-    /* SPLASH-PERSIST (phase 7 T7 revival). The SDK call above blanks the
-     * display (VO_CONTROL bit 3) and leaves it blanked for the ~3.3 s boot
-     * init gap -- all three blank-set sites (pr=8c036cea/8c036292/8c035398,
-     * the BOOT-UNBLANK trio) fire INSIDE entry(), before this line, and the
-     * gap interior has zero VO writes (t8-pin-vga census 18:23:16.66x ->
-     * 20.03). So one clear here, after the raster is restored, holds until
-     * the game's own gap-end unblank (same value -> no-op). Scanout shows
-     * the loader splash byte-exact through the whole gap (phase-6
-     * blankrecon), so the gap displays splash + loader text instead of
-     * black. Unlike BOOT-UNBLANK's ROM patches (rolled back: glitch-row
-     * flash), blank stays ON during the mode-set/FB-reconfig transient.
-     * ponytail: unconditional -- census says this entry runs once per boot;
-     * a future blank-and-stay path through it would flash its transition. */
+    /* SPLASH-PERSIST round 2: SPLASH-SIDE-BUFFER (phase 7 T7 revival,
+     * operator hardware round 1 FAIL 2026-09-07). Round 1 unblanked here
+     * and kept scanning the game's own framebuffer -- but the game
+     * pre-composes its NOW LOADING scene into that framebuffer during the
+     * gap tail (gauge ticks + tiles copied from then-uninitialized memory:
+     * white-on-white in the emulator, garbage on real RAM -- operator
+     * captures 11.52.49/11.53.03 PM), which the blank used to hide. So:
+     * copy the splash to an otherwise-unused VRAM region and scan THAT.
+     * The game composes at its own base unseen, and its first scene flip
+     * (a real FB_R_SOF write, ~+3.4 s) moves scanout off our copy by
+     * itself -- proper double-buffering, no execution needed at gap end.
+     * Placement 0x260000 (32-bit-path) is MEASURED free, not assumed: the
+     * first try (0x100000) collided -- the game's boot allocator packs
+     * VRAM upward from its scan buffer at 0x08d000 and had written
+     * 0x123000+ before its flip (t7r2-comp flip-off dump diff). Usage map
+     * (vram_usage_map, unblank->flip and flip->attract dumps): boot writes
+     * [0x08d000..0x140000), reaching 0x200000 by early attract; bank-1
+     * mirror [0x48d000..0x600000). Quiet band both windows =
+     * [0x200000,0x460000); 0x260000 leaves ~768 KB margin below. Only the
+     * boot window matters -- after the game's flip the copy is off-scan
+     * and reuse is harmless. Copy via the P2 32-bit path (0xa5000000 --
+     * same address space FB_R_SOF uses, no bank-interleave math);
+     * ~0x96000 bytes once, under blank, ~ms.
+     * Blank-clear rationale unchanged from round 1: all three blank-set
+     * sites (pr=8c036cea/8c036292/8c035398) fire INSIDE entry(), the gap
+     * interior has zero VO writes (t8-pin-vga census), and the game's
+     * gap-end unblank degrades to a same-value no-op. Blank stays ON
+     * through the mode-set transient AND through this copy. */
+    {
+        unsigned int sof1 = pvr[0x50 / 4];              /* FB_R_SOF1 (readable, holds splash base) */
+        unsigned int fdel = pvr[0x54 / 4] - sof1;       /* field-2 delta (0x500 both cables) */
+        volatile unsigned int *s =
+            (volatile unsigned int *)(0xa5000000u + (sof1 & 0x007ffffcu));
+        volatile unsigned int *t = (volatile unsigned int *)0xa5260000u;
+        for (unsigned int i = 0; i < (640u * 480u * 2u) / 4u; i++) t[i] = s[i];
+        pvr[0x50 / 4] = 0x00260000u;
+        pvr[0x54 / 4] = 0x00260000u + fdel;
+    }
     pvr[0xe8 / 4] &= ~8u;
     scif_puts("VIDPIN load="); scif_puthex(save[1]);
     scif_puts(" ret="); scif_puthex((unsigned int)r); scif_puts("\n");
     return r;
 }
+/* T7 round 2 spinner: called from cart_stream() (shims/src/cart.c) on every
+ * serviced cart read. Live ONLY while scanout is our splash copy (the
+ * FB_R_SOF1 guard) -- from the game's first cart read at gap end until its
+ * first scene flip; after that, permanently inert (the game's scan
+ * buffers are 0x08d000/0x48d000/0x600000-era addresses, never our
+ * 0x260000). Draws into OUR copy, so it can
+ * never deface a game frame -- the v1 loadbar's fatal flaw, avoided by
+ * construction. Liveness is honest: the dots appear when disc work starts
+ * and advance one step per 32 KB streamed; during the fixed ~3.3 s
+ * zero-I/O CPU init nothing executes, so nothing is shown yet. Colors:
+ * splash-logo orange active, light gray trail. Statics may start as
+ * garbage if .bss init ever changes -- harmless: pos is masked, acc only
+ * paces the rotation. */
+void spinner_tick(unsigned int bytes) {
+    static unsigned int spin_acc;
+    volatile unsigned int *pvr = (volatile unsigned int *)0xa05f8000;
+    if (pvr[0x50 / 4] != 0x00260000u) return;
+    spin_acc += bytes;
+    unsigned int pos = (spin_acc >> 15) & 7u;           /* one step / 32 KB */
+    /* 8 dots on a radius-14 ring centered (320,445), 4x4 px each --
+     * sized/toned to survive 480i flicker + composite blur */
+    static const signed char dx[8] = { 0, 10, 14, 10, 0, -10, -14, -10 };
+    static const signed char dy[8] = { -14, -10, 0, 10, 14, 10, 0, -10 };
+    for (unsigned int i = 0; i < 8; i++) {
+        unsigned short c = (i == pos) ? 0xf345 : 0xad55; /* orange / gray */
+        volatile unsigned short *fb = (volatile unsigned short *)0xa5260000u
+            + (445 + dy[i]) * 640 + (320 + dx[i]);
+        for (unsigned int y = 0; y < 4; y++)
+            for (unsigned int x = 0; x < 4; x++) fb[y * 640 + x] = c;
+    }
+}
+
 int shim_vid_init_main(unsigned int mode, unsigned int b, unsigned int c, unsigned int d) {
     return vid_init_pinned((int (*)(unsigned int, unsigned int, unsigned int,
                                     unsigned int))0x8c03d48e, mode, b, c, d);
