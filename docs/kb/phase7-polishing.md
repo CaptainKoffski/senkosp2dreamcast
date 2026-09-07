@@ -603,6 +603,8 @@ recorded upgrade path in `gd.c`'s ponytail note. Caveats already recorded
 there: shim mirrors the game's G1 registers, DMA completion IRQ must stay
 masked (Cleopatra lesson). Async completion could also unblock the
 descending-tone stall if the game's streaming API is kick+poll.
+→ **CLOSED 2026-09-07** (§T3 below): both stages shipped, hardware round
+PASS, all pre-registered targets met; release v9 respun.
 
 **T4 — Stage-8 arena margin** (only if T2 says arena churn): widen the
 margin via further VQ shrink of the stage-8 PAK set or eviction tuning —
@@ -623,6 +625,44 @@ bar no better on hardware, commit `7476d47` has the whole implementation
 + recon): only revisit with a new idea, e.g. keeping the splash visible
 through the gap (BOOT-UNBLANK recon in `docs/kb/phase5-hardware.md`
 §Black-gap decorate has the scanout facts).
+
+**T8 — Video-signal dropout during loads** (operator, recurring; promoted
+2026-09-07 from the T3 hardware round): the monitor loses sync and goes
+to standby ~1 s on almost every load transition — tester-facing,
+operator calls it unacceptable. Previously in the KB only as a
+characterized-benign dcload-path quirk (`tooling.md` §GAME-VIA-DCLOAD:
+from-scratch SPG reprogram `pc=8c032140` over dcload's video state,
+"disc boots unaffected") — the new report contradicts that scope: it
+happens on GDEMU disc boots too. Hypothesis: the game's KAMUI2 mode-set
+(`FUN_8c032140` reg-poke; phase-6 MONITOR-SENSE-HOOK neighborhood)
+re-fires at scene loads, and either the SPG rewrite lands non-atomically
+(registers written one at a time = transient bad timing → real monitors
+drop sync; VGA relock ≈1 s) or a transient teardown state intervenes
+(phase-6 black-gap recon found three redundant blank-set sites). Plan
+when funded: instrumented-fork leg logging the `0xa05f8000` block across
+one load transition (VO_CONTROL/SPG census instrumentation already
+exists from the black-gap recon), then a MONITOR-SENSE-HOOK-style shim
+that skips the reprogram when the values are unchanged. Highest-value
+open item per the operator.
+
+**T9 — Pre-game settings screen** (operator ask 2026-09-07): let players
+set difficulty, round time, game mode before the game starts. Stateless
+first (defaults each power-on, no VMU); optional VMU persistence later.
+New feature — needs its own design gate. Recon first: where the game
+reads its game-assignment settings at boot (Naomi EEPROM/backup block —
+the conversion currently stubs the native path, 00-status §What this
+is), then a loader-side menu (the splash/preset_note screens are the UI
+precedent) that writes the chosen bytes before handoff.
+
+**T10 — Load floor + char-select transition cosmetics** (operator ask
+2026-09-07, post-T3): (i) can the ~1 s GDEMU attract→START load shrink
+further — run a `TIME=1` profile of that window FIRST to split remaining
+disc time vs game-side unpack/init; if CPU-bound, it's the floor — don't
+touch the driver on a hunch. (ii) the beginner→char-select circling
+transition parks on a misaligned frame during the ~1 s pause
+(operator screenshots 2026-09-07); options: pin the animation counter to
+the aligned frame while loading (game-code surgery, needs recon) or just
+shrink the pause via (i). Cosmetic; fund after T8/T9.
 
 ---
 
@@ -880,7 +920,7 @@ T1 begins with the playbook loop (brainstorm → spec → plan), and its step 0
 
 ---
 
-## T3 — G1 DMA / async cart service (2026-09-06: BUILT, emulator legs PASS; hardware round owed)
+## T3 — G1 DMA / async cart service (2026-09-06 BUILT; 2026-09-07 hardware round PASS — CLOSED)
 
 Branch `phase7-pool`, commits `68fa3cc` (stage 1) + stage 2. Bounded task
 (brainstorm-approved design in chat, both stages approved; no spec file).
@@ -965,7 +1005,7 @@ where its PIO path answered in one poll — so emulator boot max-hold rose
 0x1b1 → 0x3ae by MODEL, not by regression. GDEMU serves DMA faster than a
 real drive; the hardware leg's SHIMTIME `d=` is the only real number.
 
-### Operator hardware round (owed) — protocol + pre-registered verdicts
+### Operator hardware round — protocol + pre-registered verdicts (run 2026-09-07, results below)
 
 Builds staged (gitignored): `build-t3/release/` (silent, all defaults —
 release-v9 candidate, track04 `e731e34bc43b8612613efc1f1e74b4c0`) and
@@ -990,3 +1030,50 @@ Verdicts: targets met → respin release v9 from defaults and CLOSE
 hardware — read `pf_stat[3]` (paint it via a follow-up diag) before
 touching anything. (b) improved but (a) not → DMA rate on GDEMU ≈ PIO
 rate; record, keep DMA (it can't be slower), (a) stays open honestly.
+
+### T3 hardware round (2026-09-07, operator) — PASS, all targets met
+
+Meter build `build-t3/meter/` on both backends, plus sanity extras:
+
+| leg | result |
+|---|---|
+| 1. GDEMU dwell | **y236 = 0x10** (target ≤0x11, baseline 0x21) — pinned the whole char-select screen; one ~0.5 s 0x21 excursion at screen entry, once. **y278 ticks 1:1 with y264** = 100% drip hit rate. Background smooth, zero hitches. |
+| 2. DreamShell dwell | **y236 = 0x10** (target ≈0x11, baseline 0x42) — entry burst 0x53→0x12C while the portraits populate, then pinned 0x10; one transient 0x42 (~1 s) after one char change out of several. Smooth. |
+| 3. Stage-8 match (GDEMU) | **Microfreezes GONE** — full 2-round 2P match (both Ernulas), background smooth throughout; entry burst 0x23F→0x21→0x10 is the stage load behind the transition, not a dwell hitch. **Heap-steal regression watch clean**: the deepest-allocator scene ran both rounds + win animations with zero anomalies. |
+| 4. Load stopwatch (GDEMU) | attract→START **~1 s** with the green background up immediately (no black gap — the T2-era felt multi-second hang with descending tone). Stage-select→stage-8 "feels faster" (untimed before). The stage-2 DMA win on (a). |
+| 5. Sanity extras | GDEMU: story start, tutorial, stage-8 demo, attract full loop ×2 — clean. DreamShell: demo/story/tutorial + char-select entry — clean. |
+
+Residuals (recorded, none gating):
+
+- **DreamShell stage-8: two noticeable freezes in round 2** (`w` jumped
+  0x42 right after each). (b) is CLOSED on GDEMU but only IMPROVED on
+  serial-SD: a ring miss there costs a synchronous syscall read at
+  dongle throughput, and the known single-window ceiling (§stage 1 —
+  two interleaved streams ping-pong the window) or an SD latency spike
+  degrades that one read to pre-T3 behaviour. Accepted for now;
+  serial-SD is the courtesy path.
+- DreamShell `w`=0x42 during win-animation close-ups — background not
+  visible there; cosmetically irrelevant.
+- DreamShell loads stay long (attract→char-select ~12 s, stage load
+  ~7 s, beginner→char-select ~12 s): serial-SD link bandwidth; stage-2
+  DMA never applies on the syscall backend (`gd_read_fad` not entered).
+  Expected — recorded so nobody chases it as a regression.
+- GDEMU max-hold (y250) F4 attract / 23F stage-8 entry = load-moment
+  bursts behind transition screens, consistent with the meter's design.
+
+**Verdict (per the pre-registered table): targets met → release v9
+respun from defaults. (a) closed on the raw backend, (b) closed on
+GDEMU / improved on DreamShell (residual above), (c) closed on both.**
+
+**Release md5s v9** (respin 2026-09-07, `make clean` → `make release`,
+`make test` green): `track04.iso` =
+`e731e34bc43b8612613efc1f1e74b4c0` — byte-identical to the staged
+2026-09-06 candidate (reproducibility check PASS); tracks 01–03
+unchanged since v2 (`681fa4c8…`/`03c796f6…`/`244ae7e5…`, table at §T1
+emulator gate). Supersedes v8. Zip re-packaged
+(`build/[GDI] Senko no Ronde Special.zip` — embeds the ROM, never
+upload).
+The round spawned three new pool items from operator asks: **T8**
+(video-signal dropout during loads — promoted from dcload-only benign
+to open task), **T9** (pre-game settings screen), **T10** (load-floor
+profile + char-select circle cosmetics).

@@ -1239,6 +1239,25 @@ silent}/` (gitignored). Leg protocol + verdict table:
 `phase7-polishing.md` §T2 (c). It doubles as T3's acceptance meter
 (objective before/after for the stage-8 drip stall).
 
+**Phase 7 T3 CLOSED (2026-09-07, operator hardware round PASS — all
+pre-registered targets met; full record `phase7-polishing.md` §T3
+hardware round).** GDEMU dwell w 0x21→**0x10** with ring hits ticking
+1:1 with gd calls (100% drip hit rate); DreamShell dwell 0x42→**0x10**;
+stage-8 microfreezes GONE on GDEMU (heap-steal regression watch clean
+through a full 2-round match + extras); attract→START now ~1 s with the
+green background immediate. Honest residuals: DreamShell stage-8 still
+showed two freezes in round 2 (single-window ceiling × serial-SD miss
+cost — (b) improved, not closed, on that backend) and serial-SD loads
+stay long (link bandwidth; DMA is raw-backend-only). **Release v9
+respun from defaults** — md5s in `tooling.md` §T3 build md5s. Symptoms:
+(a) closed on the raw backend, (b) closed on GDEMU, (c) closed on both.
+The round spawned three new pool items (operator asks): **T8
+video-signal dropout during loads** (promoted from dcload-only benign
+quirk — now reported on GDEMU disc boots; SPG-reprogram hypothesis +
+fix sketch in the pool entry), **T9 pre-game settings screen**
+(stateless first, VMU later), **T10 load-floor profile + char-select
+circle cosmetics**.
+
 **Phase 7 T3 BUILT (2026-09-06, both stages; emulator legs PASS,
 hardware round owed — `phase7-polishing.md` §T3 has the full record +
 operator protocol).** Stage 1: 64 KB prefetch ring — the drip can't be

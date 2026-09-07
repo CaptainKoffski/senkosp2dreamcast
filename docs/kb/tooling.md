@@ -1607,7 +1607,10 @@ is byte-for-byte unaffected.
   Never ship.
 - **T3 build md5s (each after `make clean`):** defaults (silent,
   PREFETCH+G1DMA on) track04 `e731e34bc43b8612613efc1f1e74b4c0` =
-  **release-v9 candidate** (respin after hardware acceptance); `FRAMEGAP=1`
+  **release v9** (hardware round PASS 2026-09-07; respin `make clean` →
+  `make release` reproduced the candidate md5 byte-identical, tracks
+  01–03 unchanged since v2 — `phase7-polishing.md` §T3 hardware round);
+  `FRAMEGAP=1`
   silent meter build `b77e56d8b8b76c22e1e5821ad22fb8f3` (dongle-safe; HUD
   gains row y278 = ring hits, and SHIMGAP grows a ` p=<hits>` field under
   SERIAL=1 — parse scripts unaffected, field is additive). Staged under
