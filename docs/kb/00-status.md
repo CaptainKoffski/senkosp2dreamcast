@@ -1224,6 +1224,27 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T8 RECON (2026-09-07, branch phase7-t8-videodrop; v9 merged
+to main + tagged 0.2.0 first): video-dropout mechanism pinned to the
+BOOT mode-set — fix designed, pending gate.** New fork instrument
+(`ec9ac9dab`, same-value SPG census — change-only logging had been
+hiding exactly the writes under suspicion) across three unattended
+legs: post-boot, the game NEVER touches the video block (attract
+cycles, demo loads, and a resumed live scene are all video-silent;
+SOFTRESET bit-2 census also clean). The real mechanism: at takeover
+the game's KAMUI2 mode-set rewrites KOS's raster for real on the VGA
+path (SPG_LOAD 525→531 lines, SPG_CONTROL 150→100, plus all five
+geometry regs — ernula-lili census) → VGA monitors drop and relock
+~1 s at NOW LOADING **every boot, disc boots included** (tooling.md's
+"disc boots unaffected / same-values no-op" characterization
+falsified and amended). In-game loads write nothing, so a mode-set
+fix cannot affect them — operator asked to confirm whether drops
+recur there or only at boot. Fix design (SPG-GEOMETRY-PIN):
+snapshot/restore the six geometry regs around the SDK call inside the
+existing `shim_vid_init_main` wrapper, all cables, replacing
+`vid_geom_ntsc`; SPG_CONTROL decided by per-cable measurement.
+Full record: `phase7-polishing.md` §T8.
+
 **Phase 7 T2b BUILT (2026-09-06, branch phase7-pool): the dwell-hitch
 frame-gap instrument, emulator smoke PASS — awaiting the operator's
 three-leg dwell sit.** `FRAMEGAP=1` (`SHIM_FRAMEGAP`): the live

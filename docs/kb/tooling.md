@@ -1381,7 +1381,12 @@ stale); one non-gating `TEXERR code=6` (watch item). Verdict:
   (`pc=8c032140`, §Black-gap control test); on this path the upstream
   video state is dcload's init rather than the BIOS's, so the rewrite is
   a real mode transition instead of a same-values no-op. Self-recovers;
-  disc boots unaffected.
+  disc boots unaffected. **FALSIFIED 2026-09-07 (phase 7 T8 recon):**
+  the "same-values no-op / disc boots unaffected" half is wrong — the
+  ernula-lili VGA boot census shows the takeover mode-set changing
+  SPG_LOAD/CONTROL/HBLANK/VBLANK/WIDTH/STARTX/STARTY for real on disc
+  boots too (525→531-line raster), and the operator reports the drop on
+  GDEMU disc boots. See phase7-polishing.md §T8.
 - **Debug recipe going forward:** build `make loader SERIAL=1` and upload
   THAT loader.elf with `dc-tool-ser -p -x` (`-p` = dumb terminal: raw
   SCIF shim/loader chatter displays directly instead of confusing the
@@ -1717,3 +1722,42 @@ magic and prunes stale siblings. Launching with defaults and NO preset
 now lands on the loader's calm-blue `preset_note()` instruction screen
 instead of the characterized hard-reboot. Full record:
 `phase7-polishing.md` §T1 follow-up.
+
+## T8 same-value SPG census + input-scripting notes (2026-09-07)
+
+Fork commit `ec9ac9dab` (tools/flycast-src, pushed to
+flycast4naomi2dreamcast master): the four CLEO-SPG census sites in
+`core/hw/pvr/pvr_regs.cpp` gain an else-branch `CLEO-SPG same` NOTICE
+line (separate static caps, 1000 lines/site) so identical-value writes
+to SPG_CONTROL/LOAD, FB_R_CTRL, FB_R_SIZE and the
+VO_CONTROL…VO_STARTY block are no longer invisible (the phase-6
+"change-only logging hides redundant writes" lesson applied to the
+census itself). Reuse caveat: some scenes re-assert VO_CONTROL
+~5×/frame from `pc=8c010ab0/8c010a4c` (relocated BIOS) — that fills
+the shared VO/geometry cap in ~4 s while the other three stay armed.
+Incremental rebuild: `cmake --build . --target flycast -j8` in
+`tools/flycast-src/build` (~2 min).
+
+Census legs (release-v9 disc, `capture_dc_leg.sh`, unattended):
+
+| leg | what it proved |
+|---|---|
+| `phase7/t8-same-attract` (240 s) | all video-block writes (changed AND same) confined to the boot window; attract cycles incl. demo loads are video-silent |
+| `phase7/t8-same-start` (240 s) | replication — same 5-cluster census shape |
+| `phase7/t8-slot0` (150 s) | `Dreamcast.AutoLoadState=yes` + `Dreamcast.SavestateSlot=0` resumes an August savestate mid-scene (state ver 854 loads fine across fork rebuilds); 133k cart-log lines of live streaming with ZERO video-block writes; source of the VO_CONTROL re-assert discovery |
+
+`PVRW SOFTRESET` cart-log census across these legs: only values 0/1/2/3
+(TA/pipeline resets) — bit 2 (PVR core reset, the one sync-killer
+outside the SPG block; Flycast models only bits 0-1 per
+`pvr_regs.cpp` SOFTRESET case) never written. Eliminated as the T8
+mechanism.
+
+**Input scripting dead ends (recorded so nobody retries them):** the
+fork binary has `USE_LUA:BOOL=ON` in CMakeCache but ships ZERO Lua
+symbols (`nm | grep luaL_newstate` = 0 — the Lua lib was never found at
+configure time, so `core/lua/lua.cpp` compiled to an empty object);
+`config:LuaFileName=` is inert. `osascript` System Events keystrokes
+are blocked for the CLI host (error -1743, no Accessibility grant).
+Working substitutes: savestate-resume legs (above) and the game's own
+auto-advance timers; if T8/T9 ever need real scripted input, either
+grant Accessibility or rebuild the fork with Lua present.

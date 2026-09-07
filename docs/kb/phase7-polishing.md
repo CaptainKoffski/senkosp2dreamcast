@@ -643,7 +643,10 @@ when funded: instrumented-fork leg logging the `0xa05f8000` block across
 one load transition (VO_CONTROL/SPG census instrumentation already
 exists from the black-gap recon), then a MONITOR-SENSE-HOOK-style shim
 that skips the reprogram when the values are unchanged. Highest-value
-open item per the operator.
+open item per the operator. → **RECON DONE 2026-09-07** (§T8 below):
+mechanism = the boot-time takeover mode-set really changing the raster
+on VGA (old "same-values no-op" claim falsified); in-game loads are
+video-silent. SPG-GEOMETRY-PIN fix designed, pending gate.
 
 **T9 — Pre-game settings screen** (operator ask 2026-09-07): let players
 set difficulty, round time, game mode before the game starts. Stateless
@@ -1077,3 +1080,94 @@ The round spawned three new pool items from operator asks: **T8**
 (video-signal dropout during loads — promoted from dcload-only benign
 to open task), **T9** (pre-game settings screen), **T10** (load-floor
 profile + char-select circle cosmetics).
+
+---
+
+## T8 — video-signal dropout (2026-09-07 RECON: mechanism pinned to the boot mode-set; fix design pending approval)
+
+Branch `phase7-t8-videodrop` (post-0.2.0). Question: what drops the
+operator's monitor for ~1 s "almost each time during loading"?
+
+### Instrument — same-value SPG census (fork `ec9ac9dab`)
+
+The phase-6 lesson ("change-only register logging hides redundant
+writes", tooling.md blankrecon row) applied to the CLEO-SPG census
+itself: every log site was gated on `PvrReg != data`, so a mode-set
+re-run writing identical values — the exact thing a real monitor might
+still drop sync on — was invisible. Fork commit `ec9ac9dab` adds a
+`CLEO-SPG same` line (cap 1000/site, four independent counters) to the
+SPG_CONTROL/SPG_LOAD, FB_R_CTRL, FB_R_SIZE and
+VO_CONTROL-through-VO_STARTY census sites in
+`core/hw/pvr/pvr_regs.cpp`. Caveat for reuse: some scenes re-assert
+VO_CONTROL ~5×/frame from the relocated-BIOS region (`pc=8c010ab0/`
+`8c010a4c`, measured t8-slot0) — that spam exhausts the shared
+VO/geometry cap in ~4 s; the SPG_CONTROL/LOAD and FB caps stay armed.
+
+### Census legs (captures/phase7/, release v9 disc, unattended)
+
+| leg | span | census result |
+|---|---|---|
+| `t8-same-attract` (240 s) | boot → attract cycles (composite cfg) | ALL writes+sames land 17:43:22–:38 = the boot window; 3.5 min of attract (incl. demo loads — cart log shows the TA choreography running) touch NOTHING in the video block |
+| `t8-same-start` (240 s) | replication of the above | identical 5-cluster shape (9/20/10/50/3) |
+| `t8-slot0` (150 s) | August savestate resumed mid-scene, heavy streaming (133k cart-log lines) | zero `write` lines in 150 s; only the VO_CONTROL same-value re-assert spam above |
+
+SOFTRESET census (the one sync-killer outside the SPG block —
+bit 2 = PVR core reset; emulator models only bits 0/1 so it would be
+invisible on screen): cart-log `PVRW SOFTRESET` lines across both big
+legs show only values 0/1 (44k TA-reset toggles) + one 2/3 pair at
+boot (the loader's own `main.c:482`). Never bit 2. Eliminated.
+
+### Findings
+
+1. **Post-boot, the game never touches the video block.** No SPG, VO,
+   or FB_R writes — not even same-value ones — across attract loops,
+   demo-battle loads, and a live in-game scene. In-game scene loads are
+   video-silent; there is nothing to fix *at* those loads.
+2. **The boot cascade on the VGA path is a real mode transition, and
+   the prior KB claim is falsified.** tooling.md §GAME-VIA-DCLOAD had
+   characterized disc boots as a "same-values no-op". The ernula-lili
+   VGA boot census (change-only, so every line is a real change) shows
+   the game's takeover mode-set (`pc=8c032140 pr=8c036cxx`) rewriting
+   KOS's raster: SPG_CONTROL `150→100`, SPG_LOAD `020c0359→02110353`
+   (525→531 total lines), SPG_HBLANK `007e0345→00880343`, SPG_VBLANK
+   `00240204→00240208`, SPG_WIDTH, VO_STARTX `a4→a5`, VO_STARTY
+   `12→24`. A ~0.5% vertical-frequency shift + sync-bit change = a VGA
+   monitor drops and relocks (~1 s) at the NOW LOADING screen — **every
+   boot, disc boots included**. Composite path: same cascade, then our
+   `vid_geom_ntsc` restores six regs ~1 ms later (census
+   t8-same-attract 17:43:35.60x).
+3. Boot has FOUR video-block programmers in sequence: KOS loader
+   (splash), the NOW-LOADING load engine (`8c0dxxxx`, all same-value),
+   the relocated BIOS vid-init (`8c009xxx`/`8c019xxx`, FB churn +
+   blank toggles), then the game's KAMUI2 mode-set (real changes).
+4. Open question for the operator (splits two readings of "almost each
+   time"): do drops recur at *in-game* loads (attract→char-select,
+   stage entry), or only around boot / first NOW LOADING? The census
+   says in-game loads write nothing, so a fix at the mode-set can only
+   cure the boot drop; recurring in-game drops would need a different
+   (non-reprogram) mechanism and a fresh hardware observation.
+
+### Fix design (pending gate): SPG-GEOMETRY-PIN
+
+Extend `shim_vid_init_main` (VIDEO-GEOM-HOOK — already wraps the
+game's ONE display-init call, pool word `0x4edcc`): snapshot the six
+`vid_geom_ntsc` registers (SPG_HBLANK/LOAD/VBLANK/WIDTH,
+VO_STARTX/STARTY) live BEFORE calling the SDK entry `0x8c03d48e`,
+restore them AFTER it returns — all cables, replacing the hardcoded
+composite-only `vid_geom_ntsc` with one measured-live mechanism. The
+monitor keeps the raster it locked on at the splash; the excursion
+shrinks to ~1 ms (proven ride-through ordering: that's exactly where
+vid_geom_ntsc already lands today). SPG_CONTROL is decided during
+implementation by per-cable measurement (geo-vga0 / comp-dbg2 legs):
+pin it only where pre/post differ AND the FB_R_SIZE interlace modulus
+stays consistent. FB_R_CTRL (vclk_div), FB_R_SIZE, VO_CONTROL
+(blank/unblank) stay game-owned. dcload path: the pin preserves
+dcload's raster → fixes that drop too. Escalation if hardware still
+drops: filter SPG writes inside a `FUN_8c032140` replacement (skip
+while pinned). Verification: emulator census legs per cable (final
+raster == splash raster), then operator hardware leg — VGA boot with
+no monitor drop at NOW LOADING = PASS.
+
+Lua input scripting for legs: dead end, recorded in tooling.md (the
+fork binary ships without USE_LUA compiled in); savestate +
+auto-advance legs and the census sufficed.
