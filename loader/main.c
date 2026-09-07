@@ -216,6 +216,15 @@ int main(void) {
     if (LOADER_QUIET) {
         vid_set_mode(DM_640x480, PM_RGB565);
         memcpy(vram_s, splash_bin, 640 * 480 * 2);
+        /* T7 revival (splash-persist, phase7-polishing.md §T7): the shim now
+         * keeps this framebuffer scanned out through the game's ~3.3 s boot
+         * gap, so label it. Rows 400-423 sit inside the window the game's
+         * own boot code repaints mid-gap (splash-white + its first NOW
+         * LOADING glyphs, rows 385-434 -- phase-6 blankrecon), so our line
+         * hands off to the game's authentic text instead of stacking with
+         * it. Dark gray on the white splash; transparent draw. */
+        bfont_draw_str_ex(vram_s + 400 * 640 + 236, 640, 0x2104, 0, 16, false,
+                          "NOW LOADING...");
     }
 
     say("SENKOSP LOADER PHASE4 TASK10");

@@ -1773,3 +1773,26 @@ PASS 2026-09-07, operator capture-device verdict; respin from defaults
 reproduced the candidate byte-identical): tracks 01–03 unchanged since
 v2; `track04.iso` = `a77856d801e613d090cb879597921d60`. Supersedes v9.
 Full round record: phase7-polishing.md §T8 hardware round.
+
+**T7 splash-persist legs + candidate (2026-09-07):**
+`phase7/t7-persist-comp` / `t7-persist-vga` (unattended, candidate
+build, `FLYCAST_VRAMDUMP` armed; cable via the emu.cfg line-25 edit)
+— both cables: shim unblank `pc=8c01087c` fires once at wrapper exit,
+zero blank writes across the 3.36 s gap, game gap-end unblank
+degrades to same-value, 0 SHIMERR, attract renders. Leg-runner
+lesson: the composite boot resets the AICA ARM with `VREG=03` (VGA:
+`VREG=00`) — a completion watcher grepping `ARMRST.*VREG=00` sleeps
+through a green composite leg; key on the gap-end write
+`pr=8c03538e` instead. **VRAM-dump decode recipe** (the phase-6
+recipe was never recorded): the fork dumps the LINEAR 64-bit-path
+`vram[]`, but scanout reads the 32-bit path, which interleaves the
+two 4 MB banks every 32-bit word — decode via Flycast's `pvr_map32`
+(core/hw/pvr/pvr_mem.cpp:289): for FB base < 4 MB, byte offset `o` →
+`((o & ~3) * 2) | (o & 3)`; then 640x480 RGB565, stride 1280. A
+straight linear decode shows 1-px vertical stripes (half the words
+land 4 bytes away) — that's the interleave, not a corrupt dump.
+Throwaway decoder: scratchpad `decode_fb565.py` (BMP out, `sips` to
+PNG). **Release v11 candidate:** tracks 01–03 unchanged since v2;
+`track04.iso` = `5c5e1cc6a2958aab988875b49c90b303`, defaults respin
+byte-identical, BUILD-TEST-GREEN. Promotion awaits the operator
+boot-watch: phase7-polishing.md §T7 REVIVAL BUILT.

@@ -166,6 +166,20 @@ static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
     for (unsigned int i = 0; i < 6; i++) save[i] = pvr[off[i] / 4];
     int r = entry(mode, b, c, d);
     for (unsigned int i = 0; i < 6; i++) pvr[off[i] / 4] = save[i];
+    /* SPLASH-PERSIST (phase 7 T7 revival). The SDK call above blanks the
+     * display (VO_CONTROL bit 3) and leaves it blanked for the ~3.3 s boot
+     * init gap -- all three blank-set sites (pr=8c036cea/8c036292/8c035398,
+     * the BOOT-UNBLANK trio) fire INSIDE entry(), before this line, and the
+     * gap interior has zero VO writes (t8-pin-vga census 18:23:16.66x ->
+     * 20.03). So one clear here, after the raster is restored, holds until
+     * the game's own gap-end unblank (same value -> no-op). Scanout shows
+     * the loader splash byte-exact through the whole gap (phase-6
+     * blankrecon), so the gap displays splash + loader text instead of
+     * black. Unlike BOOT-UNBLANK's ROM patches (rolled back: glitch-row
+     * flash), blank stays ON during the mode-set/FB-reconfig transient.
+     * ponytail: unconditional -- census says this entry runs once per boot;
+     * a future blank-and-stay path through it would flash its transition. */
+    pvr[0xe8 / 4] &= ~8u;
     scif_puts("VIDPIN load="); scif_puthex(save[1]);
     scif_puts(" ret="); scif_puthex((unsigned int)r); scif_puts("\n");
     return r;

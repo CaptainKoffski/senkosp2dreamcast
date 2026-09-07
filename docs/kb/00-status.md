@@ -1224,6 +1224,21 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T7 revival BUILT (2026-09-07, splash-persist approved as
+option A; emulator legs PASS both cables, operator boot-watch owed —
+`phase7-polishing.md` §T7 REVIVAL BUILT).** The boot black gap now
+shows the loader splash + a "NOW LOADING..." line instead of black:
+one-shot VO_CONTROL unblank at the T8 pin's wrapper exit (census
+proves all three blank-set sites fire inside the wrapped SDK call, so
+the clear sticks; the game's gap-end unblank becomes a same-value
+no-op) + `bfont_draw_str_ex` line on the splash, placed inside the
+FB window the game itself repaints mid-gap. Gap length untouched —
+arcade-authentic 3.3 s (control leg). The v5 glitch-row class is
+excluded by ordering: blank stays on through the mode-set transient.
+Decoded wrapper-exit VRAM dumps show the gap frame on both cables.
+**v11 candidate** `track04` `5c5e1cc6a2958aab988875b49c90b303`,
+respin byte-identical; tracks 01–03 unchanged.
+
 **Phase 7 T8 CLOSED (2026-09-07, operator hardware round PASS —
 `phase7-polishing.md` §T8 hardware round).** Verdict via the operator's
 new capture device (color bars the instant signal drops — 100%

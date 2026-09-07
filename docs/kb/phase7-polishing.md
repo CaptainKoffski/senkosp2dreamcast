@@ -635,6 +635,14 @@ the recon), NOT a progress bar — the gap interior is 3.3 s of zero-I/O
 CPU work (§Black-gap control test), nothing real to measure. Decide
 AFTER the T8 pin's hardware verdict: operator watches one stable-signal
 boot first, then judges whether the authentic black still bothers them.
+→ **BUILT 2026-09-07 (§T7 REVIVAL BUILT below):** operator approved
+option A (splash-persist + loader "NOW LOADING..." line; black length
+is arcade-authentic and stays). Shim-side one-shot unblank at the
+VIDEO-GEOM-HOOK wrapper exit — the census proves all three blank sites
+fire inside the wrapped call, so this sticks without touching the
+display-off routine (the v5 glitch-row class excluded by ordering).
+Both-cable emulator legs PASS; v11 candidate `5c5e1cc6…`; operator
+boot-watch owed.
 
 **T8 — Video-signal dropout during loads** (operator, recurring; promoted
 2026-09-07 from the T3 hardware round): the monitor loses sync and goes
@@ -1269,3 +1277,75 @@ excursion rides through on real monitors, as bet.
 `a77856d801e613d090cb879597921d60` — byte-identical to the staged
 candidate (reproducibility check PASS); tracks 01–03 unchanged since
 v2. Supersedes v9. Zip re-packaged (embeds the ROM — never upload).
+
+## T7 REVIVAL BUILT (2026-09-07): SPLASH-PERSIST — emulator legs PASS, operator boot-watch owed
+
+Approved design (operator, after the T8 hardware round): keep the
+loader splash scanned out through the game's ~3.3 s boot init gap
+instead of black, plus a loader-drawn "NOW LOADING..." line. The gap
+itself cannot be shortened — its interior is the game's own zero-I/O
+CPU/sound prep and the unmodified Naomi original shows the identical
+3.36 s gap (§Black-gap control test, `phase6/blackgap-naomi` leg) —
+so the fix is what the gap *shows*, not how long it is.
+
+**Why shim-side one-shot works where BOOT-UNBLANK's ROM patches
+failed.** The t8-pin census gives the exact ordering at gap start: all
+three blank-set sites — mode-set `pr=8c036cea`, FB-config
+`pr=8c036292`, display-off arm `pr=8c035398` — fire INSIDE the SDK
+display-mode call that VIDEO-GEOM-HOOK already wraps, before the
+wrapper's geometry restore runs (t8-pin-vga 18:23:16.665-.667: SPG
+writes, blank trio, then restore at `pc=8c010864`). And the gap
+interior has zero VO writes. So: clear VO_CONTROL bit 3 once at
+wrapper exit, after the raster restore — the unblank sticks for the
+whole gap, and the game's own gap-end unblank (`pr=8c035398`,
++3.36 s) degrades to a same-value no-op. Unlike the rolled-back
+BOOT-UNBLANK `or #8→or #0` patches (v5), the blank stays ON during
+the mode-set/FB-reconfig transient — the glitch-row flash class the
+operator saw on v5 is structurally excluded — and the display-off
+routine keeps its blank everywhere else. FB_R_CTRL needs nothing: its
+fb-enable bit is already 1 through the gap (census).
+
+**The two edits** (branch `phase7-t7-splash-persist`):
+
+- `shims/src/util.c` `vid_init_pinned()`: `pvr[0xe8/4] &= ~8u` after
+  the geometry-restore loop, with the ordering citation.
+- `loader/main.c`: `bfont_draw_str_ex(..., 0x2104, 0, 16, false,
+  "NOW LOADING...")` at rows 400-423, x=236, right after the splash
+  memcpy — dark gray on the white splash, transparent draw. Drawn at
+  splash time (not last-act-pre-handoff) so it also covers the
+  loader's own disc read on slow backends (serial-SD). Rows 400-423
+  sit inside the window the game repaints mid-gap (rows 385-434,
+  splash-white + its first NOW LOADING glyphs — §Black-gap decorate),
+  so the loader line hands off to the game's authentic text rather
+  than stacking with it.
+
+**Emulator legs (captures/phase7/, candidate build, both cables):**
+
+| leg | verdict |
+|---|---|
+| `t7-persist-comp` (Cable=3) | PASS — game blank `pr=8c036cea` 21:12:34.209 → shim unblank `pc=8c01087c` +3 ms → ZERO blank writes across the gap → gap-end trio on schedule +3.36 s (game unblank = same-value n=26) → ARM up, attract presents, 0 SHIMERR |
+| `t7-persist-vga` (Cable=0) | PASS — identical signature (blank .931 → shim unblank .935, gap end +3.36 s, game unblank same-value n=24), 0 SHIMERR |
+
+**Visual evidence:** the fork's blank-edge VRAM dump (044a2fb6c
+instrument) fires on the shim's own unblank — the decoded frame
+(`t7-persist-{comp,vga}-blank0-08.png`) is the first scanned frame of
+the gap: splash + NOW LOADING..., both cables identical. Decode
+recipe recorded in tooling.md (the 32-bit-path bank interleave).
+
+**Release v11 candidate:** `track04.iso` =
+`5c5e1cc6a2958aab988875b49c90b303`; tracks 01–03 unchanged since v2.
+Respin from defaults (`make clean` → shims → gdi → test) reproduced
+it byte-identical, BUILD-TEST-GREEN.
+
+**Pre-registered operator protocol (decides T7 revival):**
+
+1. **GDEMU boot watch:** loader splash + "NOW LOADING..." → the ~2 s
+   BIOS-blob window (untouched, today's black/garble) → splash +
+   NOW LOADING back for the whole ~3.3 s gap (the game's own glyphs
+   may appear over the lower third near the end) → game's NOW
+   LOADING → attract. FAIL = any black gap after the BIOS-blob
+   window, or a glitch-row flash (the v5 defect class).
+2. **Serial backend boot:** same expectation.
+3. **VGA regression (capture device):** no color bars — the T8 pin
+   must still hold signal end-to-end.
+4. **Composite regression:** image centered/clean as v10.
