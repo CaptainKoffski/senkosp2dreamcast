@@ -1663,3 +1663,53 @@ never released.
    loses → diag-build escalation above).
 2. Composite centered/clean; VGA capture device no color bars.
 3. Known/tolerated: one-frame blink at gap end.
+
+### T7 round 5 hardware verdict (2026-09-09, operator) — PASS on VGA (splash persists, ring rotates); ROUND 6 = two cosmetic asks
+
+**Operator:** "It works! At least on VGA." The per-vblank re-assert
+defeats the hardware re-blank — the gap now shows the splash with the
+rotating ring on real silicon (composite still unverified). Two
+adjustments requested: lift the spinner (too close to the CRT bottom)
+and remove the blink between the initial splash and the spinner phase.
+
+**Round 6 changes:**
+1. **Ring lifted (320,445) → (320,410)** — extent rows 392–428, well
+   inside CRT safe area, balanced under the logo (decoded flip-off
+   viewed).
+2. **Blink removed — unblank BEFORE the copy.** The blink was our own
+   blank window: rounds 2–5 held blank through the SDK mode-set AND
+   the 614 KB side-buffer copy (~0.2–0.4 s of P2 traffic on HW). The
+   t7r5-comp SOFWR timeline showed the copy is needless to hide: at
+   wrapper exit scanout is still the LOADER's framebuffer at VRAM 0x0
+   (`SOFWR val=00000000 pc=8c0199f2` — the game's early vid-init
+   points there and never repoints before we do; this also corrects
+   round 2's "sof1 = 0x08d000 holds splash" note — 0x08d000 is the
+   game's later SCENE buffer, first seen at its gap-end flip). So the
+   copy SOURCE is the frame on screen: unblank first, copy while the
+   splash is visibly scanned, repoint to the pixel-identical copy —
+   invisible switch. Remaining blank = the SDK mode-set span only;
+   shrinking that means patching the game's own blank-set sites
+   (escalation registered since round 1). Residual: the ISR re-assert
+   arms only after the repoint, so a hardware re-blank landing inside
+   the ≤0.4 s copy window would show once as brief black.
+
+**Verification (both cables):** GAPISR-TOTAL 203/202; display-on
+across all window samples; flip-off vs fresh splash.bin = spinner-box
+64 / foreign 0 with the box MOVED to rows 390–430 (foreign 0 also
+proves no leftover ring at the old rows); rotation 0→3 / 0→2;
+SHIMERR 0; BUILD-TEST-GREEN; decoded flip-off viewed (ring at the
+lifted position, no text).
+
+**v11 candidate (round 6): track04 = `cdb9874892f7e8bf465f22641160b861`**
+(tracks 01–03 unchanged since v2; splash.bin `b4ffd93d…`). r2–r5
+candidates superseded, never released.
+
+**Operator protocol (round 6):**
+1. VGA: splash → mode-set blink now GONE (or reduced to the SDK's own
+   brief span) → splash persists with the ring rotating at the higher
+   position → game's NOW LOADING → attract.
+2. **Composite: full boot-watch owed** — round 5's re-assert was never
+   seen on composite; check splash persistence + ring + centering.
+3. Capture device: no color bars. Known/tolerated: one-frame blink at
+   gap end (game's own FB toggle at its flip — distinct from the
+   now-removed mode-set blink).

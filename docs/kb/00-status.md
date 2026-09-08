@@ -1224,6 +1224,22 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T7 ROUND 6 SHIPPED (2026-09-09, round-5 hardware PASS on
+VGA — the per-vblank re-assert defeats the HW re-blank: splash
+persists, ring rotates; composite unverified). Round 6 = the
+operator's two cosmetic asks: ring lifted (320,445)→(320,410), and
+the initial-splash→spinner blink removed by unblanking BEFORE the
+side-buffer copy — scanout at wrapper exit is still the LOADER's FB
+at VRAM 0x0 (t7r5-comp SOFWR; corrects round 2's "sof1=0x08d000"
+note), so the copy source is the visible frame and the repoint is
+pixel-identical. Remaining blank = the SDK mode-set span only
+(further shrink = patching the game's blank-set sites, registered
+escalation). Both cables green (box moved to rows 390–430: 64/0,
+rotation 0→3/0→2, SHIMERR 0). **v11 candidate (round 6)** `track04`
+`cdb9874892f7e8bf465f22641160b861`, tracks 01–03 unchanged; operator
+round owed — VGA blink check + FULL COMPOSITE boot-watch
+(`phase7-polishing.md` §T7 round 5 hardware verdict).**
+
 **Phase 7 T7 ROUND 5 SHIPPED (2026-09-09, round-4 hardware FAIL: gap
 BLACK ~3 s, splash+ring only flashes at gap end — the one-shot
 wrapper-exit unblank does not stick on real silicon; mechanism

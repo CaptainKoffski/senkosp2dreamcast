@@ -1932,3 +1932,18 @@ released.
   `track04.iso` = `cd7e07231c0fb1ca995bb6021b7119f4`, splash.bin
   `b4ffd93d…` (the eyeballed-bare frame), BUILD-TEST-GREEN. r2/r3/r4
   candidates superseded, never released.
+
+## T7 round 6 tooling (2026-09-09)
+
+- Round-5 operator verdict: PASS on VGA (re-assert defeats the HW
+  re-blank; composite unverified). Round 6 = ring lift (320,445)→
+  (320,410) + unblank-before-copy (blink removal; scanout at wrapper
+  exit is the LOADER FB 0x0 per t7r5-comp SOFWR — the copy source is
+  the visible frame, so the switch to the copy is pixel-identical).
+- Legs `t7r6-comp` / `t7r6-vga`: GAPISR-TOTAL 203/202, spinner-box
+  (rows 390–430) 64 / foreign 0, rotation 0→3 / 0→2, SHIMERR 0.
+  Classifier box updated in `cmp_copy_r4.py` (session scratchpad).
+- **Release v11 candidate (round 6)**: tracks 01–03 unchanged;
+  `track04.iso` = `cdb9874892f7e8bf465f22641160b861`, splash.bin
+  `b4ffd93d…`, BUILD-TEST-GREEN. r2–r5 candidates superseded, never
+  released.

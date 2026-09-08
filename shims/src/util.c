@@ -193,18 +193,33 @@ static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
      * sites (pr=8c036cea/8c036292/8c035398) fire INSIDE entry(), the gap
      * interior has zero VO writes (t8-pin-vga census), and the game's
      * gap-end unblank degrades to a same-value no-op. Blank stays ON
-     * through the mode-set transient AND through this copy. */
+     * through the mode-set transient only.
+     *
+     * T7 round 6 (operator: "remove the blink between the initial splash
+     * and the spinner"): the blink was OUR blank window -- rounds 2-5 held
+     * blank through this copy too (~0.2-0.4 s of P2 traffic on hardware).
+     * Needless: at this point scanout is still the LOADER's framebuffer at
+     * VRAM 0x0 (t7r5-comp SOFWR timeline: the game's early vid-init sets
+     * SOF1=0x00000000 at pc=8c0199f2 and never repoints before we do), so
+     * the copy SOURCE is the very frame on screen. Unblank FIRST, copy the
+     * visible splash while it is being scanned, then repoint to the
+     * pixel-identical copy -- an invisible switch. Remaining blank =
+     * the SDK mode-set span only (game-owned; shrinking it further means
+     * patching the game's own blank-set sites -- registered escalation).
+     * Residual: the per-vblank re-assert arms only after the repoint, so
+     * a hardware re-blank landing inside the copy window itself would
+     * show as <=0.4 s of black, once. */
     {
-        unsigned int sof1 = pvr[0x50 / 4];              /* FB_R_SOF1 (readable, holds splash base) */
+        unsigned int sof1 = pvr[0x50 / 4];              /* FB_R_SOF1 (= 0x0, loader FB, holds splash) */
         unsigned int fdel = pvr[0x54 / 4] - sof1;       /* field-2 delta (0x500 both cables) */
         volatile unsigned int *s =
             (volatile unsigned int *)(0xa5000000u + (sof1 & 0x007ffffcu));
         volatile unsigned int *t = (volatile unsigned int *)0xa5260000u;
+        pvr[0xe8 / 4] &= ~8u;                           /* unblank BEFORE the copy (round 6) */
         for (unsigned int i = 0; i < (640u * 480u * 2u) / 4u; i++) t[i] = s[i];
         pvr[0x50 / 4] = 0x00260000u;
         pvr[0x54 / 4] = 0x00260000u + fdel;
     }
-    pvr[0xe8 / 4] &= ~8u;
     scif_puts("VIDPIN load="); scif_puthex(save[1]);
     scif_puts(" ret="); scif_puthex((unsigned int)r); scif_puts("\n");
     return r;
@@ -276,14 +291,15 @@ static void spinner_vbl(void) {
 #endif
     if (pos == spin_last) return;
     spin_last = pos;
-    /* 8 dots on a radius-14 ring centered (320,445), 4x4 px each --
-     * sized/toned to survive 480i flicker + composite blur */
+    /* 8 dots on a radius-14 ring centered (320,410) -- lifted from 445 in
+     * round 6, operator: too close to the screen bottom on a real CRT --
+     * 4x4 px each, sized/toned to survive 480i flicker + composite blur */
     static const signed char dx[8] = { 0, 10, 14, 10, 0, -10, -14, -10 };
     static const signed char dy[8] = { -14, -10, 0, 10, 14, 10, 0, -10 };
     for (unsigned int i = 0; i < 8; i++) {
         unsigned short c = (i == pos) ? 0xf345 : 0xad55; /* orange / gray */
         volatile unsigned short *fb = (volatile unsigned short *)0xa5260000u
-            + (445 + dy[i]) * 640 + (320 + dx[i]);
+            + (410 + dy[i]) * 640 + (320 + dx[i]);
         for (unsigned int y = 0; y < 4; y++)
             for (unsigned int x = 0; x < 4; x++) fb[y * 640 + x] = c;
     }
