@@ -209,13 +209,56 @@ static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
     scif_puts(" ret="); scif_puthex((unsigned int)r); scif_puts("\n");
     return r;
 }
-/* T7 round 3: the round-2 spinner (drawn from cart_stream into the copy) is
- * DELETED, not broken -- measured twice over, nothing of ours can run during
- * the gap: no cart reads (phase5-hardware.md loadbar-v1 timeline: first read
- * lands ~0.1 s before the game's first scene flip) and no vblank ISR (fork
- * GAPISR probe, leg phase7/t7r3-gapisr: zero ISTNRM vblank acks while
- * 0x260000 is on scan). One ring draw right before the flip is all it could
- * ever paint. The gap stays a clean splash by design. */
+/* T7 ROUND 4: VBL-SPIN -- boot-gap spinner driven by the game's own
+ * interrupt callback. Round 2's cart-read spinner was design-dead (the gap
+ * has no cart reads; first read lands ~0.1 s before the game's first scene
+ * flip -- phase5-hardware.md loadbar-v1 timeline). But the vblank ISR IS
+ * live all gap: fork GAPISR probe measured 203 ISTNRM vblank acks across
+ * the ~3.4 s window (~60 Hz), every one through the callback fn 0x8c038f00
+ * called by the list-walker dispatcher at 0x8c02bf12 (jsr @r3 / r4 =
+ * node->arg; return pr=8c02bf18). The game registers that fn through a
+ * SINGLE literal-pool word (0x8c0391cc, whole-.dat scan: one hit, main
+ * image only -- test image links its own copy without the literal, left
+ * stock). Patch VBL-SPIN repoints it here, so the game installs THIS
+ * wrapper as its interrupt callback at its own registration site.
+ *
+ * Contract: dispatcher passes only r4 (the C arg); the original callee
+ * proves it (reads r4, sets r5 itself first thing). Plain C keeps that
+ * contract -- GCC preserves idx across the tick and tail-jumps to the
+ * original. Strictly integer code: ISR context, and the SDK's callback
+ * convention saves no FPU state for us (same rule as mtramp.S).
+ *
+ * The tick self-gates on FB_R_SOF1 == 0x260000 (our splash copy on scan):
+ * active from the side-buffer repoint above until the game's first scene
+ * flip, then permanently inert (one PVR read + compare per interrupt).
+ * Draws only into OUR copy -- can never deface a game frame. One step per
+ * 8 calls ~= 60 Hz vblank / 8 = 1.07 s per rotation; ~3 rotations per gap.
+ * Statics may start as garbage if .bss init ever changes -- harmless: pos
+ * is masked, the counter only paces the rotation. */
+static void spinner_vbl(void) {
+    static unsigned int spin_calls, spin_last;
+    volatile unsigned int *pvr = (volatile unsigned int *)0xa05f8000;
+    if (pvr[0x50 / 4] != 0x00260000u) return;
+    unsigned int pos = (++spin_calls >> 3) & 7u;
+    if (pos == spin_last) return;
+    spin_last = pos;
+    /* 8 dots on a radius-14 ring centered (320,445), 4x4 px each --
+     * sized/toned to survive 480i flicker + composite blur */
+    static const signed char dx[8] = { 0, 10, 14, 10, 0, -10, -14, -10 };
+    static const signed char dy[8] = { -14, -10, 0, 10, 14, 10, 0, -10 };
+    for (unsigned int i = 0; i < 8; i++) {
+        unsigned short c = (i == pos) ? 0xf345 : 0xad55; /* orange / gray */
+        volatile unsigned short *fb = (volatile unsigned short *)0xa5260000u
+            + (445 + dy[i]) * 640 + (320 + dx[i]);
+        for (unsigned int y = 0; y < 4; y++)
+            for (unsigned int x = 0; x < 4; x++) fb[y * 640 + x] = c;
+    }
+}
+void shim_int_spin(unsigned int idx);
+void shim_int_spin(unsigned int idx) {
+    spinner_vbl();
+    ((void (*)(unsigned int))0x8c038f00)(idx);
+}
 
 int shim_vid_init_main(unsigned int mode, unsigned int b, unsigned int c, unsigned int d) {
     return vid_init_pinned((int (*)(unsigned int, unsigned int, unsigned int,

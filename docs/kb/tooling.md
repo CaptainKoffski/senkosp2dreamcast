@@ -1872,3 +1872,39 @@ released.
   01–03 unchanged; `track04.iso` = `2149443002362b543ade8309c6294fcd`,
   BUILD-TEST-GREEN. Round-2 candidate `ca05d568…` superseded, never
   released.
+
+## T7 round 4 tooling (2026-09-08)
+
+- **Round-3 defect postmortem (stale splash shipped).** The round-2
+  text bake edited `build/splash.bin` in place; nothing cleaned it, so
+  round 3's rebuild reused the baked file and the `21494430…` candidate
+  shipped WITH the text. The round-3 "0/153600 byte-identical" check
+  was circular (diffed against the contaminated file itself) and the
+  decoded frame was sent unviewed. **Rules:** (1) `make clean` must
+  kill every in-place-edited artifact — loader clean rule now removes
+  `../build/splash.bin`/`.bmp`; (2) verify visual claims by LOOKING at
+  the decoded image; (3) byte-checks diff against the source of truth,
+  never an intermediate the suspected bug could contaminate.
+- **VBL-SPIN patch recon method** (repeatable): probe pc under dynarec
+  = block start = jsr target ⇒ callee entry (`0x8c038f00`); pr exact ⇒
+  dispatcher call site (`0x8c02bf12` list walker). Disassembly:
+  `/opt/toolchains/dc/sh-elf/bin/sh-elf-objdump -D -b binary -m sh4 -EL
+  --adjust-vma=0x8c020000 tools/boot.bin` (boot.bin = first 1,515,512 B
+  of senkosp.dat, regenerable). Registration literal found by
+  whole-.dat LE u32 scan for the callee address: one hit `0x0191cc`
+  (main image only). Patch = existing `ptr()` primitive in
+  `scripts/build_patch_table.py` (§VBL-SPIN comment there).
+- **Fork instruments** (`c78d22f3d`/`9a763076c` GAPISR v1/v2,
+  `c2c668aca` mid-gap dump @ack 100): GAPISR-TOTAL at window close +
+  `-midgap.bin` for spinner-rotation diffing against `-flipoff.bin`.
+- **Legs** (`captures/phase7/`, gitignored): `t7r4b-comp`, `t7r4-vga`
+  (cable via emu.cfg line 25, restored to 3). Both: GAPISR-TOTAL
+  203/202, flip-off spinner-box 64 / foreign 0 vs fresh splash.bin,
+  rotation dot 0→3 (midgap vs flipoff), SHIMERR 0, SOF pair clean.
+  Classifier: `cmp_copy_r4.py` (session scratchpad; spinner box rows
+  425–465 × cols 300–340).
+- **Release v11 candidate (round 4)**: tracks 01–03 unchanged;
+  `track04.iso` = `3d98fb58154f93a616a8799994b27038`, BUILD-TEST-GREEN
+  after `rm build/splash.bin` + `make clean` (splash.bin regenerated
+  23:47:55, decoded + visually confirmed bare). Candidates `ca05d568…`
+  and `21494430…` (defective) superseded, never released.

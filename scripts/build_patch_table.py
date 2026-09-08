@@ -581,6 +581,18 @@ ptr(0x18f020, 0x8C02A0EA, sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK test: m
 ptr(0x04edcc, 0x8C03D48E, sym("shim_vid_init_main"), "VIDEO-GEOM-HOOK main: display init + TV geometry fixup")
 ptr(0x1aa9c0, 0x8C03CF0E, sym("shim_vid_init_test"), "VIDEO-GEOM-HOOK test: display init + TV geometry fixup")
 
+# ---- VBL-SPIN (Phase 7 T7 round 4, boot-gap spinner) ----------------------
+# The game's interrupt-callback registrar (0x8c039060) loads its callback fn
+# 0x8c038f00 from one literal-pool word and registers it for every source it
+# handles -- the vblank among them, and the vblank ISR runs all through the
+# ~3.4 s boot gap (fork GAPISR probe: 203 acks ~60 Hz, all via the
+# list-walker dispatch at 0x8c02bf12, pr=8c02bf18). Repointing the literal
+# makes the game install the shim's wrapper (spinner tick self-gated on the
+# splash side-buffer scanout, then tail-jump to the original). Whole-.dat
+# u32 scan: exactly ONE hit (main image; the test image does not carry the
+# literal and keeps the stock callback -- no spinner in test mode, fine).
+ptr(0x0191cc, 0x8C038F00, sym("shim_int_spin"), "VBL-SPIN main: interrupt callback -> gap spinner wrapper")
+
 # ---- emit -------------------------------------------------------------
 def _row(dat_off, img, old, new, what):
     old_b = list(old) + [0] * (12 - len(old))

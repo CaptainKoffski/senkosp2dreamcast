@@ -1516,3 +1516,74 @@ copy). Operator chose the bare splash; build only on a fresh ask.
 2. Composite + VGA capture device: same regressions as round 2
    (centered/clean; no color bars).
 3. Still tolerated/known: the single-frame blink at gap end.
+
+### T7 round 3 was DEFECTIVE (2026-09-08, operator): stale text-baked splash shipped; ROUND 4 SHIPPED — bare splash + vblank spinner
+
+**Operator verdict on the round-3 build: text still there, both
+splashes.** Root cause (build system, confirmed): round 2's text bake
+edited `build/splash.bin` IN PLACE; no clean target removed it, so
+round 3's `make clean` left the baked file, make saw it newer than
+`splash.png`, and candidate `21494430…` shipped the stale bytes.
+**The round-3 verification was circular:** the flip-off byte-check
+compared the scanned copy against the SAME contaminated
+`build/splash.bin` (0/153600 "pass"), and the decoded frame was sent
+without being looked at — it shows the text plainly. Two rules burned
+in: verify visual claims BY LOOKING at the decoded artifact, and
+verify against the source of truth (`splash.png`-derived bytes), never
+an intermediate the bug under test could have contaminated. Fixes:
+loader clean rule now removes `../build/splash.bin`/`splash.bmp` (with
+a warning comment), and the fresh splash.bin was decoded and visually
+confirmed bare this time.
+
+**ROUND 4 (operator asked: drop the text AND bring the spinner back,
+real this time).** The GAPISR recon made it cheap — the game's vblank
+ISR runs all gap, every pass through callback fn `0x8c038f00` via the
+list-walker dispatcher (`jsr @r3` at `0x8c02bf12`, `r4` = node arg,
+`pr=8c02bf18`). The game registers that fn at its own registrar
+(`0x8c039060`: `mov.l 0x8c0391cc,r12` → `jsr @r11` register call,
+`r5=r12`) through ONE literal-pool word — whole-.dat u32 scan for
+`0x8c038f00`: exactly one hit, main image `dat 0x0191cc` (test image
+carries no such literal; left stock — no spinner in test mode,
+dev-facing, fine). New patch `VBL-SPIN` repoints it to
+`shim_int_spin` (util.c): plain C, ticks `spinner_vbl()` then
+tail-calls the original with `r4` preserved by the ABI (the callee
+provably consumes only `r4`). The tick self-gates on
+`FB_R_SOF1 == 0x260000` — live from side-buffer repoint to the game's
+first flip, then permanently one PVR read + compare per interrupt.
+Ring: 8 dots, radius 14 @ (320,445), logo orange `0xf345` active /
+gray `0xad55` trail, one step per 8 calls. Strictly integer C (ISR
+context, `-m4-single-only` shim).
+
+**Verification (both cables, fresh splash ground truth):**
+
+| check | t7r4b-comp | t7r4-vga |
+|---|---|---|
+| GAPISR-TOTAL (ISR healthy through the wrapper) | 203 | 202 |
+| flip-off vs splash.bin | spinner-box 64 / **foreign 0** | spinner-box 64 / **foreign 0** |
+| rotation (mid-gap dump @ack 100 vs flip-off) | dot 0 → dot 3 | dot 0 → dot 3 |
+| SHIMERR | 0 | 0 |
+| SOF in/out | clean pair | clean pair |
+
+64 words = exactly one full ring; foreign 0 = the game's frame is
+untouched, same guarantee as rounds 2–3. Rotation instrument: fork
+mid-gap dump at ack 100 (`c2c668aca`); the 0→3 step delta also shows
+the wrapper serves a couple of interrupt sources beyond vblank-in —
+harmless (rotation slightly faster than the 1.07 s/rev vblank-only
+math, still smooth). Decoded flip-off frame LOOKED AT this round:
+bare logo + ring, no text. Fresh `splash.bin` also decoded + eyeballed
+bare before building.
+
+**v11 candidate (round 4): track04 = `3d98fb58154f93a616a8799994b27038`**
+(tracks 01–03 unchanged since v2). Candidates `ca05d568…` (r2) and
+`21494430…` (r3, defective) superseded, never released.
+
+**Operator protocol (round 4):**
+1. GDEMU boot: splash (NO text) → ~2 s BIOS-blob window (unchanged) →
+   splash back with the small dot ring under the logo **visibly
+   rotating** through the whole gap, no garbage → game's own NOW
+   LOADING → attract. FAIL = text anywhere, frozen ring, garbage.
+2. Serial backend: same boot; ring rotates through the gap there too
+   (it is vblank-clocked, not disc-clocked).
+3. Composite centered/clean; VGA capture device no color bars (same
+   regressions as rounds 2–3).
+4. Still tolerated/known: the single-frame blink at gap end.

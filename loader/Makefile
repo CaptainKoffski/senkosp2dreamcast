@@ -115,4 +115,8 @@ splash_blob.o: ../build/splash.bin
 	mkdir -p ../build
 	sh-elf-objcopy -R .stack -O binary $(TARGET) $@
 clean:
-	rm -f $(TARGET) $(OBJS) ../build/1ST_READ.BIN ../build/bios_data.bin ../build/patch_table.h
+	rm -f $(TARGET) $(OBJS) ../build/1ST_READ.BIN ../build/bios_data.bin ../build/patch_table.h \
+	  ../build/splash.bin ../build/splash.bmp
+# splash.bin MUST die on clean: the T7 round-2 text bake edited it in place,
+# and a surviving copy is "up to date" to make -- round 3 shipped the stale
+# baked splash that way (operator caught it on hardware).

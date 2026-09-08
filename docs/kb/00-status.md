@@ -1224,6 +1224,24 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T7 ROUND 4 SHIPPED (2026-09-08, round 3 was DEFECTIVE:
+stale text-baked splash.bin survived `make clean` and shipped; the
+byte-check was circular and the frame went out unviewed —
+`phase7-polishing.md` §T7 round 3 was DEFECTIVE).** Fixes: loader
+clean rule now removes splash.bin/bmp; fresh splash decoded and
+eyeballed bare. Round 4 adds the spinner the operator asked for, on
+the corrected GAPISR facts: new patch `VBL-SPIN` repoints the game's
+single interrupt-callback literal (`dat 0x0191cc` → `0x8c038f00`,
+whole-.dat scan: one hit, main image) to `shim_int_spin` — plain-C
+wrapper, ticks an 8-dot logo-color ring (one step / 8 calls,
+self-gated on `FB_R_SOF1 == 0x260000`, draws only into the shim's
+splash copy) then tail-calls the original. Both cables: GAPISR-TOTAL
+203/202 through the wrapper, flip-off vs fresh splash.bin =
+spinner-box 64 / foreign 0, rotation proven (mid-gap dump @ack 100:
+dot 0 → 3), SHIMERR 0. **v11 candidate (round 4)** `track04`
+`3d98fb58154f93a616a8799994b27038`, tracks 01–03 unchanged; operator
+boot-watch owed (ring must visibly rotate; any text = FAIL).
+
 **Phase 7 T7 ROUND 3 SHIPPED (2026-09-08, round-2 hardware verdict:
 side-buffer PASS / decorations FAIL → operator chose bare splash —
 `phase7-polishing.md` §T7 round 2 hardware verdict).** Round 2 on
