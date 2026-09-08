@@ -1908,3 +1908,27 @@ released.
   after `rm build/splash.bin` + `make clean` (splash.bin regenerated
   23:47:55, decoded + visually confirmed bare). Candidates `ca05d568…`
   and `21494430…` (defective) superseded, never released.
+
+## T7 round 5 tooling (2026-09-09)
+
+- **Fork probes `0f1d4cc6f`** (both kill-proof cartlog): `GAPVO` —
+  every VO_CONTROL/FB_R_CTRL write while FB_R_SOF1==0x260000, with
+  pc/pr (mirrors the NOTICE census, which dies in the stdout buffer on
+  pkill -9); `GAPISR state` — VO_CONTROL + FB_R_CTRL sampled every 32nd
+  vblank ack in-window. Emulator verdict both cables: the shim unblank
+  (`pc=8c01089a pr=8c010864`) is the only in-window write; blank clear
+  + fb enable across all samples — the hardware re-blank (operator
+  round-4 FAIL: black gap, end-of-gap flash) has NO emulator
+  counterpart. Add to the emulator-blind-spot list next to round 1's
+  uninitialized-RAM lesson.
+- **Shim knob `VBLROW=1`** → `-DSHIM_VBLROW=1` (util.c): one 2×2 dot
+  per vblank tick along row 470 of the splash copy — an end-of-gap
+  flash photo becomes a tick-count readout on hardware. Never ship.
+  Not yet built; respin on demand per the round-5 escalation.
+- **Legs** (`captures/phase7/`, gitignored): `t7r5-comp`, `t7r5-vga`
+  (emu.cfg Cable 3→0→3): GAPISR-TOTAL 203/202, flip-off spinner-box
+  64 / foreign 0 vs fresh splash.bin, rotation 0→3 / 0→2, SHIMERR 0.
+- **Release v11 candidate (round 5)**: tracks 01–03 unchanged;
+  `track04.iso` = `cd7e07231c0fb1ca995bb6021b7119f4`, splash.bin
+  `b4ffd93d…` (the eyeballed-bare frame), BUILD-TEST-GREEN. r2/r3/r4
+  candidates superseded, never released.

@@ -1224,6 +1224,26 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T7 ROUND 5 SHIPPED (2026-09-09, round-4 hardware FAIL: gap
+BLACK ~3 s, splash+ring only flashes at gap end — the one-shot
+wrapper-exit unblank does not stick on real silicon; mechanism
+unidentified and emulator-invisible (kill-proof GAPVO/state probes,
+fork `0f1d4cc6f`: shim unblank is the only in-window VO/FB write, all
+203 samples display-on). HINDSIGHT: rounds 2/3 "splash persists on
+HW" downgraded to unverified — those reports fit the same end-of-gap
+flash; only round 1 clearly showed a visible gap. Round-5 defense:
+`shim_int_spin` runs the original handler FIRST, then per-vblank
+RE-ASSERTS display-on while the copy is scanned (VO bit3 clear if
+set, FB_R_CTRL bit0 set if clear, conditional writes) — any re-blank
+corrected within a frame, mechanism-agnostic. Diag knob
+`SHIM_VBLROW=1` pre-registered: if still black, a flash photo of the
+tick row reads out how many vblank ticks ran on hardware. Both-cable
+legs green (foreign 0, rotation 0→3/0→2, SHIMERR 0). **v11 candidate
+(round 5)** `track04` `cd7e07231c0fb1ca995bb6021b7119f4`, tracks
+01–03 unchanged; operator boot-watch owed — the decisive observation
+is splash PERSISTS vs black-with-flash (`phase7-polishing.md` §T7
+round 4 hardware verdict).**
+
 **Phase 7 T7 ROUND 4 SHIPPED (2026-09-08, round 3 was DEFECTIVE:
 stale text-baked splash.bin survived `make clean` and shipped; the
 byte-check was circular and the frame went out unviewed —

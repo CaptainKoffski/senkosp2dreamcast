@@ -1587,3 +1587,79 @@ bare before building.
 3. Composite centered/clean; VGA capture device no color bars (same
    regressions as rounds 2–3).
 4. Still tolerated/known: the single-frame blink at gap end.
+
+### T7 round 4 hardware verdict (2026-09-09, operator) — FAIL: gap BLACK, splash+ring only FLASHES at gap end; ROUND 5 SHIPPED (per-vblank display re-assert)
+
+**Operator:** "White splash without NOW LOADING, good, then black screen
+for around 3 s, then splash with ring flashes for a fraction of a
+second." Decoded: the copy, the SOF repoint and the spinner all work on
+hardware (the flash shows the correct bare splash + ring from 0x260000)
+— but the shim's ONE-SHOT wrapper-exit unblank does not stick on real
+silicon: the display stays blanked through the gap, and the flash is
+the game's own display-on arm (the round-1 "former unblank moment",
+`pr=8c03538e`) revealing the copy for the last fraction of a second
+before the first scene flip.
+
+**Mechanism: NOT identified, and emulator-invisible.** New kill-proof
+probes (fork `0f1d4cc6f`: GAPVO write mirror + GAPISR display-state
+samples): in the emulator the shim's unblank is the ONLY
+VO_CONTROL/FB_R_CTRL write in the whole gap window, and all 203
+per-vblank samples show blank clear + fb enable, both cables —
+whatever re-blanks on hardware has no emulator counterpart (round-1
+lesson repeated: the emulator's zeroed-RAM/GL blind spots now have a
+display-path sibling). Blank-edge transition census identical rounds
+2–4 (9 transitions, all clustered at the mode-set).
+
+**HINDSIGHT DOWNGRADE — rounds 2/3 "splash persists on HW" was never
+operator-confirmed.** Their round-2/3 reports ("I see the text on the
+second splash") are equally consistent with this same end-of-gap
+flash; only round 1 (no side-buffer, no SOF repoint) clearly showed
+~3 s of visible gap. The round-2 claim "side-buffer PASS on hardware,
+splash byte-clean through the gap" is downgraded to: copy content
+byte-clean (proven by the flash + emulator dumps), PERSISTENCE ON SCAN
+unverified-on-HW, most likely absent since round 2.
+
+**ROUND 5 defense (mechanism-agnostic):** we own per-vblank execution
+now, so stop relying on a one-shot. `shim_int_spin` order flipped —
+original handler FIRST, then the shim tick — and the tick, while
+`FB_R_SOF1 == 0x260000`, RE-ASSERTS display-on every vblank:
+clear `VO_CONTROL` bit3 if set, set `FB_R_CTRL` bit0 if clear
+(conditional writes — zero extra PVR writes when state is healthy, as
+in the emulator). Any re-blank, one-shot or periodic, is corrected
+within one frame; after the game's flip the arm is inert as before.
+The game's gap-end 5→4→5 FB toggle is in-line game code; worst
+interleave is a same-value store. Sanity re-check of the VBL-SPIN
+patch while here: whole-image disasm confirms the literal `0x8c0391cc`
+has exactly ONE code reference (`mov.l` at `0x8c039060`) and r12 feeds
+eight `register(idx, fn, …)` calls — eight sources share the callback
+(hence rotation slightly faster than vblank-only; also why the wrapper
+must stay arg-transparent, which plain C guarantees for the measured
+r4-only contract).
+
+**Diag knob (never ship): `SHIM_VBLROW=1`** — paints one 2×2 dot per
+tick along row 470 of the copy; if round 5 still shows a black gap,
+the operator's flash PHOTO becomes a measurement (dot count = ticks
+that ran on hardware; ring position + row length localize when the
+ISR ran). Escalation pre-registered: black gap again → respin with
+`DEFS='-DSHIM_VBLROW=1'`, one more boot, photograph the flash.
+
+**Verification (both cables):** GAPISR-TOTAL 203/202 through the
+flipped wrapper; GAPVO: only the shim unblank writes in-window; state
+samples blank-clear + fb-on across the window; flip-off vs fresh
+`splash.bin` = spinner-box 64 / foreign 0; rotation midgap→flipoff
+dot 0→3 (comp) / 0→2 (vga); SHIMERR 0; SOF pair clean;
+BUILD-TEST-GREEN.
+
+**v11 candidate (round 5): track04 = `cd7e07231c0fb1ca995bb6021b7119f4`**
+(tracks 01–03 unchanged since v2; splash.bin md5 `b4ffd93d…` = the
+visually-confirmed bare frame). Candidates r2/r3/r4 all superseded,
+never released.
+
+**Operator protocol (round 5):**
+1. GDEMU boot: splash (no text) → ~2 s BIOS-blob window → **splash
+   visible through the whole ~3 s gap with the ring rotating** → game's
+   NOW LOADING → attract. The decisive observation: does the splash
+   PERSIST (re-assert wins) or stay black with an end flash (re-assert
+   loses → diag-build escalation above).
+2. Composite centered/clean; VGA capture device no color bars.
+3. Known/tolerated: one-frame blink at gap end.

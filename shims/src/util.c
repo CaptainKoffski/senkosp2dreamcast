@@ -234,12 +234,46 @@ static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
  * Draws only into OUR copy -- can never deface a game frame. One step per
  * 8 calls ~= 60 Hz vblank / 8 = 1.07 s per rotation; ~3 rotations per gap.
  * Statics may start as garbage if .bss init ever changes -- harmless: pos
- * is masked, the counter only paces the rotation. */
+ * is masked, the counter only paces the rotation.
+ *
+ * T7 ROUND 5 (operator round-4 verdict: gap BLACK ~3 s, splash+ring only
+ * FLASHES right before the game's scene): on real hardware the one-shot
+ * wrapper-exit unblank does not stick -- what the operator saw was the
+ * game's own display-on arm (the round-1 "former unblank moment",
+ * pr=8c03538e) revealing our copy for the last fraction of a second.
+ * Mechanism unidentified: the emulator shows no VO_CONTROL/FB_R_CTRL
+ * writes in the gap interior (blank-edge census identical rounds 2-4),
+ * so whatever re-blanks is hardware-path-only. HINDSIGHT: the round-2/3
+ * hardware reports ("I see the text on the second splash") are equally
+ * consistent with this end-of-gap flash -- "splash persists on HW" was
+ * never operator-confirmed, only inferred. Defense, since we now own
+ * per-vblank execution: run the ORIGINAL handler first, then, while the
+ * window is open, RE-ASSERT display-on every vblank -- clear VO_CONTROL
+ * bit3 (blank) if set, set FB_R_CTRL bit0 (fb read enable) if clear.
+ * Whatever turns the display off is corrected within one frame, one-shot
+ * or periodic; after the game's flip the re-assert arm is inert like the
+ * spinner. Writes are conditional (normally zero extra PVR writes per
+ * vblank). The game's own gap-end 5->4->5 FB toggle stays untouched
+ * in-line; worst interleave is our bit0 set between its 4 and 5 writes --
+ * same final state. */
 static void spinner_vbl(void) {
     static unsigned int spin_calls, spin_last;
     volatile unsigned int *pvr = (volatile unsigned int *)0xa05f8000;
     if (pvr[0x50 / 4] != 0x00260000u) return;
+    unsigned int vo = pvr[0xe8 / 4];             /* VO_CONTROL */
+    if (vo & 8u) pvr[0xe8 / 4] = vo & ~8u;       /* re-assert unblank */
+    unsigned int fbc = pvr[0x44 / 4];            /* FB_R_CTRL */
+    if (!(fbc & 1u)) pvr[0x44 / 4] = fbc | 1u;   /* re-assert fb read on */
     unsigned int pos = (++spin_calls >> 3) & 7u;
+#if SHIM_VBLROW
+    /* diag knob: one 2x2 dot per tick along row 470 of the copy -- a flash
+     * photo then reads out how many ticks ran on hardware. Never ship. */
+    {
+        volatile unsigned short *rp = (volatile unsigned short *)0xa5260000u
+            + 470 * 640 + ((spin_calls * 2u) % 636u);
+        rp[0] = rp[1] = rp[640] = rp[641] = 0xf345;
+    }
+#endif
     if (pos == spin_last) return;
     spin_last = pos;
     /* 8 dots on a radius-14 ring centered (320,445), 4x4 px each --
@@ -256,8 +290,10 @@ static void spinner_vbl(void) {
 }
 void shim_int_spin(unsigned int idx);
 void shim_int_spin(unsigned int idx) {
-    spinner_vbl();
+    /* round 5: original FIRST -- if anything in the game's own vblank path
+     * turns the display off, our re-assert runs after it, not before. */
     ((void (*)(unsigned int))0x8c038f00)(idx);
+    spinner_vbl();
 }
 
 int shim_vid_init_main(unsigned int mode, unsigned int b, unsigned int c, unsigned int d) {
