@@ -1224,6 +1224,26 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T7 ROUND 8 SHIPPED (2026-09-10, round-7 hardware verdict:
+short blink STILL at the START — splash→spinner). Diagnosis: the
+game's vid-init disturbs the LIVE signal (t8-pin census: FB read off
+~9 ms, SPG H/V totals changed ~2 ms, blank ×3) and no restore-after
+hides that from a real monitor. Round 8 = VIDINIT-WRITEFILTER
+(operator-approved): every in-window write goes through the game's
+single write helper 0x8c032140; the four in-window callers' helper
+literals repointed to a shim filter — signal-reg writes dropped
+(end-states provably equal the loader's today), FB_R_SIZE deferred
+to wrapper exit, all else passes; window closed → pure pass-through
+(gap-end arm byte-identical). Leg-caught defect fixed same-session:
+the teardown fn fires BEFORE the wrapped call → its literal gets the
+unconditional-drop variant. Census now shows ZERO display
+disturbances from loader handoff to the game's first flip, both
+cables; GAPISR 202/203, box 64/0, rotation, SHIMERR 0. **v11
+candidate (round 8)** `track04` `b24b4e35adaa8787d2af1e6a844ffcda`,
+tracks 01–03 unchanged; operator round owed — VGA start-blink check
++ FULL COMPOSITE boot-watch + game-scenes-unchanged watch item
+(`phase7-polishing.md` §T7 round 7 hardware verdict).**
+
 **Phase 7 T7 ROUND 7 SHIPPED (2026-09-09, round-6 hardware verdict:
 spinner placement GOOD, blink STILL there). The round-6 residual came
 true: the unblank-before-copy is one-shot, and this hardware re-blanks

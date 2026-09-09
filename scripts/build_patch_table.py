@@ -593,6 +593,31 @@ ptr(0x1aa9c0, 0x8C03CF0E, sym("shim_vid_init_test"), "VIDEO-GEOM-HOOK test: disp
 # literal and keeps the stock callback -- no spinner in test mode, fine).
 ptr(0x0191cc, 0x8C038F00, sym("shim_int_spin"), "VBL-SPIN main: interrupt callback -> gap spinner wrapper")
 
+# ---- VIDINIT-WRITEFILTER (Phase 7 T7 round 8, splash continuity) ----------
+# The game's vid-init disturbs the LIVE video signal (t8-pin-vga census:
+# FB_R_CTRL read-enable off ~9 ms, SPG H/V totals changed ~2 ms, blank set
+# x3) -- the boot blink no restore-after can hide from a real monitor.
+# Every such write goes through the single two-insn write helper 0x8c032140
+# (r4 = PVR reg offset, r5 = value); exactly FOUR functions fire inside the
+# vid-init window (census prs 8c03890e/8c038914, 8c036c1a..8c036cea,
+# 8c03625a..8c036292, 8c035378..8c0353a0), each loading the helper address
+# from ONE literal-pool word with a single load site (boot.dis scan).
+# Repoint those four literals to the shim filter: while vid_init_pinned has
+# the game's vid-init on the stack it drops the signal-shaping writes
+# (end-states provably equal the loader's values today) and defers
+# FB_R_SIZE to the wrapper exit; window closed -> pure pass-through (the
+# gap-end display-on arm and all later calls are byte-identical). The 25
+# OTHER pool words holding 0x8c032140 (whole-.dat scan) stay stock: their
+# callers never fire in-window, and pass-through-always needs no filter.
+# Test image: its own copies of these functions keep stock literals.
+# NB the fb-off fn runs BEFORE the wrapped vid-init call (t7r8-comp census:
+# its FB_R_CTRL=0 landed at .168, window opened .17x) -- it gets the
+# unconditional variant; the other three are callees of the wrapped entry.
+ptr(0x018954, 0x8C032140, sym("shim_pvr_write_pre"), "VIDINIT-WRITEFILTER: fb-off/size-clear fn, pre-window (pr=8c03890e)")
+ptr(0x016c80, 0x8C032140, sym("shim_pvr_write"), "VIDINIT-WRITEFILTER: raster apply fn (pr=8c036cea)")
+ptr(0x0162b4, 0x8C032140, sym("shim_pvr_write"), "VIDINIT-WRITEFILTER: fb-config fn (pr=8c036292)")
+ptr(0x0153c4, 0x8C032140, sym("shim_pvr_write"), "VIDINIT-WRITEFILTER: display-arm fn (pr=8c035398)")
+
 # ---- emit -------------------------------------------------------------
 def _row(dat_off, img, old, new, what):
     old_b = list(old) + [0] * (12 - len(old))

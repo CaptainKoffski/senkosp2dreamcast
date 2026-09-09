@@ -161,6 +161,82 @@ int shim_monitor_sense(void) {
  * sets it, the interrupt wrapper reads it. */
 static volatile unsigned int splash_live;
 
+/* T7 ROUND 8: SPLASH-CONTINUITY (operator round-7 verdict: blink still
+ * there, localized to the START -- splash -> spinner). Rounds 6-7 removed
+ * OUR blank windows; what remains is the game's vid-init disturbing the
+ * LIVE signal itself, and no after-the-fact restore can hide that from a
+ * real monitor. The t8-pin-vga census (pcs are the write helper
+ * 0x8c032140, prs identify the callers) gives the complete in-window
+ * damage: FB_R_CTRL read-enable OFF for ~9 ms (pr=8c03890e), the SPG
+ * H/V totals actually CHANGED for ~2 ms (pr=8c036cb6..8c036cde:
+ * SPG_HBLANK/LOAD/VBLANK/WIDTH + VO_STARTX/Y), and VO_CONTROL blank set
+ * three times (pr=8c036cea/8c036292/8c035398) -- ~10 ms of dark plus a
+ * sync glitch that a VGA monitor/scaler stretches into a visible blink
+ * (same class the rolled-back BOOT-UNBLANK v5 exposed as glitch rows).
+ *
+ * Every one of those writes flows through the game's single two-insn
+ * write helper at 0x8c032140 (r4 = PVR reg offset, r5 = value), which
+ * exactly four vid-init functions reach via one literal-pool word each
+ * (dat 0x18954 fb-off/size-clear, 0x16c80 raster apply, 0x162b4
+ * fb-config, 0x153c4 display-arm; single load site per literal, callers
+ * verified to reload args per call and rely only on callee-saved regs).
+ * Patch VIDINIT-WRITEFILTER repoints those four literals here. While
+ * vid_init_pinned has the game's vid-init on the stack (vidinit_pin),
+ * writes to the signal-shaping regs are DROPPED -- safe because their
+ * end-states already equal the loader's values today (the T8 restore
+ * forced them back; FB_R_CTRL's end value 00800005 is byte-identical,
+ * census n=... "same" lines). FB_R_SIZE is DEFERRED, not dropped: the
+ * game's scenes scan with its value (00177 53f vs loader d3f), so the
+ * last written value is applied once at wrapper exit. Everything else
+ * (SOFTRESET, SDRAM, TEXT_CONTROL 0xe4, FB_W path, clips, scaler,
+ * burstctrl) passes through live -- those land under blank today and
+ * the round-5 hardware PASS proves the splash scans fine with them.
+ * Window closed -> pure pass-through: the gap-end display-on arm
+ * (pr=8c03538e/8c035398/8c0353a0) and every later call behave as
+ * today. The test image's own copies of these functions are NOT
+ * patched (stock, same as VBL-SPIN); vidinit_pin being set during the
+ * test image's wrapped vid-init is therefore inert. */
+static volatile unsigned int vidinit_pin;
+static volatile unsigned int fbrsize_defer, fbrsize_val;
+void shim_pvr_write(unsigned int off, unsigned int val);
+void shim_pvr_write(unsigned int off, unsigned int val) {
+    volatile unsigned int *pvr = (volatile unsigned int *)0xa05f8000;
+    if (vidinit_pin) {
+        switch (off) {
+        case 0x44:                                  /* FB_R_CTRL */
+        case 0xe8:                                  /* VO_CONTROL (blank) */
+        case 0xd0: case 0xd4: case 0xd8:            /* SPG_CONTROL/HBLANK/LOAD */
+        case 0xdc: case 0xe0:                       /* SPG_VBLANK/WIDTH */
+        case 0xec: case 0xf0:                       /* VO_STARTX/Y */
+            return;
+        case 0x5c:                                  /* FB_R_SIZE: defer */
+            fbrsize_val = val;
+            fbrsize_defer = 1;
+            return;
+        }
+    }
+    pvr[off / 4] = val;
+}
+/* The teardown fn (dat 0x18954, census pr=8c03890e) runs BEFORE the
+ * wrapped vid-init call -- t7r8-comp census: its FB_R_CTRL=0 landed at
+ * .168 while the wrapper's window opened at .17x -- so vidinit_pin cannot
+ * cover it. Its display-offs exist only to pair with an init that is now
+ * always filtered (every re-init goes through the same wrapped entry), so
+ * drop them UNCONDITIONALLY; its FB_R_SIZE write is just the 0-clear (the
+ * real value arrives via the fbcfg defer above). Everything else it does
+ * (SOFTRESET, SDRAM cfg, TEXT_CONTROL, FB_W_CTRL, clips) passes live. */
+void shim_pvr_write_pre(unsigned int off, unsigned int val);
+void shim_pvr_write_pre(unsigned int off, unsigned int val) {
+    switch (off) {
+    case 0x44: case 0x5c: case 0xe8:
+    case 0xd0: case 0xd4: case 0xd8: case 0xdc: case 0xe0:
+    case 0xec: case 0xf0:
+        return;
+    }
+    volatile unsigned int *pvr = (volatile unsigned int *)0xa05f8000;
+    pvr[off / 4] = val;
+}
+
 static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
                                         unsigned int, unsigned int),
                            unsigned int mode, unsigned int b,
@@ -170,8 +246,14 @@ static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
     volatile unsigned int *pvr = (volatile unsigned int *)0xa05f8000;
     unsigned int save[6];
     for (unsigned int i = 0; i < 6; i++) save[i] = pvr[off[i] / 4];
+    vidinit_pin = 1;                    /* round 8: filter drops signal writes */
     int r = entry(mode, b, c, d);
+    vidinit_pin = 0;
     for (unsigned int i = 0; i < 6; i++) pvr[off[i] / 4] = save[i];
+    if (fbrsize_defer) {                /* round 8: game's FB_R_SIZE, once */
+        pvr[0x5c / 4] = fbrsize_val;
+        fbrsize_defer = 0;
+    }
     /* SPLASH-PERSIST round 2: SPLASH-SIDE-BUFFER (phase 7 T7 revival,
      * operator hardware round 1 FAIL 2026-09-07). Round 1 unblanked here
      * and kept scanning the game's own framebuffer -- but the game

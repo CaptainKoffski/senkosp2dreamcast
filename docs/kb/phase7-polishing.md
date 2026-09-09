@@ -1774,3 +1774,76 @@ candidates superseded, never released.
    at its flip). Escalation if a blink SURVIVES round 7: patch the
    game's blank-set sites (`pr=8c036cea/8c036292/8c035398`) so the
    blank is never set at all — registered since round 1.
+
+### T7 round 7 hardware verdict (2026-09-10, operator) — blink STILL at the START; ROUND 8 = SPLASH-CONTINUITY (vid-init write filter)
+
+**Operator:** "I still see short blink", localized on ask to the
+START (splash → spinner); duration-vs-round-6 "not sure". So the
+copy-window defense wasn't the (whole) story: what remains is the
+game's vid-init disturbing the LIVE signal, which no restore-after
+can hide from a real monitor. The t8-pin-vga census quantifies the
+in-window damage on VGA: FB_R_CTRL read-enable OFF for ~9 ms
+(`pr=8c03890e`), the SPG H/V totals actually CHANGED for ~2 ms
+(HBLANK 007e0345→00880343, LOAD 020c0359→02110353, VBLANK, WIDTH,
+VO_STARTX/Y — `pr=8c036cb6..8c036cde`), and blank set three times
+(`pr=8c036cea/8c036292/8c035398`) — ~10 ms of dark plus a sync
+transient a monitor/scaler stretches into a visible blink (the same
+class BOOT-UNBLANK v5 exposed as glitch rows when it removed only
+the blank).
+
+**Round 8 design (operator-approved): VIDINIT-WRITEFILTER.** Every
+in-window write flows through the game's single two-insn write
+helper `0x8c032140` (r4 = PVR reg offset, r5 = value; census: all
+in-window pcs = the helper). Exactly FOUR functions fire in the
+window, each loading the helper address from one single-load-site
+literal-pool word (boot.dis): dat `0x18954` (fb-off/size-clear),
+`0x16c80` (raster apply — SPG + blank via `or #8`), `0x162b4`
+(fb-config — FB geometry, `FB_R_CTRL &~1`, blank), `0x153c4`
+(display-arm off path; its ON path is the gap-end unblank). All four
+verified to reload args per call and rely only on callee-saved regs
+→ plain-C filter safe. Four `ptr()` repoints:
+
+- Three → `shim_pvr_write`: while `vidinit_pin` (set around the
+  wrapped `entry()` call) it DROPS writes to the signal regs
+  (FB_R_CTRL 0x44, VO_CONTROL 0xe8, SPG_CONTROL/HBLANK/LOAD/VBLANK/
+  WIDTH 0xd0–0xe0, VO_STARTX/Y 0xec/0xf0 — end-states all provably
+  equal the loader's values today via the T8 restore / identical
+  values) and DEFERS FB_R_SIZE 0x5c (game's scenes need its value;
+  applied once at wrapper exit). Window closed → pure pass-through.
+- One (`0x18954`) → `shim_pvr_write_pre`: the teardown fn runs
+  BEFORE the wrapped call (t7r8-comp census: its FB_R_CTRL=0 landed
+  at .168, window opened .17x — caught in the first r8 leg as
+  FB_R_CTRL stuck at 00000001 = wrong format through the gap), so it
+  drops the same reg set UNCONDITIONALLY — its display-offs only
+  pair with an init that is always filtered. Its other writes
+  (SOFTRESET, SDRAM, TEXT_CONTROL 0xe4, FB_W_CTRL, clips) pass live.
+- The 25 other pool words holding `0x8c032140` stay stock (callers
+  never fire in-window). Test image: own copies, stock literals.
+
+**Verification (legs `t7r8b-comp`/`t7r8-vga`):** census shows ZERO
+display disturbances from loader handoff to the game's first flip —
+vid-init writes vanish, wrapper restore lines all "same", the shim
+unblank itself now a same-value no-op (blank never set); the ONLY
+transition in the whole boot is the deferred FB_R_SIZE (y-size
+field, bd3f→b53f comp / 7d3f→753f vga, once, at wrapper exit); gap-
+end arm passes through (5→4→5 + VO same). GAPISR-TOTAL 202/203,
+spinner-box 64 / foreign 0, rotation 0→2 / 0→3, SHIMERR 0, decoded
+flip-off viewed (bare splash + ring), BUILD-TEST-GREEN.
+
+**v11 candidate (round 8): track04 = `b24b4e35adaa8787d2af1e6a844ffcda`**
+(tracks 01–03 unchanged since v2; splash.bin `b4ffd93d…`). r2–r7
+candidates superseded, never released. (First r8 build `465d57a9…`
+had the pre-window defect above — superseded same-session, never
+shipped.)
+
+**Operator protocol (round 8):**
+1. VGA: splash → spinner → NOW LOADING with NO blink at the start —
+   the signal is now structurally untouched from splash-on to the
+   game's first flip.
+2. **Composite: full boot-watch still owed** (operator eyes have
+   only ever been on VGA since round 5).
+3. Known/tolerated: the gap-end one-frame FB toggle (game's own, at
+   its flip — patchable next if the operator objects).
+4. Watch item: game scenes should look unchanged (FB_R_SIZE defer +
+   pinned-forever SPG are the only lasting deltas, both equal to
+   today's post-restore state).

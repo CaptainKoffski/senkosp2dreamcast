@@ -1968,3 +1968,31 @@ released.
   `track04.iso` = `cf0d558325b1c251d2351b803fd873cf`, splash.bin
   `b4ffd93d…`, BUILD-TEST-GREEN. r2–r6 candidates superseded, never
   released.
+
+## T7 round 8 tooling (2026-09-10)
+
+- Round-7 operator verdict: blink still there, localized (AskUser) to
+  the START. Round 8 = VIDINIT-WRITEFILTER (operator-approved design):
+  four `ptr()` repoints of the vid-init callers' write-helper literals
+  (dat 0x18954→shim_pvr_write_pre, 0x16c80/0x162b4/0x153c4→
+  shim_pvr_write) — drop signal-reg writes in-window, defer FB_R_SIZE
+  to wrapper exit, pass everything else. Recon: boot.dis (helper
+  0x8c032140 = two-insn reg write, sibling 0x8c03214a = read; four
+  callers' bodies verified arg-reload-per-call), t8-pin-vga census
+  (in-window write list with prs), whole-.dat LE scan for 0x8c032140
+  (29 hits; 4 patched, 25 stock).
+- **Leg-caught defect**: first r8 build (`465d57a9…`, leg t7r8-comp)
+  — the teardown fn fires BEFORE the wrapped call, its FB_R_CTRL=0
+  landed and the round-7 defense re-asserted only bit0 → FB_R_CTRL
+  00000001 (wrong format) through the gap. Fix: unconditional-drop
+  variant for that one literal. The CLEO-SPG census made this visible
+  in one leg — keep it armed for any future display work.
+- Legs `t7r8b-comp` / `t7r8-vga` (capture_dc_leg.sh, FLYCAST_VRAMDUMP,
+  Cable 3→0→3): census ZERO display disturbances loader→first-flip
+  (only transition = deferred FB_R_SIZE once at wrapper exit);
+  GAPISR-TOTAL 202/203, spinner-box 64/0, rotation 0→2/0→3, SHIMERR 0,
+  decoded flip-off viewed.
+- **Release v11 candidate (round 8)**: tracks 01–03 unchanged;
+  `track04.iso` = `b24b4e35adaa8787d2af1e6a844ffcda`, splash.bin
+  `b4ffd93d…`, BUILD-TEST-GREEN. r2–r7 + first-r8 candidates
+  superseded, never released.
