@@ -1947,3 +1947,24 @@ released.
   `track04.iso` = `cdb9874892f7e8bf465f22641160b861`, splash.bin
   `b4ffd93d…`, BUILD-TEST-GREEN. r2–r5 candidates superseded, never
   released.
+
+## T7 round 7 tooling (2026-09-09)
+
+- Round-6 operator verdict: placement good, blink still there. Round 7
+  = defend the copy window (the round-6 residual): in-loop conditional
+  re-assert every 1024 copied words + `splash_live` flag widening the
+  ISR wrapper's re-assert arm to unblank→repoint (util.c). Mode-set
+  span ruled out as the blink by the recorded +3 ms blank→unblank
+  delta (t7-persist-comp timeline).
+- Legs `t7r7-comp` / `t7r7-vga` (capture_dc_leg.sh, FLYCAST_VRAMDUMP
+  armed, emu.cfg Cable 3→0→3): GAPISR-TOTAL 202/202, flip-off
+  spinner-box 64 / foreign 0 vs fresh splash.bin, rotation dot 0→2
+  both (midgap vs flipoff, scratchpad `dot_pos.py`), SHIMERR 0,
+  GAPVO 0 (the new defense layers write nothing in the emulator —
+  conditional writes, and the emulator never re-blanks; hardware-only
+  by design, same blind-spot class as round 5). Decoded flip-off
+  viewed: bare splash + ring at (320,410).
+- **Release v11 candidate (round 7)**: tracks 01–03 unchanged;
+  `track04.iso` = `cf0d558325b1c251d2351b803fd873cf`, splash.bin
+  `b4ffd93d…`, BUILD-TEST-GREEN. r2–r6 candidates superseded, never
+  released.

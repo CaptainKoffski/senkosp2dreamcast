@@ -155,6 +155,12 @@ int shim_monitor_sense(void) {
  * dat 0x1aa9c0); mode word passes through UNTOUCHED (the bit30 lesson,
  * §composite fix). Reg offsets per Flycast core/hw/pvr/pvr_regs.h.
  * Record: docs/kb/phase7-polishing.md §T8. */
+/* Round 7: open from the wrapper-exit unblank to the side-buffer repoint,
+ * so the ISR re-assert also covers the copy window (SOF1 still = loader FB
+ * there, so the SOF1==0x260000 gate alone misses it). volatile: main-line
+ * sets it, the interrupt wrapper reads it. */
+static volatile unsigned int splash_live;
+
 static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
                                         unsigned int, unsigned int),
                            unsigned int mode, unsigned int b,
@@ -204,21 +210,42 @@ static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
      * the copy SOURCE is the very frame on screen. Unblank FIRST, copy the
      * visible splash while it is being scanned, then repoint to the
      * pixel-identical copy -- an invisible switch. Remaining blank =
-     * the SDK mode-set span only (game-owned; shrinking it further means
-     * patching the game's own blank-set sites -- registered escalation).
-     * Residual: the per-vblank re-assert arms only after the repoint, so
-     * a hardware re-blank landing inside the copy window itself would
-     * show as <=0.4 s of black, once. */
+     * the SDK mode-set span only (+3 ms to this unblank, t7-persist-comp
+     * timeline -- sub-frame, invisible; game-owned, escalation = patch the
+     * blank-set sites).
+     *
+     * T7 round 7 (operator round-6 verdict: blink STILL there): the
+     * round-6 residual came true. The unblank below is one-shot, and
+     * round 4 proved hardware re-blanks after exactly that (mechanism
+     * emulator-invisible); the per-vblank re-assert armed only after the
+     * repoint, leaving the copy window (~0.2-0.4 s of P2 traffic on real
+     * hardware) undefended = the blink. During the copy the CPU is here,
+     * so any re-blank can only come from an interrupt path (~60 Hz);
+     * defend in-loop every 1024 words (~1-3 ms cadence, conditional
+     * writes, normally zero) and open the ISR wrapper's re-assert arm for
+     * the whole window via splash_live -- if the re-blank rides the
+     * game's own vblank callback, the wrapper corrects it in the SAME
+     * interrupt, before the frame ever scans out blanked. */
     {
         unsigned int sof1 = pvr[0x50 / 4];              /* FB_R_SOF1 (= 0x0, loader FB, holds splash) */
         unsigned int fdel = pvr[0x54 / 4] - sof1;       /* field-2 delta (0x500 both cables) */
         volatile unsigned int *s =
             (volatile unsigned int *)(0xa5000000u + (sof1 & 0x007ffffcu));
         volatile unsigned int *t = (volatile unsigned int *)0xa5260000u;
+        splash_live = 1;
         pvr[0xe8 / 4] &= ~8u;                           /* unblank BEFORE the copy (round 6) */
-        for (unsigned int i = 0; i < (640u * 480u * 2u) / 4u; i++) t[i] = s[i];
+        for (unsigned int i = 0; i < (640u * 480u * 2u) / 4u; i++) {
+            t[i] = s[i];
+            if ((i & 1023u) == 0) {                     /* round 7: defend the copy window */
+                unsigned int vo = pvr[0xe8 / 4];
+                if (vo & 8u) pvr[0xe8 / 4] = vo & ~8u;
+                unsigned int fbc = pvr[0x44 / 4];
+                if (!(fbc & 1u)) pvr[0x44 / 4] = fbc | 1u;
+            }
+        }
         pvr[0x50 / 4] = 0x00260000u;
         pvr[0x54 / 4] = 0x00260000u + fdel;
+        splash_live = 0;                                /* SOF1 gate takes over seamlessly */
     }
     scif_puts("VIDPIN load="); scif_puthex(save[1]);
     scif_puts(" ret="); scif_puthex((unsigned int)r); scif_puts("\n");
@@ -274,11 +301,13 @@ static int vid_init_pinned(int (*entry)(unsigned int, unsigned int,
 static void spinner_vbl(void) {
     static unsigned int spin_calls, spin_last;
     volatile unsigned int *pvr = (volatile unsigned int *)0xa05f8000;
-    if (pvr[0x50 / 4] != 0x00260000u) return;
+    unsigned int on_copy = (pvr[0x50 / 4] == 0x00260000u);
+    if (!on_copy && !splash_live) return;        /* round 7: copy window counts too */
     unsigned int vo = pvr[0xe8 / 4];             /* VO_CONTROL */
     if (vo & 8u) pvr[0xe8 / 4] = vo & ~8u;       /* re-assert unblank */
     unsigned int fbc = pvr[0x44 / 4];            /* FB_R_CTRL */
     if (!(fbc & 1u)) pvr[0x44 / 4] = fbc | 1u;   /* re-assert fb read on */
+    if (!on_copy) return;                        /* draw only into OUR copy */
     unsigned int pos = (++spin_calls >> 3) & 7u;
 #if SHIM_VBLROW
     /* diag knob: one 2x2 dot per tick along row 470 of the copy -- a flash

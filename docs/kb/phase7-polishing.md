@@ -1713,3 +1713,64 @@ candidates superseded, never released.
 3. Capture device: no color bars. Known/tolerated: one-frame blink at
    gap end (game's own FB toggle at its flip — distinct from the
    now-removed mode-set blink).
+
+### T7 round 6 hardware verdict (2026-09-09, operator) — spinner placement GOOD, blink STILL THERE; ROUND 7 = defend the copy window
+
+**Operator:** "it looks better, I like the spinner placement, but the
+blink is still there." The ring position is locked; the blink survived
+round 6's unblank-before-copy.
+
+**Root cause — the round-6 residual came true.** The round-6 KB
+already named it: "a hardware re-blank landing inside the copy window
+itself would show once as brief black." The candidate mechanisms and
+their status:
+
+- SDK mode-set span (blank-set `pr=8c036cea` → wrapper-exit unblank):
+  **+3 ms** on the t7-persist-comp timeline — sub-frame, invisible.
+  Not the blink.
+- Copy window (unblank → repoint, ~0.2–0.4 s of P2 traffic on real
+  hardware): the round-6 unblank is ONE-SHOT, and round 4 proved this
+  exact hardware re-blanks after a one-shot unblank
+  (emulator-invisible mechanism, §round 5). The per-vblank re-assert
+  gates on `FB_R_SOF1 == 0x260000` and so armed only AFTER the
+  repoint — the copy window was undefended. **This is the blink.**
+
+During the copy the CPU is inside our loop, so a re-blank can only
+arrive via an interrupt path (~60 Hz vblank). Two defense layers
+(round 7, both conditional writes — zero PVR writes when nothing
+re-blanks, byte-inert in the emulator):
+
+1. **In-loop re-assert** every 1024 copied words (~1–3 ms cadence,
+   ~150 checks over the 614 KB copy): clear VO_CONTROL bit3 if set,
+   set FB_R_CTRL bit0 if clear. Deterministic — beats the 16.7 ms
+   interrupt cadence regardless of callback registration state.
+2. **`splash_live` flag** opens the ISR wrapper's re-assert arm for
+   the whole unblank→repoint window (the SOF1 gate alone misses it —
+   SOF1 still points at the loader FB there). If the re-blank rides
+   the game's own vblank callback, the wrapper corrects it in the
+   SAME interrupt, before the frame ever scans out blanked. Spinner
+   drawing still gates on SOF1==0x260000 (draw only into OUR copy);
+   flag cleared right after the repoint, so the arm hands over to the
+   SOF1 gate seamlessly and is inert in-game.
+
+**Verification (both cables, legs `t7r7-comp`/`t7r7-vga`):**
+GAPISR-TOTAL 202/202; flip-off vs fresh splash.bin = spinner-box 64 /
+foreign 0; rotation dot 0→2 both; SHIMERR 0; GAPVO 0 (the new defense
+writes nothing in the emulator, as designed); decoded flip-off viewed
+(bare splash + ring at (320,410)); BUILD-TEST-GREEN.
+
+**v11 candidate (round 7): track04 = `cf0d558325b1c251d2351b803fd873cf`**
+(tracks 01–03 unchanged since v2; splash.bin `b4ffd93d…`). r2–r6
+candidates superseded, never released.
+
+**Operator protocol (round 7):**
+1. VGA: splash → spinner transition should now be BLINK-FREE (worst
+   case: a sub-frame flicker from the game's own ≤3 ms mode-set
+   blank) → ring rotates at the kept position → game's NOW LOADING →
+   attract.
+2. **Composite: full boot-watch still owed** (rounds 5–7 only ever
+   verified on VGA by the operator).
+3. Known/tolerated: one-frame blink at gap end (game's own FB toggle
+   at its flip). Escalation if a blink SURVIVES round 7: patch the
+   game's blank-set sites (`pr=8c036cea/8c036292/8c035398`) so the
+   blank is never set at all — registered since round 1.

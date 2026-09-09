@@ -1224,6 +1224,25 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T7 ROUND 7 SHIPPED (2026-09-09, round-6 hardware verdict:
+spinner placement GOOD, blink STILL there). The round-6 residual came
+true: the unblank-before-copy is one-shot, and this hardware re-blanks
+after one-shot unblanks (round-4 proof); the per-vblank re-assert
+gated on SOF1==0x260000, arming only AFTER the repoint — the ~0.2–0.4 s
+copy window was undefended = the blink. (Mode-set span ruled out:
++3 ms blank→unblank on the t7-persist-comp timeline, sub-frame.)
+Round 7 = two defense layers, both conditional/no-op-when-quiet:
+in-loop re-assert every 1024 copied words (~1–3 ms cadence, beats the
+60 Hz interrupt cadence deterministically) + `splash_live` flag opens
+the ISR wrapper's re-assert for the whole unblank→repoint window (a
+callback-borne re-blank is corrected in the SAME interrupt). Both
+cables green (GAPISR-TOTAL 202/202, box 64/0, rotation 0→2/0→2,
+SHIMERR 0, GAPVO 0). **v11 candidate (round 7)** `track04`
+`cf0d558325b1c251d2351b803fd873cf`, tracks 01–03 unchanged; operator
+round owed — VGA blink check + FULL COMPOSITE boot-watch; escalation
+if the blink survives: patch the game's blank-set sites
+(`phase7-polishing.md` §T7 round 6 hardware verdict).**
+
 **Phase 7 T7 ROUND 6 SHIPPED (2026-09-09, round-5 hardware PASS on
 VGA — the per-vblank re-assert defeats the HW re-blank: splash
 persists, ring rotates; composite unverified). Round 6 = the
