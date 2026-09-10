@@ -704,7 +704,10 @@ the aligned frame while loading (game-code surgery, needs recon) or just
 shrink the pause via (i). Cosmetic; fund after T8/T9.
 
 **T11 — BUG: 2P controller dead when connected after boot** (operator
-report 2026-09-10): a port-B controller plugged in AFTER the game has
+report 2026-09-10)
+→ **CLOSED 2026-09-11** (§T11 below): HOTPLUG-WAKE shipped, one-round
+hardware PASS (hot-plug + both regressions), release v12 / tag 0.5.0.
+Original entry: a port-B controller plugged in AFTER the game has
 loaded never works; it must be connected before power-on. Note the
 distinction from the phase-5 round-9 banked evidence: mid-game 2P JOIN
 works (photo `img/phase5-hw-round9-2p-join.jpeg`) — but there the pad
@@ -1987,3 +1990,25 @@ tracks 01–03 unchanged. **Hardware round owed (stop-and-wait):**
 ~1 s → P2 must respond (attract JOIN or char select). (2) Regression:
 P2-at-boot still works; mid-game JOIN still works. Optional diag
 build check: `devinfo_hdr[1]` low byte flips to 5 after the plug.
+
+### Hardware verdict (2026-09-11) — PASS; T11 CLOSED, release v12
+
+**Operator:** "P2 hot-plug works now, both regressions pass too."
+All three legs in one round: hot-plug wake, P2-at-boot, mid-game
+JOIN. One-round close — the static root cause was exact.
+
+**Slowdown question (operator asked; answer recorded):** structurally
+none. With pads on both ports the wake path never executes (leg
+`t11r1-boot` dormancy proof — input code byte-identical to v11).
+With an empty port, the probe adds one ~1 ms bus wait (Maple HW
+timeout: MSPEED timeout field 50000 × 20 ns, the KOS value the shim
+programs) every 64th failed poll ≈ every 0.5 s — on top of the ~2 ms
+every 8 ms poll (two timed-out GETCOND attempts) an empty port
+ALREADY cost in v11 and every release before it, a cost the entire
+phase-5 no-lag evidence and soaks were banked against. The addition
+is ~1/128 of the pre-existing, already-invisible empty-port cost.
+
+**Release v12 PROMOTED:** `track04.iso` =
+`eeb5d82023bb3d2efe832ac941a24f54`, tracks 01–03 unchanged since v2.
+Branch `phase7-t11-2p-hotplug` merged to `main`, tag `0.5.0`. Zip
+embeds the commercial ROM — local use only, never upload.

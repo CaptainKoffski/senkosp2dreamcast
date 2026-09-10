@@ -1224,6 +1224,17 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T11 CLOSED (2026-09-11, operator hardware verdict): "P2
+hot-plug works now, both regressions pass too" — HOTPLUG-WAKE holds
+on real silicon, one-round close (hot-plug wake + P2-at-boot +
+mid-game JOIN all PASS). Slowdown question answered and recorded:
+none — dormant when pads present, and the empty-port probe adds
+~1/128 of the empty-port timeout cost v11 already carried invisibly.
+**Release v12 PROMOTED**: `track04` =
+`eeb5d82023bb3d2efe832ac941a24f54`, tracks 01–03 unchanged since v2;
+branch merged to `main`, tag `0.5.0`; zip embeds the ROM — local use
+only, never upload. Full record: `phase7-polishing.md` §T11.**
+
 **Phase 7 T11 ROUND 1 SHIPPED (2026-09-10, branch
 `phase7-t11-2p-hotplug`): 2P hot-plug bug root-caused statically —
 the round-14 DEVINFO "wake" probe (`maple.c` `bus_init_done`) is the
