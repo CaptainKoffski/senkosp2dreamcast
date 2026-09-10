@@ -1224,6 +1224,24 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T7 CLOSED (2026-09-10, operator hardware verdict, VGA +
+composite): "no blink at start, in both mode the loading screen is
+rendered properly" — the round-8 VIDINIT-WRITEFILTER holds on real
+silicon, and the long-owed composite boot-watch is banked in the same
+verdict. Gap-end one-frame toggle judged close-to-invisible, no fix
+wanted. **Release v11 PROMOTED**: `track04` =
+`b24b4e35adaa8787d2af1e6a844ffcda`, tracks 01–03 unchanged since v2;
+branch merged to `main`, tag `0.4.0`; zip embeds the ROM — local use
+only, never upload. Boot now: BIOS → splash → splash persists with
+spinner through the whole 3.4 s gap → game, with the video signal
+structurally untouched from splash-on to the game's first flip.
+Pool gains **T11** (BUG: 2P controller dead when connected after
+boot — must be plugged before power-on; phase-5 evidence says
+mid-game JOIN works when connected at boot, so likely a
+one-shot-enumeration latch) and **T12** (SEGA TM screen: add NAOMI
+logo; tester-prepared image, obtain file when funding). Full record:
+`phase7-polishing.md` §T7 round 8 hardware verdict.**
+
 **Phase 7 T7 ROUND 8 SHIPPED (2026-09-10, round-7 hardware verdict:
 short blink STILL at the START — splash→spinner). Diagnosis: the
 game's vid-init disturbs the LIVE signal (t8-pin census: FB read off

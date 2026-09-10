@@ -652,7 +652,13 @@ never visible (design-dead: no cart reads in the gap). ROUND 3 SHIPPED
 (operator chose bare splash): text + spinner deleted; v11 candidate
 now `21494430…`; GAPISR recon found the vblank ISR live all gap
 (~60 Hz) = a real spinner is a bounded round-4 if ever asked
-(§T7 round 2 hardware verdict).**
+(§T7 round 2 hardware verdict).** → Rounds 4–8: vblank spinner,
+per-vblank display re-assert, copy-window defense, and finally the
+VIDINIT-WRITEFILTER (§T7 rounds 4–8 sections below). →
+**CLOSED 2026-09-10 (operator hardware verdict, VGA + composite):
+no blink at start, loading screen renders properly both cables;
+gap-end one-frame blink judged close-to-invisible, no fix wanted.
+Release v11 promoted (`0.4.0`).**
 
 **T8 — Video-signal dropout during loads** (operator, recurring; promoted
 2026-09-07 from the T3 hardware round): the monitor loses sync and goes
@@ -696,6 +702,30 @@ transition parks on a misaligned frame during the ~1 s pause
 (operator screenshots 2026-09-07); options: pin the animation counter to
 the aligned frame while loading (game-code surgery, needs recon) or just
 shrink the pause via (i). Cosmetic; fund after T8/T9.
+
+**T11 — BUG: 2P controller dead when connected after boot** (operator
+report 2026-09-10): a port-B controller plugged in AFTER the game has
+loaded never works; it must be connected before power-on. Note the
+distinction from the phase-5 round-9 banked evidence: mid-game 2P JOIN
+works (photo `img/phase5-hw-round9-2p-join.jpeg`) — but there the pad
+was connected at boot. Hypothesis to test first: the input shim (or
+the loader's boot-combo scan) enumerates Maple devices once at boot
+and latches port presence, never rescanning — check how the shim's
+JVS→Maple layer decides "port B present" and whether a periodic
+re-enumeration (or KOS-style maple rescan) is cheap enough to run
+during attract/menus. Recon on the shim first; hardware repro leg
+(plug after load, both attract and in-menu) to bank the exact symptom
+before any fix.
+
+**T12 — SEGA TM screen: add NAOMI logo** (tester suggestion via
+operator 2026-09-10): update the SEGA licensed-by/TM boot screen with
+the NAOMI logo; a ready-to-go image exists (tester-prepared — obtain
+the file from the operator when funding this). Recon first: find where
+that screen's pixels come from in this conversion (BIOS-blob-rendered
+vs game asset vs loader-drawn) before choosing the injection point —
+the splash pipeline (`bmp2rgb565.py` + loader memcpy) is the precedent
+if it turns out loader-side, texpatch if it's a game texture. Mind the
+repo rule: BIOS-rendered imagery stays gitignored like splash.png.
 
 ---
 
@@ -1847,3 +1877,35 @@ shipped.)
 4. Watch item: game scenes should look unchanged (FB_R_SIZE defer +
    pinned-forever SPG are the only lasting deltas, both equal to
    today's post-restore state).
+
+### T7 round 8 hardware verdict (2026-09-10, operator) — PASS both cables; **T7 CLOSED**, release v11 promoted
+
+**Operator:** "VGA and Composite — no blink at start, in both mode
+the loading screen is rendered properly. Blink between loading screen
+and game is close to invisible, so no reason to fix it. I think we
+can consider this task closed." The VIDINIT-WRITEFILTER holds on real
+silicon on both cables — the composite boot-watch owed since round 5
+is banked in the same verdict. Gap-end one-frame FB toggle: judged
+tolerable, no fix wanted (the patchable site `pr=8c03538e/8c0353a0`
+stays recorded if taste ever changes).
+
+**Final T7 shape (rounds 1–8, all layers retained in the shipped
+build):** splash side-buffer at 0x260000 + game-flip retirement
+(r2), bare splash (r3), VBL-SPIN vblank spinner ring at (320,410)
+(r4+r6), per-vblank display re-assert (r5), unblank-before-copy +
+copy-window in-loop defense + `splash_live` ISR arm (r6–r7), and
+VIDINIT-WRITEFILTER making the signal untouched from splash-on to
+the game's first flip (r8). Defense layers r5–r7 are now
+belt-and-suspenders behind r8's structural fix — kept: they cost
+nothing when quiet and cover any hardware-only writer the census
+cannot see.
+
+**Release v11 PROMOTED:** `track04.iso` =
+`b24b4e35adaa8787d2af1e6a844ffcda`, tracks 01–03 unchanged since v2
+(`681fa4c8…`/`03c796f6…`/`244ae7e5…`), splash.bin `b4ffd93d…`.
+Branch `phase7-t7-splash-persist` merged to `main`, tag `0.4.0`.
+Zip embeds the commercial ROM — local use only, never upload.
+
+**Pool spawned this round (operator asks):** T11 (BUG: 2P controller
+dead when connected after boot) + T12 (SEGA TM screen: add NAOMI
+logo, tester image ready) — see §Optional pool.
