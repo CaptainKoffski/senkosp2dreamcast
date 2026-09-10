@@ -1909,3 +1909,81 @@ Zip embeds the commercial ROM — local use only, never upload.
 **Pool spawned this round (operator asks):** T11 (BUG: 2P controller
 dead when connected after boot) + T12 (SEGA TM screen: add NAOMI
 logo, tester image ready) — see §Optional pool.
+
+---
+
+## T11 — 2P hot-plug bug: HOTPLUG-WAKE (round 1, 2026-09-10)
+
+Branch `phase7-t11-2p-hotplug` (off `main` at `aeb5389`). Bounded task
+(brainstorm-approved design in chat, no spec file); systematic-debugging
+protocol.
+
+### Root cause (static recon, no hardware leg needed to find it)
+
+The symptom's shape — pad at boot works (including mid-game JOIN,
+phase-5 round 9), pad plugged after load is dead — pointed at a
+one-shot. Recon of the full input chain found exactly one:
+
+- Both live poll paths poll port B unconditionally every cycle with
+  no presence cache: `mie_poll` (`shims/src/main.c:194`) and
+  `jvs_digital` (`shims/src/main.c:920`). Not the latch.
+- The ONLY one-shot is `shims/src/maple.c` `bus_init_done`
+  (`maple.c:81-88`): the round-14 DEVINFO "wake" probe
+  (`probe_devinfo` — DEVICE REQUEST, cmd 1) fires once per port at
+  the first-ever `maple_getcond` call, during boot.
+
+Phase-5 hardware round 14 established the causal mechanism on real
+silicon: these pads stay SILENT to GetCondition until they receive a
+DEVICE REQUEST (that is why `probe_devinfo` exists at all). So a pad
+plugged in after boot never gets probed → every GETCOND returns the
+no-response marker (FFFFFFFF) → `maple_getcond` returns 0 → P2 reads
+idle forever. An unprobed-silent pad is indistinguishable from an
+empty port (both read FFFFFFFF), so no "detect and probe once"
+shortcut exists — the port must be re-probed periodically.
+
+Emulator-invisible by the same round-14 mechanism: Flycast pads
+answer GETCOND without ever being probed, so no emulator leg can
+repro the symptom. Hardware-only verdict, as with round 14 itself.
+
+### Fix: HOTPLUG-WAKE (shims/src/maple.c only)
+
+In `maple_getcond`, the shared choke point both poll paths route
+through: when both GETCOND attempts fail on a port, bump a per-port
+`.data` failure counter (`fail_cnt[2]`, nonzero-init house style);
+every 64th consecutive failure, send one `probe_devinfo(port)`.
+
+- Mirrors the platform convention: BIOS/KOS detect hot-plug by
+  periodically sending DEVICE REQUEST to unmapped ports from the
+  vblank maple scan (KOS `kernel/arch/dreamcast/hardware/maple/`
+  periodic scan — primary source, same one cited for the round-14
+  frame layout).
+- Wake latency: ≤64 failed polls ≈ 0.5–1 s at the 8 ms
+  (`jvs_digital`) / per-JVS-frame (`mie_poll`) cadences. Fine for a
+  human plugging a pad.
+- Empty-port cost: one extra timed-out Maple transaction per ~64
+  polls — noise next to the 2-timeouts-per-poll an empty port
+  already costs (retry loop).
+- Boot behavior unchanged: the original one-shot probe stays; the
+  new path only runs on the failure branch, so a Flycast run with
+  pads present executes byte-identical input code to v11.
+- Port A gets the same healing for free (nobody hot-plugs P1, but
+  the guard lives in the shared function per root-cause rule).
+- `probe_devinfo` updates `devinfo_hdr[port]`, so the HW diag
+  screen shows a healthy low-byte-5 reply after a successful wake.
+
+### Emulator legs (regression + path-exercise; symptom itself is HW-only)
+
+- `t11r1-boot` (pads on both emulated ports): dormancy proof — RAM
+  dump shows `fail_cnt` never incremented, every poll DATATRF; the
+  shipped input path is byte-identical to v11 when pads are present.
+- `t11r1b-noB` (port B = MDT_None): wake-path proof — `fail_cnt` B =
+  977, ~15 probes fired at the every-64th pacing, port A unaffected,
+  GAPISR n=202 both legs, game stable 25 s. Empty-port probe replies
+  = ffffffff as expected.
+
+**Candidate:** `track04.iso` = `eeb5d82023bb3d2efe832ac941a24f54`,
+tracks 01–03 unchanged. **Hardware round owed (stop-and-wait):**
+(1) THE verdict: boot with P1 only → load game → plug P2 in → wait
+~1 s → P2 must respond (attract JOIN or char select). (2) Regression:
+P2-at-boot still works; mid-game JOIN still works. Optional diag
+build check: `devinfo_hdr[1]` low byte flips to 5 after the plug.

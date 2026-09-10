@@ -1996,3 +1996,38 @@ released.
   `track04.iso` = `b24b4e35adaa8787d2af1e6a844ffcda`, splash.bin
   `b4ffd93d…`, BUILD-TEST-GREEN. r2–r7 + first-r8 candidates
   superseded, never released.
+
+## T11 round 1 tooling (2026-09-10, branch phase7-t11-2p-hotplug)
+
+- Recon: grep of the input chain — both poll paths
+  (`main.c:194` mie_poll, `main.c:920` jvs_digital) poll port B
+  unconditionally; only one-shot = `maple.c` `bus_init_done` DEVINFO
+  probe. No disassembly needed; the fix is shim-side C only, patch
+  table untouched.
+- Flycast port-B disconnect for legs: `emu.cfg` line 118
+  `device2 = 0` → `10` (`MDT_None = 10`, fork source
+  `core/hw/maple/maple_cfg.h:18` — primary source), restore to 0
+  after. Same edit-restore discipline as the Cable 3→0→3 dance.
+- RAM-dump variable check: symbol addrs from `shims/build/shim.map`
+  (nm) — `_fail_cnt` 8c01236c, `_devinfo_hdr` 8c012374, `_maple_hdr`
+  8c012380; dump offset = vma − 0x8c000000 into
+  `<leg>.log.ram.bin` (RNDREG ram dump, 16 MB), LE u32.
+- Leg `t11r1-boot` (pads on both emulated ports): GAPISR-TOTAL n=202
+  (window closed), 20 s game, no hang. RAM dump: `fail_cnt` {1,1}
+  untouched, `maple_hdr` both low-byte 8 (DATATRF every poll),
+  `devinfo_hdr` both low-byte 5 (boot one-shot healthy) — proves the
+  new code is dormant when pads are present (input path byte-identical
+  to v11), which is the designed no-regression property.
+- Leg `t11r1b-noB` (port B = MDT_None): GAPISR-TOTAL n=202, 25 s of
+  game post-gap, no hang. RAM dump: `fail_cnt` B = 0x3d1 (977 failed
+  polls counted → ~15 every-64th DEVINFO probes fired), `devinfo_hdr`
+  B / `maple_hdr` B = ffffffff (no-response marker, correct for an
+  empty port), port A untouched (`fail_cnt` 1, DATATRF) — the wake
+  path runs, paces as designed, and does not destabilize the bus or
+  the game. The actual wake-a-silent-pad effect is hardware-only
+  (Flycast pads answer unprobed, round-14 mechanism) — operator round
+  owed for the verdict.
+- **T11 round-1 candidate**: tracks 01–03 unchanged;
+  `track04.iso` = `eeb5d82023bb3d2efe832ac941a24f54`,
+  BUILD-TEST-GREEN (9 OK, the single grep hit = known benign comment
+  line).

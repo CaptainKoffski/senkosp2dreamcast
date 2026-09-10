@@ -1224,6 +1224,24 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T11 ROUND 1 SHIPPED (2026-09-10, branch
+`phase7-t11-2p-hotplug`): 2P hot-plug bug root-caused statically —
+the round-14 DEVINFO "wake" probe (`maple.c` `bus_init_done`) is the
+only one-shot in the input chain; a pad plugged after boot never gets
+DEVICE REQUEST and round-14 pads stay silent to GETCOND until probed
+→ port reads empty forever. Fix HOTPLUG-WAKE: in `maple_getcond`,
+every 64th consecutive failed poll on a port sends one DEVINFO
+(BIOS/KOS idle-port scan convention) — wake ≤1 s, boot path
+unchanged, dormant when pads present. Emulator legs: `t11r1-boot`
+(dormancy: fail counters untouched, input path byte-identical to
+v11) + `t11r1b-noB` (wake path: 977 fails counted, ~15 probes, bus
+and game stable). Candidate `track04` =
+`eeb5d82023bb3d2efe832ac941a24f54`, tracks 01–03 unchanged,
+tests green. **Hardware round owed**: plug P2 after load → must
+work within ~1 s; regressions: P2-at-boot, mid-game JOIN. Symptom
+is emulator-invisible (Flycast pads answer unprobed), so the
+verdict is hardware-only. Full record: `phase7-polishing.md` §T11.**
+
 **Phase 7 T7 CLOSED (2026-09-10, operator hardware verdict, VGA +
 composite): "no blink at start, in both mode the loading screen is
 rendered properly" — the round-8 VIDINIT-WRITEFILTER holds on real

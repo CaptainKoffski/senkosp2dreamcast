@@ -74,6 +74,18 @@ static void probe_devinfo(unsigned int port) {
  * (maple_if.cpp:131-137) resolves either to unit 5 = main controller. src port
  * field = (port<<6)<<16. */
 unsigned dc_cond_to_pressed(unsigned w2, unsigned w3);     /* src/jvs.c */
+
+/* T11 (2P dead when hot-plugged after boot): the DEVINFO wake above fires
+ * exactly once, at the first-ever poll -- a pad plugged in later never gets
+ * DEVICE REQUEST, and round-14 pads stay silent to GETCOND until probed, so
+ * the port reads FFFFFFFF (= empty) forever. Mirror the BIOS/KOS idle-port
+ * scan (KOS kernel/arch/dreamcast/hardware/maple/maple_globals.c vbl scan:
+ * unmapped ports get periodic DEVICE REQUESTs): every 64th consecutive
+ * failed poll on a port, send one DEVINFO -- a hot-plugged pad wakes within
+ * ~0.5-1 s at the 8 ms/JVS-frame poll cadences. Empty-port cost: one extra
+ * timed-out transaction per scan interval. Nonzero init = .data, house style. */
+static u32 fail_cnt[2] = { 1, 1 };
+
 unsigned int maple_getcond(unsigned int port) {
     volatile u32 *tx = P2(MAPLE_TX);
     volatile u32 *rx = P2(MAPLE_RX);
@@ -107,5 +119,7 @@ unsigned int maple_getcond(unsigned int port) {
         if ((rx[0] & 0xff) == 8)
             return dc_cond_to_pressed(rx[2], rx[3]);       /* cont_cond_t, words 2-3 */
     }
+    if ((++fail_cnt[port] & 63u) == 0)                     /* T11: wake hot-plugged pads */
+        probe_devinfo(port);
     return 0;                                              /* not DATATRF -> no/failed reply */
 }
