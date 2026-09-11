@@ -729,11 +729,11 @@ vs game asset vs loader-drawn) before choosing the injection point —
 the splash pipeline (`bmp2rgb565.py` + loader memcpy) is the precedent
 if it turns out loader-side, texpatch if it's a game texture. Mind the
 repo rule: BIOS-rendered imagery stays gitignored like splash.png.
-→ **ROUND 1 SHIPPED 2026-09-11** (§T12 below): recon resolved the
-injection point — it is neither loader nor game texture but the
-IP.BIN MR-logo slot in track03; `iplogo.mr` (tester-supplied NAOMI
-GD-ROM SYSTEM logo) patched in at 0x3820. Candidate track03 =
-`1c3e422e…`; awaiting operator hardware look.
+→ **CLOSED 2026-09-11** (§T12 below): IPLOGO shipped — recon resolved
+the injection point as the IP.BIN MR-logo slot in track03 (0x3820);
+`iplogo.mr` (tester-supplied NAOMI GD-ROM SYSTEM logo) patched in.
+One-round hardware PASS (logo shows + boot regression), release v13 /
+tag 0.6.0.
 
 ---
 
@@ -2095,3 +2095,20 @@ the first track03 change since v2 (its md5 finally moves).
 SD (only changed file), boot, and (1) THE verdict: the SEGA
 licensed-by/TM screen shows the NAOMI GD-ROM SYSTEM logo during
 boot; (2) regression: game still boots to attract/gameplay as v12.
+
+### Hardware verdict (2026-09-11) — PASS; T12 CLOSED, release v13
+
+**Operator:** "NAOMI logo shows on the TM screen, boot regression
+passes too." One-round close — the static slot-pointer proof held on
+real silicon, and this also retroactively confirms the round-1
+deviation was harmless: the emulator frame we couldn't capture is
+now superseded by the real-target verdict (working-style rule 1).
+
+**Release v13 PROMOTED:** `track03.iso` =
+`1c3e422e3c904069a0171bbae0a266b5` (first track03 change since v2);
+`track01/02/04` + `disc.gdi` unchanged from v12
+(`681fa4c8…`/`03c796f6…`/`eeb5d820…`). Branch `phase7-t12-iplogo`
+merged to `main`, tag `0.6.0`. Zip embeds the commercial ROM — local
+use only, never upload. Rebuild note: `iplogo.mr` (gitignored,
+operator-supplied) must be present at repo root to reproduce v13
+track03; absent file falls back to the v12 logo-less slot by design.

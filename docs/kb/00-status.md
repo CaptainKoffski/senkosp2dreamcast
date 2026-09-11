@@ -1224,6 +1224,15 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T12 CLOSED (2026-09-11, operator hardware verdict): "NAOMI
+logo shows on the TM screen, boot regression passes too" — IPLOGO
+holds on real silicon, one-round close.** **Release v13 PROMOTED:**
+track03 = `1c3e422e3c904069a0171bbae0a266b5` (first track03 change
+since v2), tracks 01/02/04 + gdi unchanged from v12; branch
+`phase7-t12-iplogo` merged to `main`, tag `0.6.0`; respin from
+defaults byte-identical (needs the gitignored `iplogo.mr` at repo
+root). Full record: `phase7-polishing.md` §T12.
+
 **Phase 7 T12 ROUND 1 SHIPPED (2026-09-11, branch
 phase7-t12-iplogo): NAOMI logo on the SEGA TM screen — IPLOGO.**
 Tester's answer resolved the pool's recon question: the screen's
