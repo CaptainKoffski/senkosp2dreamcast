@@ -144,6 +144,7 @@ test:
 	$(MAKE) -C shims test
 	python3 scripts/test_build_patch_table.py
 	python3 scripts/test_maple_literals.py
+	python3 scripts/test_eeprom_game_diff.py
 
 # VMU-safety canary runs (Cleopatra's harness ported; design spec:
 # ../cleopatra/docs/superpowers/specs/2026-07-26-vmu-safety-design.md):
