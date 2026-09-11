@@ -92,10 +92,12 @@ today's exact boot sequence.
 ## 3. Controls screen
 
 One full-screen baked image (existing `splash.png` → RGB565 blob
-pipeline): a DC controller diagram labeled with the game's actions per
-the shim's actual maple→JVS mapping (`shims/src/jvs.c` /
-`shims/src/maple.c` — our code, so authoritative; no game RE needed).
-Generated offline, styled to match the game. B returns to the menu.
+pipeline) showing the control scheme per the shim's actual maple→JVS
+mapping (`docs/kb/input-map.md` §DC pad map — our code, so
+authoritative; no game RE needed). Round 1 renders it as a clean
+button→action table; a drawn controller diagram is an operator-gated
+style iteration, like all T9 asset styling. Generated offline. B
+returns to the menu.
 
 ## 4. Assets
 
