@@ -2031,3 +2031,27 @@ released.
   `track04.iso` = `eeb5d82023bb3d2efe832ac941a24f54`,
   BUILD-TEST-GREEN (9 OK, the single grep hit = known benign comment
   line).
+
+## T12 round 1 tooling (2026-09-11, branch phase7-t12-iplogo)
+
+- **iplogo.mr** — operator-supplied (tester's file, dreamcast-talk
+  forum file id 18794; Cloudflare-gated, browser download only), at
+  repo root, gitignored. Valid Sega MR: 320×90, 63 colors, 6807 B.
+- **MR slot facts + citations:** insertion offset 0x3820 = makeip
+  `src/mr.c:39` `#define MR_OFFSET 0x3820` (+`mr.c:436` memcpy);
+  bounds ≤ 320×90 / < 128 colors / < 8192 B = makeip README; IP.BIN
+  load address 0x8c008000 and "Bootstrap 1 (3800-5FFF) can be
+  modified" = mc.pp.se/dc/ip.bin.html (Marcus Comstedt). Donor
+  cross-check: 8192-B zero run at track03 0x3820..0x5820; license
+  code literal `0x8c00b820` at IP.BIN offset 0x083c.
+- **MR decode method (stdlib only, no installs):** RLE scheme
+  transcribed from makeip `gimp/file-mr.py` `mr_decode` (tags: <0x80
+  literal; 0x81 n col; 0x82 n≥0x80 → run n-0x80+0x100; else b-0x80
+  run of next byte); palette = BGRA at +30, ncol×4; header u32 LE
+  ×7 at +2 = size/…/dataoff/w/h/…/ncol. Decoded 28800/28800 px,
+  hand-built PNG via zlib, image viewed (NAOMI GD-ROM SYSTEM logo).
+- **Session limitation, recorded:** `screencapture` denied for this
+  session ("could not create image from display" — macOS Screen
+  Recording permission not granted to the terminal), so emulator
+  license-screen frames cannot be captured; leg `t12r1-iplogo`
+  banked boot-regression evidence only (GAPISR-TOTAL n=202).

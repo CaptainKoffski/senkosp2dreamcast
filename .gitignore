@@ -30,3 +30,4 @@ loader/splash.png
 # disc art inputs (branded/ROM-derived -- never commit)
 /0GDTEX.pvr
 /0GDTEX.png
+/iplogo.mr

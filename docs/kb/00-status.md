@@ -1224,6 +1224,23 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T12 ROUND 1 SHIPPED (2026-09-11, branch
+phase7-t12-iplogo): NAOMI logo on the SEGA TM screen — IPLOGO.**
+Tester's answer resolved the pool's recon question: the screen's
+image is the IP.BIN MR-logo slot (track03 offset 0x3820, 8192 B —
+makeip `src/mr.c:39` MR_OFFSET; slot measured as exactly that zero
+run in the donor, license code references it via the `0x8c00b820`
+literal at 0x083c). Fix: `patch_iplogo` in `make_gdi.py` writes the
+operator-supplied `iplogo.mr` (gitignored; decoded + viewed =
+NAOMI™ GD-ROM SYSTEM logo, 320×90/63 colors/6807 B, conformant)
+into the slot. Leg `t12r1-iplogo`: boot regression clean (GAPISR
+n=202); emulator screenshot impossible (screencapture permission
+denied — recorded), so the visual verdict is the hardware round's.
+**Candidate: track03 = `1c3e422e3c904069a0171bbae0a266b5` (first
+track03 change since v2), tracks 01/02/04 + gdi unchanged from v12.**
+Hardware round owed: TM screen shows the logo + boot regression.
+Full record: `phase7-polishing.md` §T12.
+
 **Phase 7 T11 CLOSED (2026-09-11, operator hardware verdict): "P2
 hot-plug works now, both regressions pass too" — HOTPLUG-WAKE holds
 on real silicon, one-round close (hot-plug wake + P2-at-boot +

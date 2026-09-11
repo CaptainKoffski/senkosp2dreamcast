@@ -157,6 +157,35 @@ def patch_gdtex(track03: pathlib.Path, build: pathlib.Path):
           ("0GDTEX.pvr" if GDTEX_PVR.exists() else "0GDTEX.png"))
 
 
+IPLOGO_MR = pathlib.Path("iplogo.mr")    # repo root, gitignored (operator-
+                                         # supplied NAOMI logo, Sega MR format,
+                                         # 2026-09-11 — dreamcast-talk file 18794)
+
+
+def patch_iplogo(track03: pathlib.Path):
+    """Insert the MR-format license-screen logo into IP.BIN's logo slot at
+    track03 offset 0x3820 (phase 7 T12). The donor carries an exactly
+    8192-byte zero run at 0x3820..0x5820 — the standard slot the community
+    IP.BIN tools fill (makeip/logotools insert .mr at 0x3820, max 8 KB);
+    blank slot = the logo-less TM screen we shipped through v12. Optional
+    like the disc art: file absent -> donor stays blank."""
+    if not IPLOGO_MR.exists():
+        print("note: iplogo.mr absent -> TM screen stays logo-less (donor default)")
+        return
+    mr = IPLOGO_MR.read_bytes()
+    assert mr[:2] == b"MR", "iplogo.mr: no MR signature"
+    assert int.from_bytes(mr[2:6], "little") == len(mr), \
+        "iplogo.mr: MR header size field != file size (truncated download?)"
+    assert len(mr) <= 8192, f"iplogo.mr too big for the IP.BIN slot ({len(mr)} > 8192)"
+    with open(track03, "r+b") as f:
+        f.seek(0x3820)
+        assert f.read(8192) == b"\0" * 8192, \
+            "track03 logo slot is not the donor's zero run -- donor swap? refusing"
+        f.seek(0x3820)
+        f.write(mr.ljust(8192, b"\0"))
+    print(f"iplogo.mr: TM-screen logo inserted ({len(mr)} B into the 8192 B slot)")
+
+
 DONOR_7Z = pathlib.Path("[GDI] Dolphin Blue.7z")   # repo root, gitignored
 DONOR_SUB = "Dolphin Blue"
 DONOR_FILES = ("track01.iso", "track02.raw", "track03.iso", "track04.iso", "disc.gdi")
@@ -248,6 +277,7 @@ def main():
         shutil.copyfile(donor / f, out / f)
     brand_ip(out / "track03.iso")
     patch_gdtex(out / "track03.iso", out)
+    patch_iplogo(out / "track03.iso")
     with open(out / "track04.iso", "wb") as t4:
         t4.write(ldr)
         t4.write(b"\0" * (BOOT_REGION - len(ldr)))

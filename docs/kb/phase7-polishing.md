@@ -729,6 +729,11 @@ vs game asset vs loader-drawn) before choosing the injection point —
 the splash pipeline (`bmp2rgb565.py` + loader memcpy) is the precedent
 if it turns out loader-side, texpatch if it's a game texture. Mind the
 repo rule: BIOS-rendered imagery stays gitignored like splash.png.
+→ **ROUND 1 SHIPPED 2026-09-11** (§T12 below): recon resolved the
+injection point — it is neither loader nor game texture but the
+IP.BIN MR-logo slot in track03; `iplogo.mr` (tester-supplied NAOMI
+GD-ROM SYSTEM logo) patched in at 0x3820. Candidate track03 =
+`1c3e422e…`; awaiting operator hardware look.
 
 ---
 
@@ -2012,3 +2017,81 @@ is ~1/128 of the pre-existing, already-invisible empty-port cost.
 `eeb5d82023bb3d2efe832ac941a24f54`, tracks 01–03 unchanged since v2.
 Branch `phase7-t11-2p-hotplug` merged to `main`, tag `0.5.0`. Zip
 embeds the commercial ROM — local use only, never upload.
+
+---
+
+## T12 — SEGA TM screen NAOMI logo: IPLOGO (round 1, 2026-09-11)
+
+**Funding:** operator, 2026-09-11, with the tester's answer to the
+pool's recon question: the file is `iplogo.mr` (tester's reference:
+dreamcast-talk.com forum file id 18794 — Cloudflare-gated, so the
+operator downloaded it in a browser and dropped it at repo root).
+
+### Recon — the TM screen's pixels come from IP.BIN, not BIOS/loader/game
+
+The mechanism is the standard Dreamcast IP.BIN logo slot, and the
+donor was carrying it *empty*:
+
+- IP.BIN (first 32 KB of track03) is loaded by the boot ROM to
+  `0x8c008000`; the license-screen code lives at 0x0300–0x36FF
+  (immutable — the ROM diffs it), while 0x3800–0x5FFF is "Bootstrap 1
+  … can be modified" (Marcus Comstedt, mc.pp.se/dc/ip.bin.html).
+  That is why a logo slot at 0x3820 is patchable at all.
+- The community insertion point is exactly 0x3820: makeip
+  (KOS-team tool, orig. Marcus Comstedt) `src/mr.c:39`
+  `#define MR_OFFSET 0x3820`, `mr.c:436` `memcpy(ip + MR_OFFSET,
+  output.data, output.size)`; its README bounds the image at
+  ≤ 320×90, < 128 colors, < 8192 bytes.
+- Donor evidence (our track03, Dolphin Blue bootstrap): an exactly
+  8192-byte zero run at 0x3820..0x5820 — the slot, deliberately blank
+  (hence the logo-less TM screen shipped v1–v12) — and the
+  license-screen code holds the literal pointer `0x8c00b820`
+  (= 0x8c008000 + 0x3820) at IP.BIN offset 0x083c, static proof the
+  drawing code reads the slot when populated.
+- The Cleopatra KB's "animated boot logo" finding
+  (atomiswave-method.md) is a *different* logo — the in-game
+  SystemX/AW module — and is unrelated to this static TM-screen slot.
+
+### Fix — patch_iplogo in make_gdi.py
+
+Third in-place track03 patch beside `brand_ip`/`patch_gdtex`:
+optional `iplogo.mr` at repo root (gitignored — SEGA trademark
+artwork, same rule as 0GDTEX.*); asserts `MR` signature, header size
+field == file size, ≤ 8192 B, and that the slot is still the donor's
+zero run (donor-swap tripwire); writes the file zero-padded to 8192 B
+at 0x3820. File absent → build byte-identical to before (v12).
+
+### Round-1 verification (emulator + static; visual verdict is hardware's)
+
+- **File is the real thing:** decoded `iplogo.mr` with the RLE scheme
+  from makeip's reference decoder (`gimp/file-mr.py` `mr_decode`) —
+  28800/28800 pixels, 320×90, 63 colors, 6807 B (conformant on all
+  three makeip bounds) — and **viewed the decoded PNG: it is the
+  NAOMI™ GD-ROM SYSTEM logo** (black/orange), exactly right for a
+  GDL-0038 Naomi GD-ROM title.
+- **Slot bytes verified:** rebuilt track03 slot == file + 1385 zero
+  pad, byte-compared outside the build (no circular check).
+- **Boot regression leg** `t12r1-iplogo` (full leg, real BIOS —
+  `UseReios = no` is the leg default, so bootstrap-1 actually runs):
+  healthy head `MMUCRWR pc=a0000018`, `GAPISR-TOTAL n=202 (window
+  closed)` — matches all good legs.
+- **make test green:** 9 OK, single FAIL|ERROR grep hit is the known
+  benign comment line.
+- **Deviation from the round-1 design, recorded honestly:** the
+  planned emulator *screenshot* of the license screen was not
+  possible — macOS denies `screencapture` to this session (no Screen
+  Recording permission; "could not create image from display"), so
+  no emulator frame was viewed. The "logo actually renders" verdict
+  therefore rests on the static slot-pointer proof above and moves to
+  the operator's hardware look, per working-style rule 1 (real
+  target) anyway.
+
+**Candidate:** `track03.iso` = `1c3e422e3c904069a0171bbae0a266b5` —
+the first track03 change since v2 (its md5 finally moves).
+`track01/02/04` byte-identical to v12 (`681fa4c8…`/`03c796f6…`/
+`eeb5d820…`); `disc.gdi` unchanged; DreamShell preset name unchanged
+(it hashes track03 sector 0, which this patch does not touch).
+**Hardware round owed (stop-and-wait):** replace `track03.iso` on the
+SD (only changed file), boot, and (1) THE verdict: the SEGA
+licensed-by/TM screen shows the NAOMI GD-ROM SYSTEM logo during
+boot; (2) regression: game still boots to attract/gameplay as v12.
