@@ -107,6 +107,12 @@ endif
 ifeq ($(PRESET_NOTE),1)
 DEFS += -DLOADER_FORCE_PRESET_NOTE=1
 endif
+# MENU=0: build without the T9 pre-game menu -- for unattended emulator legs
+# (attract sits, VMU canaries): the menu waits for input forever, so a
+# menu build never reaches attract on its own. Release ships menu ON.
+ifeq ($(MENU),0)
+DEFS += -DLOADER_MENU=0
+endif
 export DEFS
 
 CARD ?= /Volumes/GDEMU/03
