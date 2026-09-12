@@ -2055,3 +2055,62 @@ released.
   Recording permission not granted to the terminal), so emulator
   license-screen frames cannot be captured; leg `t12r1-iplogo`
   banked boot-regression evidence only (GAPISR-TOTAL n=202).
+
+## T9 menu asset generator (2026-09-12, branch phase7-t9)
+
+- **Pillow install:** `python3 -m pip install --user pillow` refused
+  (PEP 668 externally-managed environment, same class of block T7
+  round 2 hit); fallback actually run:
+  `python3 -m pip install --user --break-system-packages pillow` →
+  **Pillow 12.3.0** (`python3 -c "import PIL; print(PIL.__version__)"`
+  printed `12.3.0`). Generator-only rule unchanged: Pillow renders
+  `loader/menu_sheet.png` + `loader/controls.png` offline
+  (`scripts/gen_menu_assets.py`, rerun after any `scripts/menu_def.py`
+  edit); `loader/Makefile` itself still builds those PNGs into blobs
+  with stdlib+sips only (`scripts/bmp2rgb565.py`'s own header comment
+  states the rule) — no PIL import anywhere under `loader/` or in any
+  build-time script. A pre-existing `tools/venv-pil` (Pillow 12.3.0,
+  from the retired T7 splash-text pipeline) was left alone; this task
+  used the simpler `--user --break-system-packages` install instead of
+  reviving that venv, since Step 1 asked for the exact command to be
+  recorded, not venv reuse.
+- **New generator scripts:** `scripts/menu_def.py` (settings rows +
+  layout constants, the single source — transcribed verbatim from
+  `docs/kb/phase7-polishing.md` §T9 RECON) and
+  `scripts/gen_menu_assets.py` (Pillow renderer; emits the two PNGs +
+  `loader/menu_layout.h`). Both offline/dev-machine only, never run by
+  `make gdi`; their outputs are committed like `splash.png`'s sibling
+  blobs.
+- **Value-chip dedup (sheet space, not style):** 8 settings rows ×
+  their value counts = 41 (row, value) pairs, but only 22 distinct
+  value strings (point-vs-human/cpu share "1".."5"; both round-time-vs
+  rows share "50".."120"). At the spec'd 288×28 px per chip, 41 unique
+  chips would need more area than the whole 640×768 sheet holds (41 ×
+  288 × 28 = 330,624 px² alone); the generator caches rendered chips by
+  exact text and reuses the rect for every row/value that shares it —
+  22 chips fit with room to spare (packer bottom 720/768 px, 93.8%).
+  `MENU_SET_VALUE[row][i]` entries for two different rows can therefore
+  point at the identical sheet rect; that's intended, not a bug.
+- **`make_gdi.py` boot-size guard:** a `len(ldr) <= BOOT_FILE_SIZE`
+  assert already existed right after `ldr` is read (Phase 4,
+  `f84a5558`) — the brief's "missing size guard" premise was stale.
+  Rather than add a second, redundant assert at the write site (no
+  code mutates `ldr` in between), the existing assert's message was
+  upgraded to print the actual byte counts; still one guard, still
+  fires before any of the track-copy/brand/patch work runs (fail
+  fast), still exactly the diagnostic the brief wanted.
+- **Blob linkage note (verified, not just built):** `make gdi` right
+  after this task's Makefile wiring does NOT grow `1ST_READ.BIN` —
+  `menu_sheet_blob.o`/`controls_blob.o` link clean (their
+  `_menu_sheet_bin`/`_menu_sheet_bin_end`/`_controls_bin`/`_controls_bin_end`
+  symbols are present and correctly named, confirmed via `sh-elf-nm`
+  on the standalone `.o` files) but get discarded by the SH4 target's
+  `-Wl,--gc-sections` (`../cleopatra/tools/kos/environ_dreamcast.sh:34`)
+  because nothing in the current C sources references them yet — that
+  wiring is Task 5's `menu.o`. Verified the plumbing is correct anyway:
+  a throwaway link with `-Wl,-u,_menu_sheet_bin -Wl,-u,_controls_bin`
+  (forces the symbols live without a real reference, reverted
+  immediately, never committed) grew `1ST_READ.BIN` to exactly
+  884,304 + 983,040 + 614,400 = 2,481,744 B — still under the
+  3,538,016 B ceiling — confirming both blobs are wired correctly and
+  fit once Task 5 references them.

@@ -271,7 +271,13 @@ def main():
         rom = apply_texpatch(rom)
         assert len(rom) == CART_SIZE
     ldr = pathlib.Path(a.loader).read_bytes()
-    assert len(ldr) <= BOOT_FILE_SIZE, "loader outgrew the donor boot region"
+    # T9 menu assets (~1.6 MB of blobs) push 1ST_READ.BIN much closer to this
+    # ceiling -- an oversized loader used to fail with just "outgrew the
+    # donor boot region"; now it also prints the actual byte counts, since
+    # `b"\0" * negative` silently writes an empty pad instead of erroring
+    # (this check is what turns that into a loud, diagnosable failure).
+    assert len(ldr) <= BOOT_FILE_SIZE, \
+        f"1ST_READ.BIN {len(ldr)} B exceeds donor FS size {BOOT_FILE_SIZE}"
 
     for f in ("track01.iso", "track02.raw", "track03.iso", "disc.gdi"):
         shutil.copyfile(donor / f, out / f)
