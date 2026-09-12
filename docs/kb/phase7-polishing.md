@@ -1168,6 +1168,41 @@ Residuals (recorded, none gating):
 respun from defaults. (a) closed on the raw backend, (b) closed on
 GDEMU / improved on DreamShell (residual above), (c) closed on both.**
 
+### Stage-2 addendum (2026-09-12, found during the T9 emulator round): iteration-bounded DMA wait was a big-transfer cliff
+
+The T9 round was the first flycast visit to attract→START / the
+attract demo stage on a stage-2 DMA shim, and both scenes died
+`shim_die(4)` `GD_E_DMA`, ALTSTAT 0x80 (BSY), `SB_GDST` stuck — at the
+two biggest single cart streams in the game (game start
+`off=0935a800 len=007e7800` = 8.3 MB; demo stage
+`off=0b496800 len=003be800` = 3.9 MB, both known from phase-5 leg
+logs). Root cause: `gd_read_fad`'s `SB_GDST` wait was
+iteration-bounded (`GD_SPIN` = 50M, ~1–2 s of flycast-emulated time)
+while flycast models large G1 DMA at 1.8 MB/s in 10,240-byte
+`GDLEND`-advancing chunks (`gdromv3.cpp` `getGDROMTicks`/`GDRomschd`;
+`GDST` clears only when `GDLEND` reaches `GDLEN`, :1333-1336) — 2.2 s
+and 4.6 s transfers, aborted mid-flight by the shim (`SB_GDEN = 0`).
+Every emulator leg above topped out at 0x179800 = 1.5 MB per request;
+the big loads were only ever proven on GDEMU (fast, §hardware round
+leg 4 — attract→START ~1 s IS the 8.3 MB read). Also a real-drive
+near-miss: a stock GD drive's large-transfer rate is the same
+~1.8 MB/s flycast models, vs. a real-time spin budget of roughly the
+same order. NOT a T9 loader regression — a `MENU=0` control build
+reproduces it (`captures/phase7/t9-dmacliff-repro`, `SHIMERR
+code=00000004 a=0b496800 b=da098000` at stdout:364, 88 clean streams
+first).
+
+Fix (commit `139541d`, `shims/src/gd.c`): the DMA wait now runs a
+**no-progress budget** — any `SB_GDLEND` advance rearms the spin
+clock; a wedged engine (no progress) still dies in ~one `GD_SPIN`.
+Verified `captures/phase7/t9-dmacliff-fix1` (same build+leg): 0
+SHIMERR, 148 streams, and the demo-stage read delivered byte-exact —
+`SHIMCRC o=0b496800 l=003be800 c=154c7276` equals the phase-5-era
+control value for the same stream. Both legs `make gdi SERIAL=1 CRC=1
+MENU=0`, unattended 8 min. The 8.3 MB game-start read is the same
+mechanism; re-verified by the operator in the T9 round re-run (needs
+a START press).
+
 **Release md5s v9** (respin 2026-09-07, `make clean` → `make release`,
 `make test` green): `track04.iso` =
 `e731e34bc43b8612613efc1f1e74b4c0` — byte-identical to the staged
