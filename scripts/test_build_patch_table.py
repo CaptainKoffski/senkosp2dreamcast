@@ -52,6 +52,12 @@ def parse_rows(text):
 
 # ---- (a) + (b): one run, check old-byte fidelity + img tagging -----------
 text = run_gen()
+
+# ---- T9 task 6: EEPROM_IMG_ADDR emitted and non-zero -----------------------
+m = re.search(r"#define\s+EEPROM_IMG_ADDR\s+0x([0-9a-fA-F]{8})u", text)
+assert m and int(m.group(1), 16) != 0, "EEPROM_IMG_ADDR missing/zero"
+print("OK EEPROM_IMG_ADDR emitted")
+
 dat = DAT.read_bytes()
 # Task 6: only the two unconditional patch arrays are checked against
 # PRISTINE senkosp.dat here -- the carve arrays (senkosp_carve_main/test,

@@ -113,6 +113,13 @@ endif
 ifeq ($(MENU),0)
 DEFS += -DLOADER_MENU=0
 endif
+# MENUDIAG=1 (pair with SERIAL=1 to hear it, MENU=0 to run unattended): the
+# loader force-feeds the Task-18 easy record through the T9 poke path --
+# unattended end-to-end check (MENUEE line + easier in-game campaign).
+# Test-only, never shipped.
+ifeq ($(MENUDIAG),1)
+DEFS += -DLOADER_MENUDIAG=1
+endif
 export DEFS
 
 CARD ?= /Volumes/GDEMU/03
