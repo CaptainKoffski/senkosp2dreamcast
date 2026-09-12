@@ -462,13 +462,26 @@ int gd_read_fad(unsigned fad, void *dst, unsigned sectors) {
 #if !GD_LOADER_BUILD && SHIM_G1DMA
     if (dma) {
         SB_GDST = 1;
-        /* The engine moves the whole request; poll the kick bit down. Same
-         * ~10 s budget and heartbeat as every other wait here. flycast
-         * clears GDST exactly when GDLEND reaches GDLEN (gdromv3.cpp:
-         * 1333-1336) and raises the (masked) bit-14 interrupt, which we ack
-         * below either way so nothing stays latched. */
-        unsigned i;
-        for (i = 0; i < GD_SPIN && (SB_GDST & 1u); i++) { GD_HEARTBEAT(i); }
+        /* Poll the kick bit down with a NO-PROGRESS budget, not a whole-
+         * transfer one: GD_SPIN iterations only elapse against a stalled
+         * SB_GDLEND -- any advance rearms the clock. A fixed spin count is
+         * wrong here because the transfer itself can legitimately outlive
+         * it: the game-start and demo-stage loads are single 8.3 MB /
+         * 3.9 MB requests (T9 round died at exactly those two offsets),
+         * and both flycast's DMA model and a real GD drive move large
+         * transfers at ~1.8 MB/s in paced chunks, advancing GDLEND as they
+         * go (gdromv3.cpp getGDROMTicks/GDRomschd: 10240-byte chunks; GDST
+         * clears only when GDLEND reaches GDLEN, :1333-1336) -- 4.6 s for
+         * the big one, past any spin count that still catches real wedges.
+         * A wedged engine makes no progress and still dies in ~one
+         * GD_SPIN; flycast raises the (masked) bit-14 interrupt on
+         * completion, which we ack below either way. */
+        unsigned i, seen = 0;
+        for (i = 0; i < GD_SPIN && (SB_GDST & 1u); i++) {
+            GD_HEARTBEAT(i);
+            unsigned now = SB_GDLEND;
+            if (now != seen) { seen = now; i = 0; }  /* progress rearms the budget */
+        }
         unsigned lend = SB_GDLEND;
         gd_diag[6] = lend;
         *(volatile unsigned int *)0xa05f6900 = 1u << 14;   /* ack GD-DMA status */
