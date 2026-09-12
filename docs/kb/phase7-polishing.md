@@ -693,6 +693,38 @@ the conversion currently stubs the native path, 00-status §What this
 is), then a loader-side menu (the splash/preset_note screens are the UI
 precedent) that writes the chosen bytes before handoff.
 
+### T9 RECON — GAME ASSIGNMENTS byte map (2026-09-12, operator emulator leg)
+
+Method: stock Naomi-profile Flycast, one item flipped per save-quit cycle,
+`scripts/eeprom_game_diff.py` diff of `senkosp.zip.eeprom` (the Task-18 /
+event-bake method, `docs/kb/tooling.md` §EEPROM game-area bake hook).
+BIOS-written areas validated (crc_ok/copies_ok/headers_ok all true on every
+capture).
+
+| GAME ASSIGNMENTS item | record idx | values (label = byte, hex) | default |
+|---|---|---|---|
+| Game difficulty | idx6 | EASY = 0x00, NORMAL = 0x01, HARD = 0x02, MANIA = 0x03 | 0x01 (NORMAL) |
+| Point vs Human | idx7 | 1 = 0x01, 2 = 0x02, 3 = 0x03, 4 = 0x04, 5 = 0x05 | 0x02 |
+| Point vs CPU | idx8 | 1 = 0x01, 2 = 0x02, 3 = 0x03, 4 = 0x04, 5 = 0x05 | 0x02 |
+| Round time vs Human | idx10 | 50 s = 0x32, 60 s = 0x3c, 70 s = 0x46, 80 s = 0x50, 90 s = 0x5a, 100 s = 0x64, 110 s = 0x6e, 120 s = 0x78 | 0x46 (70 s) |
+| Round time CPU story | idx12 | 90 s = 0x5a, 100 s = 0x64, 110 s = 0x6e, 120 s = 0x78, 130 s = 0x82, 140 s = 0x8c, 150 s = 0x96 | 0x96 (150 s) |
+| Round time vs CPU | idx14 | 50 s = 0x32, 60 s = 0x3c, 70 s = 0x46, 80 s = 0x50, 90 s = 0x5a, 100 s = 0x64, 110 s = 0x6e, 120 s = 0x78 | 0x46 (70 s) |
+| Event mode | idx4 | OFF = 0x00, ON = 0x01 | 0x00 (OFF) |
+| Novice mode | idx5 | OFF = 0x00, ON = 0x01 | 0x01 (ON) |
+
+Notes: BACKUP DATA CLEAR (either menu) does NOT reset game assignments
+— only removing the `.eeprom` file re-inits to defaults (the wipe-and-reinit
+path). idx9/11/13/15 never changed across all captures — consistent with
+the three round-time fields being 16-bit little-endian seconds whose high
+byte stayed 0x00 (fixed-zero high byte, treated as single bytes).
+
+This table **resolves the phase-5 open item** `docs/kb/phase5-hardware.md`
+§EEPROM game record "idx10/idx14 changed alongside difficulty, identity not
+RE'd": those bytes are Round time vs Human / vs CPU — the Task-18 easy leg
+had also changed round times (120/110 s), independent of difficulty. No
+multi-byte items observed; every GAME ASSIGNMENTS item maps to exactly one
+byte.
+
 **T10 — Load floor + char-select transition cosmetics** (operator ask
 2026-09-07, post-T3): (i) can the ~1 s GDEMU attract→START load shrink
 further — run a `TIME=1` profile of that window FIRST to split remaining
