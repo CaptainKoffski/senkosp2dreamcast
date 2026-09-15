@@ -14,9 +14,9 @@ static const mrect_t MENU_TOP_LABEL[3][2] = {
 };
 
 static const unsigned short MENU_TOP_DEST[3][2] = {
-  {160, 310},
-  {160, 354},
-  {160, 398},
+  {160, 178},
+  {160, 222},
+  {160, 266},
 };
 
 static const mrect_t MENU_TOP_FOOTER = {0,108,640,24};

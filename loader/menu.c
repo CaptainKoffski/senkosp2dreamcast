@@ -36,7 +36,7 @@ static uint32 edge(void) {
 }
 
 static void draw_top(int cur) {
-    memcpy(vram_s, splash_bin, 640 * 480 * 2);
+    for (int i = 0; i < 640 * 480; i++) vram_s[i] = MENU_BG_COLOR;
     for (int i = 0; i < 3; i++)
         blit(MENU_TOP_LABEL[i][i == cur],
              MENU_TOP_DEST[i][0], MENU_TOP_DEST[i][1]);
