@@ -22,11 +22,13 @@ assert os.path.exists(FONT_PATH), f"stock macOS font missing: {FONT_PATH}"
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOADER_DIR = os.path.join(REPO, "loader")
 
-BG = (0x10, 0x10, 0x18)
-WHITE = (255, 255, 255)
+BG = (248, 248, 248)          # = splash.png bg; bmp2rgb565.py and rgb565()
+                              # truncate identically, so menu fill == splash white
+FG = (0x10, 0x10, 0x18)       # dark navy text (the pre-white-bg BG color)
 BLACK = (0, 0, 0)
-AMBER = (0xe0, 0xa0, 0x20)
-GREY = (0x90, 0x90, 0x90)
+AMBER = (0xe0, 0xa0, 0x20)    # highlight bands (black text on top)
+AMBER_TXT = (0xa8, 0x70, 0x00)  # amber as TEXT needs more contrast on white
+GREY = (0x70, 0x70, 0x70)
 
 F_TOP = ImageFont.truetype(FONT_PATH, 28)      # top-menu labels
 F_ROW = ImageFont.truetype(FONT_PATH, 20)      # settings rows/footers/values
@@ -112,7 +114,7 @@ def main():
     for item in M.TOP_ITEMS:
         r_norm = shelf.place(320, 36)
         check_fits(draw, 320, 36, item, F_TOP)
-        put_centered(draw, r_norm, item, F_TOP, WHITE)
+        put_centered(draw, r_norm, item, F_TOP, FG)
         r_hi = shelf.place(320, 36)
         fill_rect(draw, r_hi, AMBER)
         check_fits(draw, 320, 36, item, F_TOP)
@@ -125,7 +127,7 @@ def main():
 
     title_rect = shelf.place(640, 32)
     check_fits(draw, 640, 32, "SETTINGS", F_TITLE)
-    put_centered(draw, title_rect, "SETTINGS", F_TITLE, WHITE)
+    put_centered(draw, title_rect, "SETTINGS", F_TITLE, FG)
 
     # Value chips are shared across rows/values that render identical text
     # (e.g. "1".."5" for both point-vs-human and point-vs-cpu, "50".."120"
@@ -140,7 +142,7 @@ def main():
             return value_cache[text]
         r = shelf.place(288, 28)
         check_fits(draw, 288, 28, text, F_ROW)
-        put_centered(draw, r, text, F_ROW, WHITE)
+        put_centered(draw, r, text, F_ROW, FG)
         value_cache[text] = r
         return r
 
@@ -150,7 +152,7 @@ def main():
     for label, idx, vals, idx2, bytes2 in M.SETTINGS:
         r_norm = shelf.place(288, 28)
         check_fits(draw, 288, 28, label, F_ROW)
-        put_left(draw, r_norm, label, F_ROW, WHITE)
+        put_left(draw, r_norm, label, F_ROW, FG)
         r_hi = shelf.place(288, 28)
         fill_rect(draw, r_hi, AMBER)
         check_fits(draw, 288, 28, label, F_ROW)
@@ -168,20 +170,20 @@ def main():
         f"sheet content {shelf.bottom}px exceeds {M.SHEET_H}px budget"
     # Canvas was allocated at the full 640x768 up front and pre-filled with
     # BG, so the untouched tail below shelf.bottom is already the required
-    # #101018 padding -- no separate crop+pad step needed.
+    # splash-white padding -- no separate crop+pad step needed.
     sheet.save(os.path.join(LOADER_DIR, "menu_sheet.png"))
 
     # ---- controls.png ---------------------------------------------------
     ctrl = Image.new("RGB", (640, 480), BG)
     cd = ImageDraw.Draw(ctrl)
     check_fits(cd, 640, 480, "CONTROLS", F_TITLE)
-    cd.text((320, 40), "CONTROLS", font=F_TITLE, fill=WHITE, anchor="mm")
+    cd.text((320, 40), "CONTROLS", font=F_TITLE, fill=FG, anchor="mm")
     row_y = 120
     for btn, act in M.CONTROLS_ROWS:
         check_fits(cd, 340 - 120, 34, btn, F_ROW, margin=10)
         check_fits(cd, 640 - 340, 34, act, F_ROW, margin=20)
-        cd.text((120, row_y), btn, font=F_ROW, fill=AMBER, anchor="lm")
-        cd.text((340, row_y), act, font=F_ROW, fill=WHITE, anchor="lm")
+        cd.text((120, row_y), btn, font=F_ROW, fill=AMBER_TXT, anchor="lm")
+        cd.text((340, row_y), act, font=F_ROW, fill=FG, anchor="lm")
         row_y += 34
     assert row_y <= 440, f"controls rows ({row_y}px) collide with the footer"
     check_fits(cd, 640, 480, "B: BACK", F_ROW)
