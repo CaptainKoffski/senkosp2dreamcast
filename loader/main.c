@@ -56,6 +56,32 @@ extern uint8 handoff_end[];     /* end-of-stub label in handoff.S (stub is PIC) 
 #define LOADER_QUIET 1
 extern uint8 splash_bin[];      /* objcopy-embedded 640x480 RGB565 (Makefile) */
 
+/* T9 cosmetic round 3 (operator: the post-menu load stretch shows the splash
+ * bare, then the shim's boot-gap spinner appears -- extend the spinner back
+ * into the loader phase). Same ring the shim's VBL-SPIN draws
+ * (shims/src/util.c spinner_vbl: 8 dots of 4x4 px on a radius-14 ring
+ * centered (320,410), 0xf345 orange active / 0xad55 grey idle), at the same
+ * cadence (8 vblanks ~= 133 ms per step), so the shim's redraw of the
+ * identical cells takes over seamlessly after handoff. Pure polled draw off
+ * the free-running ms clock -- no thread, nothing to stop before handoff;
+ * called between GD read chunks and after each staging stage. Splash builds
+ * only: QUIET=0 debug builds keep their say() stage-text screen clean. */
+static void spin_tick(void) {
+    static unsigned int spin_last = 9;              /* 9 = never drawn */
+    if (!LOADER_QUIET) return;
+    unsigned int pos = (unsigned int)(timer_ms_gettime64() / 133) & 7u;
+    if (pos == spin_last) return;
+    spin_last = pos;
+    static const signed char dx[8] = { 0, 10, 14, 10, 0, -10, -14, -10 };
+    static const signed char dy[8] = { -14, -10, 0, 10, 14, 10, 0, -10 };
+    for (unsigned int i = 0; i < 8; i++) {
+        uint16 c = (i == pos) ? 0xf345 : 0xad55;
+        uint16 *fb = vram_s + (410 + dy[i]) * 640 + (320 + dx[i]);
+        for (int y = 0; y < 4; y++)
+            for (int x = 0; x < 4; x++) fb[y * 640 + x] = c;
+    }
+}
+
 /* Serial kill-switch (release default 0): serial-SD dongles (DreamShell
  * isoldr) drive their SD card over the SCIF pins, so a release build must
  * never transmit. KOS's dbgio_init is weak (kernel/debug/dbgio.c:110);
@@ -273,6 +299,7 @@ int main(void) {
 
     cdrom_reinit();             /* inits the GD subsystem */
     say("GD init OK");
+    spin_tick();
 
     /* TEST_DAT_OFF (0x171ff8) is NOT sector-aligned: read from the containing
      * sector and let the image start `skip` bytes into the buffer. `skip` is
@@ -283,8 +310,15 @@ int main(void) {
     uint32 secs = (skip + img_len + 2047) / 2048;
     uint8 *buf   = (uint8 *)STAGING_ADDR;
     uint8 *stage = buf + skip;
-    if (cdrom_read_sectors(buf, fad, secs) != ERR_OK)
-        halt("KOS GD READ FAIL");
+    /* Chunked so the spinner ticks during the ~2.4 MB pull (the dominant
+     * stretch of the load on real hardware); byte-identical to the single
+     * cdrom_read_sectors call it replaces. */
+    for (uint32 done = 0; done < secs; done += 64) {
+        uint32 nsec = secs - done > 64 ? 64 : secs - done;
+        if (cdrom_read_sectors(buf + done * 2048, fad + done, nsec) != ERR_OK)
+            halt("KOS GD READ FAIL");
+        spin_tick();
+    }
     /* Magic check only for the main image: the "NAOMI" header IS the first
      * bytes of the main load entry (ROM 0 -> RAM 0x8c020000, docs/kb/game.md
      * §Parsed .dat header). The test entry is raw code with no signature. */
@@ -398,6 +432,7 @@ int main(void) {
         }
     }
 
+    spin_tick();                             /* rehearsal done */
     if (apply_patches(stage,
                       test_boot ? senkosp_patches_test : senkosp_patches_main,
                       test_boot ? N_PATCHES_TEST : N_PATCHES_MAIN,
@@ -407,6 +442,7 @@ int main(void) {
            (unsigned)N_PATCHES_MAIN, (unsigned)N_PATCHES_TEST,
            test_boot ? "test" : "main");
     say("patches OK");
+    spin_tick();
 
     /* Phase 7 T1 heap carve (task-3b-report.md): applied on the syscall
      * backend, and only AFTER the unconditional table above (its `old`
@@ -506,6 +542,7 @@ int main(void) {
     memcpy((void *)STAGE_BLOB, bios_data + BIOS_DATA_60000_OFF, BIOS60000_LEN);
     memcpy((void *)STAGE_KERNEL, bios_data + BIOS_DATA_KERNEL_A_OFF,
            KERNEL_TOTAL_LEN);   /* A|B|C are contiguous in both blob and RAM */
+    spin_tick();
 
     /* Copy records, staged high like everything else: a records[] in loader
      * .data would sit inside the game image's own copy destination and be
@@ -522,6 +559,7 @@ int main(void) {
     /* Relocate the PIC handoff stub out of every copy destination. */
     uint32 ho_len = (uint32)((uint8 *)handoff_end - (uint8 *)handoff);
     memcpy((void *)HANDOFF_SCRATCH, (void *)handoff, ho_len);
+    spin_tick();                             /* last tick before purges + jump */
 
     /* Write-back every CPU store above to RAM: the stub reads records and
      * sources through P2 (uncached), so anything still sitting dirty in the
