@@ -35,8 +35,15 @@ static uint32 edge(void) {
     return e;
 }
 
-static void draw_top(int cur) {
+/* Full-screen clear only on screen entry. Redraws blit bg-padded cells
+ * straight over the old ones (every cell in menu_layout.h is fixed-size),
+ * so per-keypress repaints never touch the rest of the frame -- clearing
+ * 640x480 in the live framebuffer on every input was a visible flicker. */
+static void clear_bg(void) {
     for (int i = 0; i < 640 * 480; i++) vram_s[i] = MENU_BG_COLOR;
+}
+
+static void draw_top(int cur) {
     for (int i = 0; i < 3; i++)
         blit(MENU_TOP_LABEL[i][i == cur],
              MENU_TOP_DEST[i][0], MENU_TOP_DEST[i][1]);
@@ -44,7 +51,6 @@ static void draw_top(int cur) {
 }
 
 static void draw_settings(int cur, const int *val) {
-    for (int i = 0; i < 640 * 480; i++) vram_s[i] = MENU_BG_COLOR;
     blit(MENU_SET_TITLE, MENU_SET_TITLE_X, MENU_SET_TITLE_Y);
     for (int i = 0; i < MENU_N_SETTINGS; i++) {
         blit(MENU_SET_LABEL[i][i == cur], MENU_SET_LABEL_X, MENU_SET_ROW_Y(i));
@@ -68,6 +74,7 @@ static void settings_screen(void) {
             if (MENU_SET_BYTE[i][v] == menu_game_record[MENU_SET_IDX[i]])
                 val[i] = v;
     }
+    clear_bg();
     draw_settings(cur, val);
     for (;;) {
         uint32 e = edge();
@@ -93,6 +100,7 @@ static void controls_screen(void) {
 
 void menu_run(void) {
     int cur = 0;
+    clear_bg();
     draw_top(cur);
     for (;;) {
         uint32 e = edge();
@@ -103,6 +111,7 @@ void menu_run(void) {
             if (cur == 0) break;
             if (cur == 1) settings_screen();
             else          controls_screen();
+            clear_bg();                          /* sub-screen leftovers */
             draw_top(cur);
         }
     }
