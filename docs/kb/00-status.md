@@ -1224,6 +1224,36 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T9 BUILT (2026-09-17, branch phase7-t9): pre-game menu
+shipped, emulator round PASS — hardware round owed.** A three-item
+menu (START GAME / SETTINGS / CONTROLS) shown at every boot before the
+game loads: SETTINGS exposes the full 8-field GAME ASSIGNMENTS byte
+map (recon'd against BIOS-written EEPROM vectors); the chosen values
+are poked into the same live 132-byte session-EEPROM record
+(`mie_sub03`) the shim already RAM-copies pre-handoff, so no new
+game-side code is needed. Knobs: `MENU=0` (drop the menu — required
+for any unattended emulator leg that must reach attract on its own,
+including `test-vmu`/`test-vmu-play`), `MENUDIAG=1` (force-feed the
+Task-18 easy record, unattended end-to-end check). The operator's
+emulator round approved the mechanism and, across four cosmetic
+rounds, the look: menu centered on the splash-white background (no
+logo — declined), the shim's VBL-SPIN spinner extended into the
+loader's own load phase so it runs continuously from menu exit through
+load into the boot gap, and a per-keypress flicker killed (clear moved
+to screen entry only). The round also surfaced and closed a latent,
+non-T9 bug: an iteration-bounded G1-DMA wait that died on the game's
+two biggest single cart streams (8.3 MB game-start, 3.9 MB demo stage)
+— fixed with a progress-based timeout in `gd.c` (commit `139541d`).
+**Candidate:** `1ST_READ.BIN` = `64f27b2d356e592755c7c2a41a90c4d4`,
+`track04.iso` = `4b0c91d0428d1a2f81620cdb59488bc2`, tracks 01–03
+unchanged since v13; `make test` green, `make clean` → `make gdi`
+reproduces both md5s byte-identical. Hardware round posted (six legs:
+nav/look, controls screen, settings→easier stage 1, regression vs v13,
+test combo, T11 2P hot-plug regression); promotion to release v14 is
+gated on the operator's PASS. Full record: `phase7-polishing.md` §T9;
+md5 table + leg-log summary: `tooling.md` §T9 release candidate +
+hardware-round tooling.
+
 **Phase 7 T12 CLOSED (2026-09-11, operator hardware verdict): "NAOMI
 logo shows on the TM screen, boot regression passes too" — IPLOGO
 holds on real silicon, one-round close.** **Release v13 PROMOTED:**

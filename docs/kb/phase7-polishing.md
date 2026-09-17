@@ -2179,3 +2179,86 @@ merged to `main`, tag `0.6.0`. Zip embeds the commercial ROM — local
 use only, never upload. Rebuild note: `iplogo.mr` (gitignored,
 operator-supplied) must be present at repo root to reproduce v13
 track03; absent file falls back to the v12 logo-less slot by design.
+
+---
+
+## T9 — Pre-game menu (round 1, 2026-09-17)
+
+**Funding:** operator ask 2026-09-07 (§Optional pool above); design
+brainstormed and approved 2026-09-11
+(`docs/superpowers/specs/2026-09-11-phase7-t9-pregame-menu-design.md`),
+plan `docs/superpowers/plans/2026-09-11-phase7-t9-pregame-menu.md`.
+
+### What shipped
+
+A three-item menu (START GAME pre-selected / SETTINGS / CONTROLS) at
+every boot, before the game loads, stateless (defaults reset every
+power-on — VMU persistence explicitly deferred). Mechanism, per the
+design's own reasoning: the shim already serves the EEPROM from a live
+132-byte RAM buffer lazily loaded from `mie_sub03` (the generated MIE
+sub-`0x03` reply blob — 4-byte header + the 128-byte EEPROM image; the
+older fixed-address `eeprom_img` skeleton is dead `#if 0` code) and
+copies it into game RAM pre-handoff — so the menu writes the chosen
+session settings into that same game record before handoff runs, and
+the proven RAM-copy path does the rest. Zero new game-side code.
+
+- **Byte map** (Tasks 1–2, §T9 RECON above): every GAME ASSIGNMENTS
+  item → exactly one record byte, all 8 fields, defaults included.
+- **CRC + game-area builder** (Task 3, `naomi_crc.c`/`.h`): host-tested
+  against BIOS-written vectors (session CRCs `1e1c`/`544f`/`6808`).
+- **Asset pipeline** (Task 4, `scripts/menu_def.py` +
+  `scripts/gen_menu_assets.py` → `loader/menu_sheet.png` /
+  `controls.png` / `loader/menu_layout.h`, generated-but-committed,
+  Pillow generator-only — `tooling.md` §T9 menu asset generator).
+- **Menu screens** (Task 5, `loader/menu.c`): top/settings/controls,
+  `MENU=0` leg knob.
+- **The poke itself** (Task 6, `loader/main.c`): `EEPROM_IMG_ADDR`
+  resolved from `mie_sub03`'s linked address, offset
+  `+4 +0x24` (MIE reply header, then the game-record start); self-check
+  CRC, pristine fallback on mismatch, `MENUDIAG=1` unattended leg knob.
+  Offset math + the `eeprom_img`→`mie_sub03` adaptation:
+  `tooling.md` §T9 release candidate + hardware-round tooling.
+- **Fix round** (Task 7): the T9 emulator round's own big-transfer
+  DMA-wait cliff — root-caused and fixed in `gd.c` (commit `139541d`),
+  full account above in §T3 → Stage-2 addendum. **Not a T9 regression**:
+  a `MENU=0` control build reproduced the same death.
+- **Four operator-approved cosmetic rounds** (Task 7, each verified
+  against the emulator build, each PASS): `2f9c703` centered the three
+  menu items on the (then-black) background, no logo, per the
+  operator's explicit decline of every logo mockup; `e911377` flipped
+  the palette to the splash-white background (both RGB565 converters
+  truncate identically, so the menu fill is pixel-identical to the
+  splash fill); `0099f79` extended the shim's VBL-SPIN spinner ring
+  (8×4×4 dots, r=14 @ (320,410), colors `0xf345`/`0xad55`, 133 ms/step)
+  into the loader's own load phase via `spin_tick()` in
+  `loader/main.c`, chunking the image pull into 64-sector pieces with a
+  tick per chunk — so the spinner now runs continuously from menu exit
+  through load into the boot gap; `6c4f9ce` killed a per-keypress
+  full-screen flicker by moving the framebuffer clear to screen entry
+  only (`loader/menu.c` — every `menu_layout.h` cell is fixed-size and
+  bg-padded, so per-keypress redraws just blit over the old cells).
+
+### Candidate
+
+`1ST_READ.BIN` = `64f27b2d356e592755c7c2a41a90c4d4`, `track04.iso` =
+`4b0c91d0428d1a2f81620cdb59488bc2` — `track01/02/03` unchanged from
+v13. `make test` green; `make clean` → `make gdi` reproduces both md5s
+byte-identical (Task 8 Step 3). Full md5 table + leg-log summary:
+`tooling.md` §T9 release candidate + hardware-round tooling.
+
+### T9 hardware round (operator protocol)
+
+Build: T9 candidate (md5s above / `tooling.md` §T9). Backends: GDEMU
+and DreamShell serial-SD. Cables: VGA and composite.
+
+| # | leg | pass criterion |
+|---|---|---|
+| 1 | boot, don't touch | menu centered on splash-white bg, START GAME highlighted; spinner runs from menu exit through load into the boot gap with no visual seam; no flicker when moving the selection |
+| 2 | controls screen | table readable on the TV, matches the pad; B returns |
+| 3 | settings end-to-end | easiest difficulty via menu -> START -> visibly easier stage 1 |
+| 4 | regression | untouched boot -> START button -> plays exactly like v13 (no new blink/garbage at the splash->game transition) |
+| 5 | test combo | A+Start still boots the game's own TEST MENU, no T9 menu first |
+| 6 | 2P hot-plug regression (T11) | plug pad 2 after boot mid-attract -> 2P start works |
+
+PASS on all -> respin release v14 from defaults, md5s to tooling.md,
+promote. Any FAIL -> round record + fix cycle, per T7/T8 precedent.

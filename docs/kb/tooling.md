@@ -2114,3 +2114,194 @@ released.
   884,304 + 983,040 + 614,400 = 2,481,744 B — still under the
   3,538,016 B ceiling — confirming both blobs are wired correctly and
   fit once Task 5 references them.
+
+## SD-card mux survey — one-command GDEMU deploy (2026-09-13, nothing bought)
+
+Research only; no hardware purchased. Goal: remove the
+copy → eject → pull card → insert → power cycle shuffle from `make deploy`.
+GDEMU has no host interface — the SD slot is its only port
+([ConsoleMods](https://consolemods.org/wiki/Dreamcast:GDEMU)) — so the only
+way to delete the shuffle is an **SD multiplexer** sitting between the Mac
+and the GDEMU slot: an analog switch that hands one card to either an
+onboard USB reader or the DUT, on command.
+
+**Scope — what a mux is still worth after Task 25.** Loader-only iteration
+no longer needs the shuffle: boot dcload from GDEMU slot 04 and deliver the
+loader over the coder's cable (§dcload-serial + dc-tool-ser). A mux only
+pays for **full-image deploys** — when track03/track04 payload changes, i.e.
+325 MB per `make deploy` (`make_gdi.py:235-238` rewrites track04 wholesale
+every build; track01/track02/disc.gdi are donor-verbatim).
+
+### The decisive question is the control path, not the specs
+
+Every candidate is the same idea and comparable on paper. They differ only
+in **how the host commands the switch**, and that alone decides whether the
+device works from macOS.
+
+| Product | Host conn. | Switch mechanism | macOS | Buyable 2026-09 |
+|---|---|---|---|---|
+| **3mdeb SDWire** | micro-USB | FTDI CBUS bitbang | ✅ | ✅ 81 in stock, single unit |
+| Badgerd SDWireC | USB-C | FTDI CBUS bitbang | ✅ | ❌ Tindie out of stock; MOQ 5 direct |
+| Badgerd SDWire3 | USB-C | Linux kernel-driver detach | ❌ | ✅ single unit |
+| LA USB-SD-Mux / FAST | USB-C | Linux SG_IO SCSI ioctl | ❌ | ✅ ~€100 |
+| SDReWire | USB-C | FTDI FT230XQ GPIO | ✅ likely | ❌ DIY only |
+| Tizen SD-MUX / MuxPi | — | — | — | not sold |
+
+- **3mdeb SDWire** — €89 ex VAT, [shop](https://shop.3mdeb.com/product/sdwire/)
+  (81 in stock) / $98 [Tindie](https://www.tindie.com/products/3mdeb/sd-wire-sd-card-reader-sd-card-mux/)
+  (10 left), both ex Gdańsk. Switches via FTDI CBUS bitbang — a control
+  transfer to the FTDI chip, no kernel-driver games. **The one in-stock
+  board whose mechanism works on a Mac.**
+- **Badgerd SDWireC** — same FTDI design with USB-C. Source path
+  (`sdwire/backend/device/sdwirec.py:77-81`):
+  `ftdi.set_bitmode(0xF0 | target, Ftdi.BitMode.CBUS)`. Would be the pick if
+  purchasable.
+- **Badgerd SDWire3** — Realtek `0bda:0316`, *not* FTDI. Switches by
+  `detach_kernel_driver(0)` + `reset()`
+  (`sdwire/backend/device/sdwire.py:50-57`); the firmware only releases the
+  card when the USB link drops. Confirmed broken on macOS by a user in
+  [sdwire-cli#27](https://github.com/Badger-Embedded/sdwire-cli/issues/27)
+  (open): *"sdwire switch target only detaches the host driver and
+  USB-resets the device; the firmware doesn't release the card while the USB
+  link is up."* **Fails silently** — both calls sit in a `try/except` that
+  logs at DEBUG and returns, so the command exits 0 having done nothing.
+  Workaround is dropping VBUS with `uhubctl` after switching, which needs a
+  PPPS-capable hub.
+- **Linux Automation USB-SD-Mux / FAST** — Microchip USB2642 + I2C GPIO
+  expander driven by vendor SCSI commands over Linux `SG_IO`
+  (`usbsdmux/usb2642.py:55`, `/dev/sg*` is a required argument). macOS has
+  no SCSI-generic layer, so this is not portable without writing a
+  DriverKit extension. Their page states
+  [Linux kernel 4.* or newer](https://linux-automation.com/en/products/usb-sd-mux-fast.html)
+  outright. "FAST" is card-side: device-to-card 104 MB/s but **card-to-PC
+  only 35 MB/s** over USB 2.0. Has 2 open-drain GPIOs (reset / card-detect)
+  — the only board here that could drive DC reset for a zero-button deploy.
+- **SDReWire** — [randomplum/sdrewire](https://github.com/randomplum/sdrewire),
+  CERN-OHL-W. Technically the best fit: USB-C, FTDI FT230XQ driving the mux
+  (the macOS-viable mechanism), Genesys GL3224 USB 3.1 reader, aux port with
+  UART + 2 GPIOs at 1.2/1.8/3.3 V. But "still in testing and development
+  phase" and nobody sells assembled boards — a JLCPCB + assembly project.
+
+### macOS host-side verification (done, no hardware needed)
+
+- Badgerd's current tool is **`sdwire` on PyPI** (0.3.1, Nov 2025), not the
+  old C `sd-mux-ctrl`. Wheel is `py3-none-any`; deps are `click`, `pyftdi`,
+  `pyusb` — pure Python over libusb, no libftdi C lib, no udev rules.
+  It drives 3mdeb's board too (README: supports "non-Badger'd sdwires").
+- Installed and run on this Mac (macOS 26.6, Python 3.14.3, brew libusb
+  1.0.30 already present): `sdwire --version` → 0.3.1, `sdwire list` → empty
+  table, exit 0. libusb backend enumerates without error. Only the
+  device-claim step is unproven, and that needs hardware.
+- The package carries **real macOS code paths** —
+  `platform.system() == "darwin"` branch, `_map_usb_to_block_device_macos()`,
+  IORegistry/`system_profiler`/`diskutil` helpers. macOS is supported by
+  intent, not by accident (cf. closed issue #10 "Using pyudev breaks MacOS
+  compatibility").
+- **Hazard to avoid:** never install FTDI's VCP driver
+  (`com.FTDI.driver.FTDIUSBSerialDriver`) on this Mac — it claims the device
+  and libftdi/pyftdi then refuses to open it. Currently clean: no FTDI kext
+  loaded, and the coder's cable is a **Silicon Labs CP2102N**
+  (`/dev/cu.usbserial-110`), not FTDI.
+
+### Decision (2026-09-13): 3mdeb SDWire, purchase postponed ~1 month
+
+Micro-USB is the only requirement it misses; a USB-C-to-micro-B cable
+retires that at the host end, and the board lives in a fixed bench rig where
+connector fatigue is a non-issue.
+
+- **Shopping list:** SDWire (€89 shop / $98 Tindie) · USB-C→micro-B cable ·
+  passive microSD→full-size-SD adapter · a microSD card off GDEMU's
+  known-good list (moving off the current full-size card).
+- **Open risk — mechanical, not software.** SDWire takes a *microSD* and
+  presents a *microSD* tongue to the DUT; GDEMU is *full-size SD*. The chain
+  becomes SDWire → microSD→SD adapter → the 15 cm GDEMU extension → GDEMU:
+  three passive hops into a device already logging idle-gap recoveries
+  (`gd=` climbed 0→9 in `captures/phase5/hw-round3b.log`).
+- **First leg on arrival, before trusting it:** push a known-good build
+  through the chain and diff `gd=` against `captures/phase5/hw-round4.log`.
+  Flat count = clean chain; climbing = passive-hop problem, not a shim bug.
+- **Then wire `make deploy`:** `sdwire switch host` → wait for mount → `cp`
+  → `dot_clean` → `diskutil eject` → `sdwire switch dut`. Still ends with a
+  DC power press, since GDEMU samples the card at boot.
+
+## T9 release candidate + hardware-round tooling (2026-09-17, branch phase7-t9)
+
+- **Knobs (top `Makefile`):** `MENU=0` → `-DLOADER_MENU=0` drops the T9
+  pre-game menu entirely — `--gc-sections` removes `menu.o` and both menu
+  blobs, reproducing the pre-T9 884,304 B loader exactly (Task 5 evidence).
+  The menu waits indefinitely with no idle auto-start (design decision), so
+  **every unattended emulator leg that must reach attract on its own now
+  needs a `make gdi MENU=0` build first** — this includes `make test-vmu` /
+  `test-vmu-play` (`scripts/test_vmu_untouched.sh`, which just launches
+  whatever `build/disc.gdi` currently is): a menu build left in place wedges
+  those scripts at the menu forever. `MENUDIAG=1` (pair with `SERIAL=1` to
+  hear it, `MENU=0` to run unattended) → `-DLOADER_MENUDIAG=1`, force-feeds
+  the Task-18 easy record through the poke path for an unattended
+  end-to-end check (`MENUEE` line + a visibly easier campaign); never
+  shipped.
+- **The poke (Task 6, `loader/main.c`):** `EEPROM_IMG_ADDR` is the linked
+  address of `mie_sub03` (the generated MIE sub-`0x03` reply blob,
+  `shims/build/mie_blobs.c` — the live session-EEPROM path, `mie_86()`
+  `case 0x03`/`case 0x0b`; the old fixed-address `eeprom_img` skeleton is
+  dead `#if 0` code and was not used). Poke offset =
+  `(EEPROM_IMG_ADDR − SHIM_BASE) + 4 + 0x24` — the `+4` skips the MIE reply
+  header, `+0x24` lands on the game-record start inside the 128-byte image.
+  Self-check CRC + pristine fallback on mismatch, verbatim from the brief.
+- **T9 build md5s** (each after `make clean`): **final candidate** (release
+  defaults, `MENU`/`MENUDIAG` both off) `1ST_READ.BIN` =
+  `64f27b2d356e592755c7c2a41a90c4d4`, `track04.iso` =
+  `4b0c91d0428d1a2f81620cdb59488bc2`; `track01/02/03` unchanged from v13
+  (`681fa4c8…`/`03c796f6…`/`1c3e422e…`), `disc.gdi` =
+  `c527f1ec937b56caa65084d436f8c0a0`. **Reproduced 2026-09-17** (Task 8
+  Step 3, fresh `make clean && make gdi`) — byte-identical to the candidate
+  above, deterministic build discipline holds across the whole branch.
+  `make test` green (11 `OK` lines across `shims test` +
+  `test_build_patch_table` + `test_maple_literals` + `test_eeprom_game_diff`;
+  the single `FAIL|ERROR` grep hit is the known benign comment line, same
+  as every prior release). Four cosmetic-round candidates superseded, never
+  released: round 1 (`2f9c703`)
+  `e8c471e8ed2fe8323f0ee72ca466b7aa`/`c7eee77c14a8dc2fc74b2da04aa1e3bf`;
+  round 2 (`e911377`)
+  `a7ad2763f9a0d0564eed5f8306c6f533`/`c75e48ac705ef010568390f25b1259a4`;
+  round 3 (`0099f79`)
+  `18c2ed71801469aa1c14ed708fbc0ac6`/`8ac16fdd9bc22220e16ecddf8de41a8d`;
+  round 4 (`6c4f9ce`) = the final candidate above.
+- **Leg-log summary** (`captures/phase7/`, T9 branch):
+  - `t9-menu-shot` (`.log`/`.stdout.log`, Task 5) — `FLYCAST_SHOT` nav leg
+    for the top menu screen; TA-presents-only capture (same limitation as
+    `loadbar-smoke2`), inconclusive for the menu paint on its own — the
+    leg's own cartlog gave the structural evidence instead
+    (`task-5-report.md`).
+  - `t9-menu-vram` (`.log` + `-00/-01/-blank*.bin`, Task 5 fix round 1) —
+    `FLYCAST_VRAMDUMP` sweep; every trigger fired during video bring-up,
+    before the menu paints — instrument structurally blind for this
+    codepath, no code change made.
+  - `t9-menudiag` (`.log`/`.stdout.log`, Task 6) — first `MENUDIAG=1` leg;
+    confirmed `MENUEE crc=6808 rec=23511703000100020200780096006e00`. Its
+    `EE WR` acceptance check was **retracted** (vacuous — the
+    `SHIM_TRACE`-gated print was never enabled in this build, and was
+    grepped from the wrong file besides) and replaced by `t9-menudiag2`
+    (Task 6 fix round 1: separate `shims DEFS='-DSHIM_SERIAL=1
+    -DSHIM_TRACE=1'` sub-build, positive control live, `EE WR=0` now
+    falsifiable). Both logs kept — never delete a leg.
+  - `t9-dmacliff-repro` / `t9-dmacliff-fix1` (Task 7 fix round) — the
+    stage-2 big-transfer DMA-wait cliff repro/fix legs; full account in
+    `phase7-polishing.md` §T3 → Stage-2 addendum.
+  - `t9-spinchunk-smoke` (`.log`/`.stdout.log`, Task 7 cosmetic round 3) —
+    `MENU=0 SERIAL=1 CRC=1` build of the chunked-read loader-phase spinner,
+    unattended, boots to attract: drive-level `gdread_match` 1450/1450 vs
+    `track04.iso`, 0 SHIMERR (3 `.dat` mismatches = the documented
+    texpatch caveat, `check_stream_crc.py`'s own docstring).
+- **Standing note — `capture_dc_leg.sh` leg-name convention:** the phase
+  prefix goes INSIDE the leg-name argument (`phase7/<leg>`), not a separate
+  flag — the leg name IS the path under `captures/`. Made explicit during
+  T9 cosmetic round 3 (earlier round-3 logs had been `mv`'d from the
+  `captures/` root into `captures/phase7/` after the fact); every T9 leg
+  above already uses the correct form.
+- **Standing note — Pillow is a generator-only dependency, never a build
+  one:** `scripts/gen_menu_assets.py` needs Pillow (§T9 menu asset
+  generator above) to render `loader/menu_sheet.png` / `controls.png` /
+  `loader/menu_layout.h`, but all three outputs are committed like
+  `splash.png`'s sibling blobs, and neither `make loader` nor `make gdi`
+  ever imports PIL. Regenerate only after a `scripts/menu_def.py` edit —
+  never as a normal-build step.
