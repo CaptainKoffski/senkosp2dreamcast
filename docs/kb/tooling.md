@@ -2228,7 +2228,11 @@ connector fatigue is a non-issue.
 
 - **Knobs (top `Makefile`):** `MENU=0` → `-DLOADER_MENU=0` drops the T9
   pre-game menu entirely — `--gc-sections` removes `menu.o` and both menu
-  blobs, reproducing the pre-T9 884,304 B loader exactly (Task 5 evidence).
+  blobs; at Task 5 time this reproduced the pre-T9 884,304 B loader exactly
+  (Task 5 evidence). Later T9 commits touch shared loader/shim code
+  (spin_tick + chunked read 0099f79, gd.c fix 139541d), so a current MENU=0
+  loader no longer matches that byte size — only the menu-strip property
+  holds.
   The menu waits indefinitely with no idle auto-start (design decision), so
   **every unattended emulator leg that must reach attract on its own now
   needs a `make gdi MENU=0` build first** — this includes `make test-vmu` /
