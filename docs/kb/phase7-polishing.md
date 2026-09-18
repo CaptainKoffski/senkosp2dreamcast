@@ -780,6 +780,8 @@ composite evidence (banked: composite blink diagnosis, VIDINIT-
 WRITEFILTER) is the prior art to re-read before theorizing. Bank the
 exact symptom first: hardware leg on composite, photo/video of both
 the glitch second and the shifted frame.
+→ **FUNDED 2026-09-19** (branch `phase7-t13`): round 1 recon done,
+hardware A/B + controls owed — §T13 below.
 
 **T14 — drop the A+Start test-image boot combo** (operator decision
 2026-09-18, T9 hardware round): with the T9 pre-game menu at every
@@ -2310,3 +2312,70 @@ blocker): T13** (composite SEGA TM screen glitch — pre-existing,
 missed in earlier rounds) **and T14** (drop the A+Start test-image
 combo — redundant now the T9 menu fronts every boot). Entries in the
 Optional pool above.
+
+---
+
+## T13 — composite SEGA TM screen glitch: round 1 recon (2026-09-19, branch phase7-t13)
+
+**Symptom (operator, 2026-09-18, T9 hardware round):** composite only —
+when the SEGA TM screen appears, ~1 s of glitching ("like framerate
+unsync"), then the screen renders but shifted down. VGA clean.
+Pre-existing per operator (missed in earlier rounds); not a T9
+regression.
+
+### Recon — causal surface is IP.BIN + environment; none of our code is running
+
+- **Sequencing exoneration:** the TM screen is drawn by the boot ROM /
+  IP.BIN license-screen code *before* `1ST_READ.BIN` is loaded
+  (mc.pp.se/dc/ip.bin.html — same primary source as §T12 recon).
+  Loader, shims and game code are not in memory yet, so no loader-side
+  change caused this and no loader-side fix can touch it.
+- **Byte diff vs the sibling port (control artifact):** our IP.BIN
+  (first 32 KB of `build/track03.iso`, v14 = `1c3e422e…`) vs the
+  Cleopatra port's (`../cleopatra/build/track03.iso`): byte-identical
+  EXCEPT (a) 30 game-branding header bytes in 0x20–0x9F (product no.,
+  T-number, date, title — text fields; region + peripherals fields at
+  0x30–0x3F identical), and (b) the MR-logo slot 0x3820–0x5820 (6186
+  differing bytes: ours carries the T12 `iplogo.mr`, Cleopatra's is
+  the donor zero run). License-screen code (0x0300–0x36FF, ROM-diffed
+  immutable) and both bootstraps byte-equal.
+- **Consequence:** if our bytes cause the symptom, the T12 logo is the
+  only live suspect. Otherwise it is environmental (console/BIOS/TV/
+  GDEMU behavior around the license screen's composite mode) and must
+  reproduce with the Cleopatra disc (same bootstrap, empty slot)
+  and/or retail discs on the same rig.
+- **Fix-surface warning, recorded up front:** the license-screen code
+  region is immutable (boot ROM diffs it — §T12 recon). If attribution
+  lands on that code's composite programming rather than the logo,
+  there is no disc-side fix; the honest outcome is
+  wontfix/documented.
+
+### A/B artifact — logo-less track03 (v12-era bytes, byte-proven)
+
+`build/track03-nologo.iso` = `244ae7e5a321345e995edc4793fcbdd5`: built
+by rerunning `make_gdi.py` with `iplogo.mr` absent; md5 equals the
+v2–v12 track03 recorded at the v11 promotion (§T7 round 8), so leg B
+is exactly the pre-T12 disc — it differs from v14's track03 in the
+logo slot only. v14 build restored and re-verified afterwards
+(track03 `1c3e422e…`, track04 `4b0c91d0…`). Regenerable the same way
+any time.
+
+### Operator protocol (round 1, composite cable throughout — stop-and-wait)
+
+1. **Bank the symptom (v14 disc as-is):** video (or photos) of the TM
+   screen appearing — both the ~1 s glitch and the settled shifted
+   frame → `captures/phase7/t13-symptom/`.
+2. **A/B the logo:** copy `build/track03-nologo.iso` onto the SD as
+   `track03.iso` (replacing v14's), boot, watch the TM screen.
+   Pre-registered attribution: **B clean → T12 logo implicated**
+   (round 2 = MR draw-path timing recon, emulator census); **B
+   glitches the same → logo exonerated** → run the controls.
+3. **Control 1 — the Cleopatra disc** (same donor bootstrap, empty
+   logo slot), same console/cable: TM screen glitch/shift?
+4. **Control 2 (optional) — any retail GDI** on the GDEMU, composite:
+   TM screen shift? Attribution: Cleopatra AND retail glitch →
+   environmental (document, likely wontfix); Cleopatra glitches but
+   retail clean → donor-bootstrap-class issue (round 2 recon, mind
+   the immutability warning above).
+5. **Restore v14:** put track03.iso = `1c3e422e…` back on the card;
+   boot-check the NAOMI logo shows on the TM screen again.

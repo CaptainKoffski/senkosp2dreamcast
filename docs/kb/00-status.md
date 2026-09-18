@@ -1224,6 +1224,20 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T13 STARTED (2026-09-19, branch phase7-t13): composite SEGA
+TM screen glitch — recon round 1 done, hardware A/B owed.** Structural
+exoneration: the TM screen is drawn from IP.BIN by the boot ROM before
+`1ST_READ.BIN` loads — no loader/shim/game code is live, so nothing of
+ours *running* can cause or fix it. IP.BIN byte-diff vs the Cleopatra
+port's: identical except 30 branding header bytes + the T12 MR-logo
+slot → the T12 logo is the only live byte suspect; otherwise
+environmental. A/B artifact built: `build/track03-nologo.iso` =
+v2–v12 `244ae7e5…` (differs from v14 track03 in the logo slot only).
+Operator protocol (stop-and-wait): bank symptom video → logo A/B →
+Cleopatra + retail controls → restore v14. Warning recorded: the
+license-screen code is ROM-diffed immutable — attribution there means
+wontfix/documented. Full record: `phase7-polishing.md` §T13.
+
 **Phase 7 T9 CLOSED (2026-09-18, operator hardware verdict): "the
 legs passed" — all six protocol legs PASS (final look incl. spinner
 continuity + no selection flicker, controls screen, settings
