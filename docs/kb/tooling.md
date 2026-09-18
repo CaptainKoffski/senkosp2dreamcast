@@ -2259,7 +2259,10 @@ connector fatigue is a non-issue.
   `c527f1ec937b56caa65084d436f8c0a0`. **Reproduced 2026-09-17** (Task 8
   Step 3, fresh `make clean && make gdi`) — byte-identical to the candidate
   above, deterministic build discipline holds across the whole branch.
-  `make test` green (11 `OK` lines across `shims test` +
+  **Release v14 PROMOTED 2026-09-18** (operator hardware PASS, all 6
+  protocol legs — verdict in `phase7-polishing.md` §T9): same bytes as the
+  final candidate above, no respin needed; tag `0.7.0`.
+  `make test` green (17 `OK`/`PASS` assertions across `shims test` +
   `test_build_patch_table` + `test_maple_literals` + `test_eeprom_game_diff`;
   the single `FAIL|ERROR` grep hit is the known benign comment line, same
   as every prior release). Four cosmetic-round candidates superseded, never

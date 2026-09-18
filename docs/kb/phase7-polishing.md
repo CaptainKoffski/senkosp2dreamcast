@@ -767,6 +767,32 @@ the injection point as the IP.BIN MR-logo slot in track03 (0x3820);
 One-round hardware PASS (logo shows + boot regression), release v13 /
 tag 0.6.0.
 
+**T13 — composite SEGA TM screen glitch** (operator report 2026-09-18,
+found during the T9 hardware round; pre-existing — missed in earlier
+rounds, explicitly NOT a T9 blocker per operator): on composite only,
+when the SEGA TM screen appears there is ~1 s of glitching ("like
+framerate unsync"), then the screen renders but shifted down. VGA
+clean. Recon first: that screen is the IP.BIN license screen (the
+T12 MR-logo slot lives in it), drawn by the boot ROM before the game's
+own vid-init — so the suspect surface is the 15 kHz composite timing
+around whatever mode is live at that stage, and the T7 rounds 4–8
+composite evidence (banked: composite blink diagnosis, VIDINIT-
+WRITEFILTER) is the prior art to re-read before theorizing. Bank the
+exact symptom first: hardware leg on composite, photo/video of both
+the glitch second and the shifted frame.
+
+**T14 — drop the A+Start test-image boot combo** (operator decision
+2026-09-18, T9 hardware round): with the T9 pre-game menu at every
+boot, the combo is redundant — remove it. Today the combo boots the
+separate TEST image (`TEST_DAT_OFF`/`TEST_LEN`, loader/main.c boot-
+combo block) and skips the T9 menu. Scope for the task: delete the
+combo scan + test-image selection (main-image boots only); decide
+whether the test image stays on the disc (harmless dead bytes) or the
+mastering drops it; retire protocol row 5 (A+Start) from future
+hardware rounds — replacement criterion: A+Start held at boot does
+nothing special (menu appears as normal). Regression: plain boot +
+menu + game unchanged.
+
 ---
 
 ## T2 — profiling leg (2026-09-05: instrument + emulator control PASS; hardware leg owed)
@@ -2262,3 +2288,25 @@ and DreamShell serial-SD. Cables: VGA and composite.
 
 PASS on all -> respin release v14 from defaults, md5s to tooling.md,
 promote. Any FAIL -> round record + fix cycle, per T7/T8 precedent.
+
+### T9 hardware round (2026-09-18, operator) — PASS all 6 legs; T9 CLOSED, release v14
+
+**Operator:** "the legs passed" — all six protocol legs above (final
+look incl. spinner continuity + no selection flicker, controls screen,
+settings end-to-end, v13 regression, A+Start test combo, T11 2P
+hot-plug regression), GDEMU + DreamShell serial-SD, VGA + composite.
+
+**Release v14 PROMOTED:** same bytes as the final candidate —
+`track04.iso` = `4b0c91d0428d1a2f81620cdb59488bc2` (the only track
+changed since v13; carries the rebuilt `1ST_READ.BIN` =
+`64f27b2d356e592755c7c2a41a90c4d4`), `track01/02/03` unchanged from
+v13, `disc.gdi` = `c527f1ec937b56caa65084d436f8c0a0`. No respin
+needed: Task 8 Step 3 already reproduced the candidate from defaults
+byte-identical (`tooling.md` §T9). Branch `phase7-t9` merged to
+`main`, tag `0.7.0`.
+
+**The round surfaced two new pool items (operator asks, neither a T9
+blocker): T13** (composite SEGA TM screen glitch — pre-existing,
+missed in earlier rounds) **and T14** (drop the A+Start test-image
+combo — redundant now the T9 menu fronts every boot). Entries in the
+Optional pool above.

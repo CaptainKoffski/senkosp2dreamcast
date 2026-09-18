@@ -1224,6 +1224,23 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T9 CLOSED (2026-09-18, operator hardware verdict): "the
+legs passed" — all six protocol legs PASS (final look incl. spinner
+continuity + no selection flicker, controls screen, settings
+end-to-end, v13 regression, A+Start test combo, T11 2P hot-plug
+regression), GDEMU + DreamShell, VGA + composite.** **Release v14
+PROMOTED:** `track04.iso` = `4b0c91d0428d1a2f81620cdb59488bc2` (only
+track changed since v13, carries `1ST_READ.BIN` =
+`64f27b2d356e592755c7c2a41a90c4d4`), tracks 01/02/03 + IP.BIN
+unchanged from v13; respin from defaults already proven
+byte-identical (Task 8); branch `phase7-t9` merged to `main`, tag
+`0.7.0`. The round surfaced two pool items (neither a T9 blocker):
+**T13** (composite-only SEGA TM screen glitch — ~1 s "framerate
+unsync" then the frame shifted down; pre-existing, missed in earlier
+rounds) and **T14** (drop the A+Start test-image combo — redundant
+now the T9 menu fronts every boot; operator decision). Full record:
+`phase7-polishing.md` §T9.
+
 **Phase 7 T9 BUILT (2026-09-17, branch phase7-t9): pre-game menu
 shipped, emulator round PASS — hardware round owed.** A three-item
 menu (START GAME / SETTINGS / CONTROLS) shown at every boot before the
