@@ -797,6 +797,8 @@ mastering drops it; retire protocol row 5 (A+Start) from future
 hardware rounds — replacement criterion: A+Start held at boot does
 nothing special (menu appears as normal). Regression: plain boot +
 menu + game unchanged.
+→ **FUNDED 2026-09-19** (branch `phase7-t14`): built + emulator leg
+PASS, hardware round owed — §T14 below.
 
 ---
 
@@ -2399,3 +2401,74 @@ Cleopatra/retail controls. `build/track03-nologo.iso` was removed at
 close (build/ hygiene); regenerate by moving `iplogo.mr` aside and
 rerunning `make gdi` — the md5 must come out `244ae7e5…` (v2–v12
 track03), then restore `iplogo.mr` and rebuild (`1c3e422e…`).
+
+---
+
+## T14 — drop the A+Start test-image boot combo (round 1, 2026-09-19, branch phase7-t14)
+
+**Funding:** operator decision 2026-09-18 (T9 hardware round): with the
+T9 menu fronting every boot, the combo (whose payload — the game's own
+test menu — is just another settings UI) is redundant. Pool entry scope
+carried verbatim.
+
+### Recon + ruling — combo scan deleted; test image stays; diag define kept
+
+- **Test-image bytes stay on disc by construction:** `TEST_DAT_OFF ==
+  MAIN_LEN` (shims/include/shim_iface.h, asserted in
+  test_shim_iface.c) — the test image is the tail of the flat
+  decrypted cart `.dat` streamed from track04, not a separate
+  mastering artifact. There is nothing to drop; mastering untouched.
+- **Ruling (recorded):** delete the runtime combo scan only. The
+  `LOADER_FORCE_TEST_BOOT` compile-time diagnostic (Task 13 precedent,
+  never shipped) stays as the sole way to boot the test image;
+  `test_boot` is now a compile-time constant 0 in every normal build,
+  so all downstream selections (img_off/len, patch tables, carve
+  lists, SHIM_STATE flag) fold to the main-image path. Rationale: the
+  operator's ask is UX ("A+Start does nothing special"), met
+  identically; ripping out `test_boot` + the generated test tables +
+  their tests would be a much larger diff for zero behavioral delta
+  and would kill a proven diagnostic tool.
+- `maple_wait_scan()` is kept before `menu_run()` — maple_init() only
+  starts the periodic scan, and waiting for the first scan keeps the
+  menu's opening pad polls from dropping the operator's first press.
+  The maple-symbol allow-list in test_maple_literals.py is unchanged
+  (menu.c's edge() uses enum_type/dev_status; main.c keeps wait_scan)
+  — comment updated there to record the post-combo rationale.
+
+### Change
+
+`loader/main.c` only: the pad-1 A+Start scan block is deleted;
+comments updated (combo removal note at the old site, diag define
+reworded, handoff say() string no longer claims a combo).
+
+### Verification (round 1)
+
+- **Unattended emulator leg `phase7/t14-boot`** (MENU=0 build, 150 s,
+  killed by PID): healthy boot ladder incl. `MMUCRWR val=00040005
+  pc=8c02d630` (MAIN image's own MMU enable — the phase-4 gate
+  marker), `GAPISR-TOTAL n=202 (window closed)`, 0 SHIMERR, 0 resets,
+  17,184 TAEND. Boot→attract unchanged with the combo gone.
+- **make test green:** 17 OK/PASS assertions, exit 0.
+- **Determinism:** two clean builds from defaults byte-identical.
+
+### Candidate (v15)
+
+`track04.iso` = `cd30db57bccf7a2b691243e6ede61058` (carries rebuilt
+`1ST_READ.BIN` = `554883e6da93cf61fa21df64c1f1a522`) — the ONLY
+changed file; `track01/02/03` + `disc.gdi` byte-identical to v14
+(`681fa4c8…`/`03c796f6…`/`1c3e422e…`/`c527f1ec…`).
+
+### Operator protocol (round 1 — stop-and-wait)
+
+Deploy: replace `track04.iso` on the SD (only changed file).
+
+1. **Combo retired (THE criterion):** hold A+Start on pad 1 from
+   power-on through boot. Expected: the Naomi TEST image does NOT
+   boot. The T9 menu appears as normal — and since START is held, the
+   menu may legitimately act on it and proceed straight to START
+   GAME; that is the menu doing its job, not a combo. FAIL only if
+   the Naomi test menu (the arcade DIP/settings screen) comes up.
+2. **Plain-boot regression:** normal boot → menu (browse a screen or
+   two) → START GAME → attract/gameplay as v14.
+
+PASS on both → promote release v15 (md5s above), tag `0.8.0`.

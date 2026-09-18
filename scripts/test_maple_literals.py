@@ -146,6 +146,11 @@ BIOS_DATA_BASELINE = {(0x00014d4, 0xa05f6c18)}
 # the dynamic canary test as the real guard.) Every OTHER maple symbol, and
 # every vmu_* symbol without exception, still fails the build -- including a
 # maple_dev_status reference from anything but an undefined-symbol import.
+#
+# T14 (phase 7): the A+Start combo is gone, but all three symbols stay
+# legitimately referenced -- the T9 menu polls pads via enum_type/dev_status
+# (loader/menu.c edge()), and main.c keeps maple_wait_scan so the menu's
+# opening polls see an enumerated pad. Allow-list unchanged.
 LOADER_MAPLE_ALLOW = {"_maple_wait_scan", "_maple_enum_type", "_maple_dev_status"}
 
 

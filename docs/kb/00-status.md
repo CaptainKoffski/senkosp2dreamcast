@@ -1224,6 +1224,21 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T14 BUILT (2026-09-19, branch phase7-t14): A+Start
+test-image boot combo removed — hardware round owed.** Combo scan
+deleted from `loader/main.c` (only file); test-image bytes stay on
+disc by construction (`TEST_DAT_OFF == MAIN_LEN` — the test image is
+the tail of the cart `.dat`, not a mastering artifact);
+`LOADER_FORCE_TEST_BOOT` diag kept as the sole (never-shipped) test
+boot path; `maple_wait_scan()` kept so the menu's first polls see an
+enumerated pad. Emulator leg `phase7/t14-boot` PASS (healthy ladder
+incl. `pc=8c02d630`, GAPISR 202, 0 SHIMERR), 17 OK/PASS, two clean
+builds byte-identical. **v15 candidate:** `track04.iso` =
+`cd30db57…` (only changed file; `1ST_READ.BIN` `554883e6…`).
+Protocol: A+Start through boot must NOT boot the Naomi test image
+(menu as normal — held START may legitimately start the game) +
+plain-boot regression. Full record: `phase7-polishing.md` §T14.
+
 **Phase 7 T13 CLOSED (2026-09-19, operator hardware verdict): NO
 REPRO — closed as environmental.** Operator: "It is environmental. I
 cannot reproduce the issue. We can close the task, if it happens again

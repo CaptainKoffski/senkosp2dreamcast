@@ -253,30 +253,21 @@ int main(void) {
 
     say("SENKOSP LOADER PHASE4 TASK10");
 
-    /* Boot-combo: hold A+Start on pad 1 during boot -> test image (spec
-     * Decision 1). maple_wait_scan() first: maple_init() only STARTS the
-     * periodic scan, so enumerating before the first scan lands would read
-     * "no controller" and silently never select test mode. */
+    /* T14: the A+Start boot combo is gone (operator call -- the T9 menu
+     * fronts every boot and the game's test menu it selected is just another
+     * settings UI). The test image is now reachable ONLY via this diag
+     * define (never shipped); everything downstream of test_boot folds to
+     * the main-image path at compile time in normal builds. */
 #ifndef LOADER_FORCE_TEST_BOOT
 #define LOADER_FORCE_TEST_BOOT 0   /* Task 13 diagnostic (LOADER_SERIAL precedent):
-                                    * transient -- forces the test-image path with
-                                    * no operator holding the combo, so the
-                                    * unattended testboot-diag leg can prove the
-                                    * boot half of criterion 4. Revert to 0 before
-                                    * commit; the real combo check below still
-                                    * runs and can only ever ADD test_boot=1, so a
-                                    * live A+Start still works either way. */
+                                    * boots the test image with no operator
+                                    * input for unattended diag legs. */
 #endif
     int test_boot = LOADER_FORCE_TEST_BOOT;
+    /* maple_init() only STARTS the periodic scan; wait for the first scan so
+     * the menu's opening pad polls see an enumerated controller instead of
+     * silently dropping the operator's first press. */
     maple_wait_scan();
-    {
-        maple_device_t *cont = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
-        if (cont) {
-            cont_state_t *st = (cont_state_t *)maple_dev_status(cont);
-            if (st && (st->buttons & CONT_A) && (st->buttons & CONT_START))
-                test_boot = 1;
-        }
-    }
 #ifndef LOADER_MENU
 #define LOADER_MENU 1   /* T9 pre-game menu; MENU=0 (top Makefile) disables it
                          * for unattended legs that must boot straight to
@@ -289,13 +280,11 @@ int main(void) {
                              * Makefile). Test-only, never shipped. */
 #endif
 #if LOADER_MENU
-    /* T9: main-image boots only -- the A+Start combo goes to the game's own
-     * test menu, which IS a settings UI already. */
-    if (!test_boot) menu_run();
+    if (!test_boot) menu_run();   /* diag test boots skip the menu */
 #endif
     uint32 img_off = test_boot ? TEST_DAT_OFF : MAIN_DAT_OFF;
     uint32 img_len = test_boot ? TEST_LEN     : MAIN_LEN;
-    say(test_boot ? "boot combo: TEST image" : "boot: MAIN image");
+    say(test_boot ? "boot: TEST image (diag)" : "boot: MAIN image");
 
     cdrom_reinit();             /* inits the GD subsystem */
     say("GD init OK");
