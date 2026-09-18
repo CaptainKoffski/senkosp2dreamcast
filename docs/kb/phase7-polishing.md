@@ -782,6 +782,9 @@ exact symptom first: hardware leg on composite, photo/video of both
 the glitch second and the shifted frame.
 → **FUNDED 2026-09-19** (branch `phase7-t13`): round 1 recon done,
 hardware A/B + controls owed — §T13 below.
+→ **CLOSED 2026-09-19**: NO REPRO on the composite hardware round —
+environmental, reopen on recurrence (operator). Verdict + reopen kit
+in §T13 below.
 
 **T14 — drop the A+Start test-image boot combo** (operator decision
 2026-09-18, T9 hardware round): with the T9 pre-game menu at every
@@ -2379,3 +2382,20 @@ any time.
    the immutability warning above).
 5. **Restore v14:** put track03.iso = `1c3e422e…` back on the card;
    boot-check the NAOMI logo shows on the TM screen again.
+
+### Hardware verdict (2026-09-19, operator) — NO REPRO; T13 CLOSED as environmental
+
+**Operator:** "It is environmental. I cannot reproduce the issue. We
+can close the task, if it happens again I will reopen it." The symptom
+did not recur on the composite round — consistent with a transient
+TV/sync event during the 2026-09-18 T9 round rather than anything in
+the disc's bytes (the recon above had already narrowed the byte
+suspects to the T12 logo slot alone). No fix shipped; release v14
+stands unchanged.
+
+**Reopen kit (if it recurs):** the round-1 protocol above runs as-is —
+bank the symptom video first, then the logo A/B, then the
+Cleopatra/retail controls. `build/track03-nologo.iso` was removed at
+close (build/ hygiene); regenerate by moving `iplogo.mr` aside and
+rerunning `make gdi` — the md5 must come out `244ae7e5…` (v2–v12
+track03), then restore `iplogo.mr` and rebuild (`1c3e422e…`).

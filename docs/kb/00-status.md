@@ -1224,6 +1224,16 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T13 CLOSED (2026-09-19, operator hardware verdict): NO
+REPRO — closed as environmental.** Operator: "It is environmental. I
+cannot reproduce the issue. We can close the task, if it happens again
+I will reopen it." No fix shipped, release v14 stands unchanged; the
+round-1 recon (IP.BIN diff vs the Cleopatra port — the T12 logo slot
+was the only live byte suspect) and a ready-to-run reopen kit
+(protocol + A/B regeneration steps) are banked in
+`phase7-polishing.md` §T13. Branch `phase7-t13` merged to `main`.
+Pool still holds T14 (drop the A+Start test combo).
+
 **Phase 7 T13 STARTED (2026-09-19, branch phase7-t13): composite SEGA
 TM screen glitch — recon round 1 done, hardware A/B owed.** Structural
 exoneration: the TM screen is drawn from IP.BIN by the boot ROM before
