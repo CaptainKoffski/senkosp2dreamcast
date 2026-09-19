@@ -2587,3 +2587,17 @@ CPU/TA-bound → authentic saturation (speed-up = rewriting game frame
 code; enhancement, likely shelve); `g` stepping mid-match = disc drip
 contributes → fixable conversion delta (async cart service / prefetch,
 T3 ladder). Funding the round is the operator's call.
+
+**Round 2 FUNDED + METER BUILDS READY (2026-09-19):** operator funded the
+hardware leg. Two discs staged under `build-t15/` (md5s + discipline
+check: tooling.md §T15 round 1 tooling): `silent/` = `FRAMEGAP=1` HUD
+only (GDEMU, no cable needed — the verdict is TV-readable); `serial/` =
+`FRAMEGAP=1 SERIAL=1` (adds one `SHIMGAP w= x= g= p=` line/s over SCIF
+for a parsable log; coder's-cable session). HUD legend (white-on-blue
+hex, x=340): y236 `w` = worst frame ms in the last ~1 s window (0x10-
+0x11 = healthy 60 fps; 0x21 ≈ a 30 fps frame), y250 `x` = worst since
+boot (max-hold), y264 `g` = cart-read call count, y278 `p` = prefetch
+ring hits. The read that settles question 2, taken DURING Lili spam
+(Mika MANIA vs stage-1 Lili): `w` climbing while `g`/`p` freeze =
+CPU/TA-bound → authentic saturation; `g`/`p` stepping mid-combat = disc
+drip contributes → fixable (T3 ladder). Operator leg: stop-and-wait.

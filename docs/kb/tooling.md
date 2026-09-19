@@ -2377,3 +2377,14 @@ connector fatigue is a non-issue.
 | `t15-stateidle` (170 s, no input) | char-select timeout auto-starts a real match; rnd=31 only at the STAGE-1 START splash, then 60 vs AI |
 | `t15-op1` (~25 min, operator) | 3 played runs incl. Mika MANIA vs stage-1 Lili: all combat windows 60; all dips = scene cuts/loads |
 | `t15-dcsweep1` (560 s, DC v15 disc, START pressed by operator) | conversion delta: rnd=0 stalls up to ~4-5 s at demo-load wipes + story-slide loads (T2b blocking cart service); combat 60 |
+
+**T15 round 2 meter builds (2026-09-19, v15 tree + FRAMEGAP):** each
+after `make clean`; proof-of-life `strings shims/build/shim.bin | grep
+SHIMGAP` = 1 on both. `FRAMEGAP=1` silent (GDEMU / dongle-safe, HUD
+only) track04 `bb95e6d9ec64c24dc3d9c873e214e6cb`; `FRAMEGAP=1 SERIAL=1`
+(coder's-cable leg, HUD + one `SHIMGAP w= x= g= p=` line/s) track04
+`e2776b3d249aa43aa0067e89ed98e36a`. Tracks 01-03 + disc.gdi unchanged
+(v15/v2 constants). Knob-off rebuild restored `track04.iso` =
+`cd30db57bccf7a2b691243e6ede61058` = release v15 byte-identical
+(discipline check PASS). Staged under `build-t15/{silent,serial}/`
+(gitignored — ROM bytes, never ship).
