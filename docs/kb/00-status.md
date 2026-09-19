@@ -1224,6 +1224,16 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T14 CLOSED (2026-09-19, operator hardware verdict): "both
+passed" — A+Start through boot no longer reaches the Naomi test image
+(menu fronts the boot), plain-boot regression matches v14.**
+**Release v15 PROMOTED:** `track04.iso` = `cd30db57…` (only changed
+file; `1ST_READ.BIN` `554883e6…`), `track01/02/03` + `disc.gdi`
+unchanged from v14; no respin needed (determinism proved in-round).
+Branch `phase7-t14` merged to `main`, tag `0.8.0`. **Optional pool now
+empty** — T13 closed environmental (reopen kit banked in
+`phase7-polishing.md` §T13), T14 closed here.
+
 **Phase 7 T14 BUILT (2026-09-19, branch phase7-t14): A+Start
 test-image boot combo removed — hardware round owed.** Combo scan
 deleted from `loader/main.c` (only file); test-image bytes stay on

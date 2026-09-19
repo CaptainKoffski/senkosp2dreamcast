@@ -2312,3 +2312,20 @@ connector fatigue is a non-issue.
   `splash.png`'s sibling blobs, and neither `make loader` nor `make gdi`
   ever imports PIL. Regenerate only after a `scripts/menu_def.py` edit —
   never as a normal-build step.
+
+## Phase 7 T14 — A+Start combo removal (2026-09-19)
+
+- **v15 build md5s** (release defaults, after `make clean`):
+  `1ST_READ.BIN` = `554883e6da93cf61fa21df64c1f1a522`, `track04.iso` =
+  `cd30db57bccf7a2b691243e6ede61058` — the only changed file;
+  `track01/02/03` + `disc.gdi` unchanged from v14
+  (`681fa4c8…`/`03c796f6…`/`1c3e422e…`/`c527f1ec…`). Determinism proved
+  in-round: two consecutive clean builds byte-identical. `make test`
+  green (17 `OK`/`PASS`, same suite/caveat as v14).
+  **Release v15 PROMOTED 2026-09-19** (operator hardware PASS, both
+  protocol legs — verdict in `phase7-polishing.md` §T14): same bytes as
+  the candidate, no respin needed; tag `0.8.0`.
+- **Reminder for scripted legs:** the test image is no longer reachable
+  by pad input — unattended test-image boots need a
+  `-DLOADER_FORCE_TEST_BOOT=1` build (never shipped), per
+  `phase7-polishing.md` §T14 ruling.

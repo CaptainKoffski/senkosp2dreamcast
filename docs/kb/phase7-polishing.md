@@ -799,6 +799,8 @@ nothing special (menu appears as normal). Regression: plain boot +
 menu + game unchanged.
 → **FUNDED 2026-09-19** (branch `phase7-t14`): built + emulator leg
 PASS, hardware round owed — §T14 below.
+→ **CLOSED 2026-09-19**: hardware PASS both legs, release v15 / tag
+`0.8.0` — verdict in §T14 below.
 
 ---
 
@@ -2472,3 +2474,22 @@ Deploy: replace `track04.iso` on the SD (only changed file).
    two) → START GAME → attract/gameplay as v14.
 
 PASS on both → promote release v15 (md5s above), tag `0.8.0`.
+
+### Hardware verdict (2026-09-19, operator) — PASS both legs; T14 CLOSED, release v15
+
+**Operator:** "both passed, everything is OK" — A+Start held through
+boot does NOT reach the Naomi test image (the T9 menu fronts the boot
+as designed), and plain boot → menu → START GAME → attract/gameplay
+matches v14.
+
+**Release v15 PROMOTED:** same bytes as the candidate above —
+`track04.iso` = `cd30db57bccf7a2b691243e6ede61058` (only changed file,
+`1ST_READ.BIN` = `554883e6da93cf61fa21df64c1f1a522`),
+`track01/02/03` + `disc.gdi` unchanged from v14. No respin needed
+(determinism proved in-round). Branch `phase7-t14` merged to `main`,
+tag `0.8.0`. Zip embeds the commercial ROM — local use only, never
+upload.
+
+**Pool state after this close: empty** — T13 closed environmental
+(reopen kit banked), T14 closed here; no open optional-pool items
+remain.
