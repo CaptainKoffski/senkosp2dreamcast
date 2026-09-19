@@ -2329,3 +2329,51 @@ connector fatigue is a non-issue.
   by pad input — unattended test-image boots need a
   `-DLOADER_FORCE_TEST_BOOT=1` build (never shipped), per
   `phase7-polishing.md` §T14 ruling.
+
+## T15 round 1 tooling (2026-09-19)
+
+- **FPSTAT frame-rate meter** (fork commit `1626f8b70`,
+  flycast4naomi2dreamcast, pulled --ff-only into flycast-src): counts
+  STARTRENDER writes (numerator site: the existing STARTRENDER branch in
+  `core/hw/pvr/pvr_regs.cpp`) per 60-vblank window (tick site: next to
+  `cartlog_profiles_tick()` in `core/hw/pvr/spg.cpp`), emits
+  `FPSTAT vbl=<total> rnd=<window count>` once per emulated second,
+  uncapped (1 line/s). Emulated-time on both axes → host speed cancels.
+  senkosp baseline: exactly 60 in every steady scene, both profiles.
+- **Xcode 27.0 update fallout + rebuild recipe (this box, 2026-09-19):**
+  the Sep-8 build tree stopped building — Xcode update removed
+  `MacOSX26.5.sdk` and reset the license. Sed-repointing
+  `CMAKE_OSX_SYSROOT` in CMakeCache (to versionless Xcode `MacOSX.sdk`,
+  then to CLT's `MacOSX26.5.sdk`) still failed with libc++
+  "didn't find <stddef.h>" — stale include paths are baked into the
+  generated build files at configure time, not just the cache; hello-world
+  control tests proved every toolchain+SDK combo fine standalone.
+  **Recovery:** operator ran `sudo xcodebuild -license accept` (new Xcode
+  license gate blocks all try-compiles); re-fetched pinned CMake 3.31.6 —
+  now persisted at `../cleopatra/tools/cmake-3.31.6-macos-universal/`
+  (survives scratchpad wipes, unlike the previous copy); fresh configure
+  into a NEW build dir per the cleopatra KB recipe (DEVELOPER_DIR=Xcode,
+  `-DCMAKE_BUILD_TYPE=Release -DUSE_BREAKPAD=OFF -DUSE_VULKAN=OFF
+  -DCMAKE_OSX_ARCHITECTURES=arm64 -DZLIB_LIBRARY=<Xcode MacOSX.sdk
+  libz.tbd>`), full build green (deprecation warnings only). Dirs
+  swapped: `build/` = the new tree; `build-old-sdk265/` = pre-update tree
+  kept as binary fallback (295 MB — delete once the new build has a
+  hardware-verified leg behind it). Lesson: after an Xcode major update,
+  reconfigure from scratch in a fresh dir; do not sed the cache.
+- **Savestate compat across the toolchain jump:** Aug-25 `senkosp.state`
+  loads fine on the rebuilt fork (`Dreamcast.AutoLoadState=yes` +
+  `Dreamcast.SavestateSlot=0` CLI overrides, transient as before).
+- **Post-T9 leg-runner caveat:** the v14+ DC discs boot into the loader
+  menu and wait — unattended DC attract legs now need one operator
+  keypress (START GAME) or a post-menu savestate.
+- **Legs** (all `captures/phase7/`, cold-boot Naomi profile unless said;
+  key shots preserved in `captures/phase7/t15-shots/`):
+
+| leg | what it proved |
+|---|---|
+| `t15-smoke` (90 s) | FPSTAT sane: boot windows rnd=0, transitions partial, attract steady 60 |
+| `t15-sweep1` (540 s, no input) | 508/533 windows =60; one rnd=40 dip per attract cycle, both cycles inside the Fabian-vs-Lili demo; zero full stalls |
+| `t15-stateprobe` (45 s, AutoLoadState slot 0) | savestate-resume works on the new build; resumes at char select, 60 solid |
+| `t15-stateidle` (170 s, no input) | char-select timeout auto-starts a real match; rnd=31 only at the STAGE-1 START splash, then 60 vs AI |
+| `t15-op1` (~25 min, operator) | 3 played runs incl. Mika MANIA vs stage-1 Lili: all combat windows 60; all dips = scene cuts/loads |
+| `t15-dcsweep1` (560 s, DC v15 disc, START pressed by operator) | conversion delta: rnd=0 stalls up to ~4-5 s at demo-load wipes + story-slide loads (T2b blocking cart service); combat 60 |

@@ -1224,6 +1224,24 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T15 round 1 DONE (2026-09-19): emulator control answered — the
+combat slowdown cannot reproduce in Flycast, and that is a fidelity
+limit, not evidence.** Flycast's dynarec charges ~1 issue-cycle/insn
+with no cache/DRAM-wait model (`sh4_cycles.cpp:22-86`) — bullet-spam
+slowdown on real SH4 is exactly cache/memory-stall-bound. Operator
+played 3 escalating runs (up to Mika MANIA vs stage-1 Lili): zero
+visible slowdown, and the new FPSTAT meter (fork `1626f8b70`, 1 line/s,
+renders per 60 emulated vblanks) held 60 in every combat window on BOTH
+profiles. Differential found instead: the DC conversion's attract shows
+rnd=0 render stalls up to ~4-5 s at demo/story loads where the Naomi
+original never drops below 40 — the T2b blocking cart service made
+visible. Verdict so far: in-match slowdown on DC hardware is most
+plausibly authentic engine saturation; proposed round 2 = hardware
+FRAMEGAP leg during Mika-MANIA-vs-Lili spam to split CPU/TA-bound
+(authentic, shelve) from disc-drip (fixable, T3 ladder). Full record:
+`phase7-polishing.md` §T15 round 1; tooling (FPSTAT + Xcode-27 rebuild
+recovery): `tooling.md` §T15 round 1 tooling.**
+
 **Phase 7 pool +T15 (2026-09-19, operator report): in-match slowdown
 under Lili projectile spam.** Repro: vs-AI, AI plays Lili — pick
 Ernula, battle 2 is vs Lili; projectile spam → significant slowdown.

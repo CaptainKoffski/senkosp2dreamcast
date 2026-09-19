@@ -2512,3 +2512,78 @@ upload.
 banked), T14 closed here; **still open: T6** (dev-disc experiment,
 never funded) and **T10** (load floor + char-select transition
 cosmetics — its "fund after T8/T9" gate is now satisfied).
+
+## T15 — in-match slowdown under Lili spam: round 1, emulator control (2026-09-19)
+
+**Question 1 (authenticity control) ANSWERED: the combat slowdown does
+not reproduce in the Naomi emulator — and cannot.** Flycast's dynarec
+charges ~one issue-cycle per instruction (dual-issue pairing modeled) and
+a flat +2 cycles for only the first three memory ops per block; no cache
+or DRAM-wait modeling at all (fork `core/hw/sh4/sh4_cycles.cpp:22-86`,
+incl. upstream's own "TODO additional wait cycles depending on area?").
+Projectile spam saturates a real SH4 through cache misses and memory
+stalls — a cost class the emulator never charges, so emulated 200 MHz has
+far more effective headroom than real silicon. A negative emulator result
+therefore CANNOT falsify the operator's arcade-slowdown memory. (The
+`CPU_RATIO=8` in `sh4_interpreter.h:33-35` is the interpreter's
+underclock hack, unrelated — all legs run the dynarec.)
+
+**Instrument — FPSTAT** (fork `1626f8b70`; tooling.md §T15 round 1
+tooling): `FPSTAT vbl=<total> rnd=<STARTRENDER kicks per 60-vblank
+window>`, one line per emulated second. Both counters advance in emulated
+time, so host speed cancels; `rnd<60` = the GAME dropped renders.
+Validated: senkosp steady-state is exactly 60 in menus, char select,
+matches and demos; real skips are caught (below).
+
+**Operator leg (attended, Naomi profile, `t15-op1`):** three runs —
+Ernula NORMAL to stage 2, Ernula HARD to stage 2 ("more projectiles"),
+Mika MANIA vs stage-1 Lili (operator: Mika out-spams Ernula; also watched
+the Lili-vs-Lili attract demo, maximum density) — **no visible slowdown,
+and every combat FPSTAT window of the session held rnd=60.** Every sub-60
+window correlates to a scene cut / story-slide / load screen (archived
+shots). Operator's "little hiccups unrelated to action": host-side only —
+`FLYCAST_SHOT` does a GL readback every 600 frames; invisible in emulated
+time. No vs-Lili savestate banked — with the emulator unable to show
+CPU-bound slowdown at all, the planned savestate repro harness is moot.
+
+**Differential sweep — the in-emulator conversion delta** (same attract
+content, same timing model):
+- Naomi profile (`t15-sweep1`, cold boot, zero input, 2 attract cycles):
+  worst post-boot window rnd=40, exactly once per cycle, inside the
+  Fabian-vs-Lili demo (shots `t15-shots/sweep1-lili-demo-cycle{1,2}.png`);
+  ZERO rnd=0 windows — Naomi demo loads are render-continuous (cart reads
+  are ROM-fast).
+- DC conversion v15 (`t15-dcsweep1`, operator pressed START GAME in the
+  T9 menu, hands-off after): repeated FULL render stalls at scene loads —
+  rnd=0 clusters up to ~4-5 s at demo-start ring-wipes and story-slide
+  loads (shots 0326/0338/0400 in the scratchpad-era archive; wipe frame
+  banked) — the T2b blocking synchronous cart service, now visible
+  in-emulator under modeled disc latency. Combat windows: rnd=60
+  throughout, identical to Naomi.
+
+**Unattended-repro answer (operator asked explicitly):** unattended legs
+DO reproduce and detect the load-stall class deterministically (cold
+boot + FPSTAT, no input); the combat slowdown is not reproducible
+unattended OR attended in the emulator — an emulator-fidelity limit, not
+an automation gap. Leg-runner notes: post-T9, DC attract legs need one
+operator keypress (menu) or a post-menu savestate; savestate-resume on
+the rebuilt fork verified (`t15-stateprobe`/`t15-stateidle`: Aug-25
+`senkosp.state` → char-select countdown → auto-starts a real STAGE-1
+match with zero input; rnd=31 only at the START splash, then 60 solid vs
+a non-spammy AI).
+
+**Verdict so far:** (a) the game has no logic throttle — it renders every
+frame the CPU budget allows; (b) the DC in-match slowdown is most
+plausibly authentic engine saturation (Naomi and DC share SH4-200 +
+CLX2; operator remembers the arcade doing it); (c) the conversion's
+measurable delta is the load-transition stall class (T2b/T3/T10
+territory), not combat rendering.
+
+**Round 2 (proposed, operator, hardware — the decisive split for
+question 2):** FRAMEGAP build (`FRAMEGAP=1`, tooling.md §Phase 7 knobs)
+on the real DC, play the strongest trigger found (Mika MANIA vs stage-1
+Lili), read the meter during spam: `w` elevated with `g` frozen =
+CPU/TA-bound → authentic saturation (speed-up = rewriting game frame
+code; enhancement, likely shelve); `g` stepping mid-match = disc drip
+contributes → fixable conversion delta (async cart service / prefetch,
+T3 ladder). Funding the round is the operator's call.
