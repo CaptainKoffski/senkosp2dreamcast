@@ -802,6 +802,23 @@ PASS, hardware round owed — §T14 below.
 → **CLOSED 2026-09-19**: hardware PASS both legs, release v15 / tag
 `0.8.0` — verdict in §T14 below.
 
+**T15 — in-match slowdown under Lili projectile spam** (operator
+report 2026-09-19): the game sometimes slows down significantly;
+operator: "I'm almost sure the same was in the arcade", but wants it
+checked. Repro (operator): vs-AI match where the AI plays Lili (P05);
+shortest path — pick Ernula, the second battle is vs Lili; Lili spams
+projectiles and the game slows down. Two questions, in order:
+(1) **authenticity control** — same matchup on stock Naomi-profile
+Flycast (the T9-recon setup): does the Naomi original slow down the
+same way? (2) only then, **can we speed it up** — regardless of the
+control's answer, but the answer sets the bar (authentic slowdown =
+enhancement territory, operator judges if it's worth it; worse-on-DC =
+a real conversion delta to hunt). Instrument already built: the T2b
+frame-gap meter (`FRAMEGAP=1` / `SHIM_FRAMEGAP`, tooling.md §Phase 7
+knobs) — `w` elevated with `g` frozen = CPU/TA-bound (real slowdown),
+`g` stepping = disc drip involved. Neighborhood prior art: T5 (Ernula
+barrier = feature-not-bug, same projectile-series mechanics).
+
 ---
 
 ## T2 — profiling leg (2026-09-05: instrument + emulator control PASS; hardware leg owed)

@@ -1224,6 +1224,15 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 pool +T15 (2026-09-19, operator report): in-match slowdown
+under Lili projectile spam.** Repro: vs-AI, AI plays Lili — pick
+Ernula, battle 2 is vs Lili; projectile spam → significant slowdown.
+Operator suspects it is authentic arcade behavior; task = (1) control
+test on stock Naomi-profile Flycast (same matchup), (2) then judge
+whether a speed-up is worth pursuing. Entry + plan:
+`phase7-polishing.md` §Optional pool T15 (T2b frame-gap meter is the
+ready instrument).
+
 **Phase 7 T14 CLOSED (2026-09-19, operator hardware verdict): "both
 passed" — A+Start through boot no longer reaches the Naomi test image
 (menu fronts the boot), plain-boot regression matches v14.**
