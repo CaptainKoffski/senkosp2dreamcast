@@ -1230,9 +1230,12 @@ passed" — A+Start through boot no longer reaches the Naomi test image
 **Release v15 PROMOTED:** `track04.iso` = `cd30db57…` (only changed
 file; `1ST_READ.BIN` `554883e6…`), `track01/02/03` + `disc.gdi`
 unchanged from v14; no respin needed (determinism proved in-round).
-Branch `phase7-t14` merged to `main`, tag `0.8.0`. **Optional pool now
-empty** — T13 closed environmental (reopen kit banked in
-`phase7-polishing.md` §T13), T14 closed here.
+Branch `phase7-t14` merged to `main`, tag `0.8.0`. T13 closed
+environmental (reopen kit banked in `phase7-polishing.md` §T13), T14
+closed here. **Pool NOT empty** *(corrected 2026-09-19; this paragraph
+originally claimed it was)*: **T6** (dev-disc experiment) and **T10**
+(load floor + char-select cosmetics, gate "after T8/T9" now satisfied)
+remain open in `phase7-polishing.md` §Optional pool.
 
 **Phase 7 T14 BUILT (2026-09-19, branch phase7-t14): A+Start
 test-image boot combo removed — hardware round owed.** Combo scan

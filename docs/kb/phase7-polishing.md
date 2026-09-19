@@ -2490,6 +2490,8 @@ matches v14.
 tag `0.8.0`. Zip embeds the commercial ROM — local use only, never
 upload.
 
-**Pool state after this close: empty** — T13 closed environmental
-(reopen kit banked), T14 closed here; no open optional-pool items
-remain.
+**Pool state after this close** *(corrected 2026-09-19 — the original
+"empty" claim here was wrong)*: T13 closed environmental (reopen kit
+banked), T14 closed here; **still open: T6** (dev-disc experiment,
+never funded) and **T10** (load floor + char-select transition
+cosmetics — its "fund after T8/T9" gate is now satisfied).
