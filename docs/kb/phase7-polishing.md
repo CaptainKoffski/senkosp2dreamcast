@@ -825,6 +825,18 @@ knobs) — `w` elevated with `g` frozen = CPU/TA-bound (real slowdown),
 `g` stepping = disc drip involved. Neighborhood prior art: T5 (Ernula
 barrier = feature-not-bug, same projectile-series mechanics).
 
+**T16 — controls page: pad diagram instead of the text list** (operator
+ask 2026-09-20): the T9 menu's CONTROLS section renders a text list of
+button→action rows that is "hard to understand"; replace it with an
+operator-provided labeled Dreamcast-pad diagram
+(`loader/controls_diagram.png`, staged by the operator). Labels
+verified against `CONTROLS_ROWS`/`docs/kb/input-map.md` before wiring
+(match, incl. the dual B + L-Trigger = ACTION mapping). Zero loader C
+changes by construction: `controls_screen()` is one full-frame memcpy
+of a fixed 640×480×2 blob, so only the generated pixels change.
+→ **FUNDED 2026-09-20** (branch `phase7-t16`): built + statically
+verified, hardware visual round owed — §T16 below.
+
 ---
 
 ## T2 — profiling leg (2026-09-05: instrument + emulator control PASS; hardware leg owed)
@@ -2732,3 +2744,43 @@ cosmetic. Operator's call; round 1 banked either way.
 surgery isn't worth it for a parked frame during a physics-bound pause;
 accepted as cosmetic. No release respin (nothing shipped changed — the
 diag build was measurement-only). Remaining pool: T6.
+
+## T16 — controls page pad diagram: round 1 (2026-09-20, branch phase7-t16)
+
+Bounded change, no spec: swap the CONTROLS page's rendered text rows
+for the operator-provided pad diagram. Chain of custody:
+
+- Source: `loader/controls_diagram.png` (1254×1254 RGB, operator-
+  staged at repo root, moved next to the other menu art). Committed —
+  it is original illustration of DC hardware, not game-extracted
+  pixels; note it does carry the Dreamcast swirl/wordmark (operator's
+  call, flagged at commit time).
+- Label audit BEFORE wiring: diagram vs `CONTROLS_ROWS` (menu_def.py,
+  verbatim from `docs/kb/input-map.md` §DC pad map) — all seven rows
+  match: stick/D-pad MOVE, A MAIN, X SUB, B + L-Trigger ACTION,
+  Y BARRAGE, R-Trigger OVERDRIVE, START.
+- `scripts/gen_menu_assets.py`: the controls.png branch now autocrops
+  the diagram's white margins (threshold <245 grayscale, 12 px pad),
+  scales to fit 620×416 (result 519×416), pastes centered on the BG
+  canvas, keeps the "B: BACK" footer at y=440. CONTROLS_ROWS kept in
+  menu_def.py as the textual ground truth (comment added); text
+  rendering deleted. menu_sheet.png + menu_layout.h byte-unchanged.
+- Loader C untouched: `controls_screen()` memcpys a fixed
+  640×480×2 = 614,400-byte blob; only pixel content changed, loader
+  layout/size identical → regression surface is the one page.
+
+Round-1 verification (static; visual verdict is hardware's, per the
+T12 precedent): `make test` green; `make gdi` OK, `track04.iso` md5
+`56805cbeff52424ac2ebdd53a7aed7f4`; **the built `build/controls.bin`
+RGB565 blob decoded back to PNG and eyeballed** (not the input —
+the shipped bytes): diagram page renders correctly, labels legible at
+519×416.
+
+### Operator protocol (round 1 — stop-and-wait)
+
+Deploy (`make deploy`, md5 above), then on hardware: boot → menu →
+CONTROLS. PASS = the pad diagram page shows (not the old text list),
+labels readable on the TV, B returns to the top menu; plus the usual
+menu regression (START GAME boots, SETTINGS opens/edits). Composite
+readability is the one open question a CRT answers better than the
+decode check.

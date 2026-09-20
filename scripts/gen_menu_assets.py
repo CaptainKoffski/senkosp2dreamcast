@@ -174,18 +174,26 @@ def main():
     sheet.save(os.path.join(LOADER_DIR, "menu_sheet.png"))
 
     # ---- controls.png ---------------------------------------------------
+    # T16: the page is the operator-provided pad diagram, downscaled to fit
+    # above the footer. CONTROLS_ROWS in menu_def.py stays as the textual
+    # ground truth (docs/kb/input-map.md) the diagram's labels were verified
+    # against -- update both together if the mapping ever changes.
+    diagram_path = os.path.join(LOADER_DIR, "controls_diagram.png")
+    assert os.path.exists(diagram_path), \
+        f"missing {diagram_path} (T16 operator-provided pad diagram)"
+    src = Image.open(diagram_path).convert("RGB")
+    # autocrop the diagram's white margins (content = anything darker than
+    # near-white) so the pad renders as large as the page allows
+    bbox = src.convert("L").point(lambda p: 255 if p < 245 else 0).getbbox()
+    if bbox:
+        pad = 12
+        src = src.crop((max(bbox[0] - pad, 0), max(bbox[1] - pad, 0),
+                        min(bbox[2] + pad, src.width), min(bbox[3] + pad, src.height)))
+    scale = min(620 / src.width, 416 / src.height)
+    dw, dh = round(src.width * scale), round(src.height * scale)
     ctrl = Image.new("RGB", (640, 480), BG)
+    ctrl.paste(src.resize((dw, dh), Image.LANCZOS), ((640 - dw) // 2, 8))
     cd = ImageDraw.Draw(ctrl)
-    check_fits(cd, 640, 480, "CONTROLS", F_TITLE)
-    cd.text((320, 40), "CONTROLS", font=F_TITLE, fill=FG, anchor="mm")
-    row_y = 120
-    for btn, act in M.CONTROLS_ROWS:
-        check_fits(cd, 340 - 120, 34, btn, F_ROW, margin=10)
-        check_fits(cd, 640 - 340, 34, act, F_ROW, margin=20)
-        cd.text((120, row_y), btn, font=F_ROW, fill=AMBER_TXT, anchor="lm")
-        cd.text((340, row_y), act, font=F_ROW, fill=FG, anchor="lm")
-        row_y += 34
-    assert row_y <= 440, f"controls rows ({row_y}px) collide with the footer"
     check_fits(cd, 640, 480, "B: BACK", F_ROW)
     cd.text((320, 440), "B: BACK", font=F_ROW, fill=GREY, anchor="mm")
     ctrl.save(os.path.join(LOADER_DIR, "controls.png"))
@@ -274,7 +282,7 @@ def main():
     print(f"gen_menu_assets: sheet {shelf.bottom}/{M.SHEET_H}px used "
           f"({100 * shelf.bottom / M.SHEET_H:.1f}% vertical), "
           f"{n_settings} settings rows, {len(value_cache)} unique value chips, "
-          f"controls.png {len(M.CONTROLS_ROWS)} rows")
+          f"controls.png diagram {dw}x{dh}")
 
 
 if __name__ == "__main__":

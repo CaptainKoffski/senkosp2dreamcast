@@ -1224,6 +1224,15 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T16 round 1 (2026-09-20, branch phase7-t16): CONTROLS page
+now shows the operator's pad diagram instead of the text list —
+hardware visual round owed.** Labels audited against
+`docs/kb/input-map.md` before wiring (all seven match). Zero loader C
+changes (fixed-size blob, pixels only); `gen_menu_assets.py` autocrops
++ scales the diagram (519×416 on the page). Static PASS: tests green,
+built `controls.bin` decoded and eyeballed, `track04.iso` md5
+`56805cbe…`. `phase7-polishing.md` §T16.
+
 **Phase 7 T10 CLOSED (2026-09-20, branch phase7-t10): load floor
 REACHED; cosmetic frame-pin declined by operator.** First `TIME=1`
 profile on the v15 tree (hardware leg `captures/phase7/hw-t10-1.log`,

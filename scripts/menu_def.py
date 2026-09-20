@@ -44,7 +44,10 @@ SETTINGS = [
     ("NOVICE MODE", 5, [("OFF", 0x00), ("ON", 0x01)], None, None),
 ]
 
-CONTROLS_ROWS = [   # verbatim from docs/kb/input-map.md §DC pad map
+CONTROLS_ROWS = [   # verbatim from docs/kb/input-map.md §DC pad map.
+                    # T16: no longer rendered -- the controls page shows
+                    # loader/controls_diagram.png; kept as the textual ground
+                    # truth the diagram's labels are verified against.
     ("D-PAD / STICK", "MOVE (8-WAY)"),
     ("A",             "M - MAIN"),
     ("X",             "S - SUB"),
