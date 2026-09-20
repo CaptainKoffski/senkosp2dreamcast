@@ -1224,15 +1224,16 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
-**Phase 7 T16 (2026-09-20, branch phase7-t16): CONTROLS pad diagram —
-round 1 hardware PASS both cables; round 2 (gray menu BG 248→224 +
-pad ×0.85) built, hardware round owed.** Labels audited against
-`docs/kb/input-map.md` before wiring (all seven match). Zero loader C
-changes (fixed-size blob, pixels only; BG flows through the generated
-`MENU_BG_COLOR`). Round-2 static PASS: tests green, built
-`controls.bin` decoded + pixel-sampled (diagram bg flood-flattened to
-page gray — PIL floodfill early-exit gotcha recorded in §T16),
-`track04.iso` md5 `e529a6ca…`. `phase7-polishing.md` §T16.
+**Phase 7 T16 CLOSED (2026-09-20, branch phase7-t16): CONTROLS pad
+diagram + gray menu BG — hardware PASS both rounds; release v16 / tag
+`0.9.0`.** Round 1 (diagram page, labels audited against
+`docs/kb/input-map.md`, all seven match) PASS on VGA + composite;
+round 2 (menu BG 248→224 on all screens via the single BG constant +
+`MENU_BG_COLOR`, pad ×0.85, diagram bg flood-flattened to page gray —
+PIL floodfill early-exit gotcha recorded in §T16) PASS on hardware.
+Zero loader C changes (fixed-size blob, pixels only). `track04.iso`
+md5 `e529a6ca…`, only changed file vs v15. Pool remaining: T6.
+`phase7-polishing.md` §T16.
 
 **Phase 7 T10 CLOSED (2026-09-20, branch phase7-t10): load floor
 REACHED; cosmetic frame-pin declined by operator.** First `TIME=1`

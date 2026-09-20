@@ -836,6 +836,9 @@ changes by construction: `controls_screen()` is one full-frame memcpy
 of a fixed 640×480×2 blob, so only the generated pixels change.
 → **FUNDED 2026-09-20** (branch `phase7-t16`): built + statically
 verified, hardware visual round owed — §T16 below.
+→ **CLOSED 2026-09-20**: round 1 hardware PASS both cables; operator
+round-2 tweaks (gray menu BG 248→224 across all screens, pad ×0.85)
+hardware PASS. Release v16 / tag `0.9.0` — §T16 below.
 
 ---
 
@@ -2822,3 +2825,13 @@ Deploy (md5 `e529a6ca…`): menu brightness on the TV (the point of the
 round), CONTROLS page (smaller pad, uniform gray, no bright box around
 the diagram), B back, START GAME boots, SETTINGS edits. Both cables if
 convenient — brightness is cable/TV-dependent.
+
+### Hardware verdict (2026-09-20, operator) — PASS; T16 CLOSED, release v16
+
+Round 2 verified on hardware ("looking good"). **Release v16
+PROMOTED:** `track04.iso` = `e529a6ca6b4a3ee8e9af4a50cbaf829a` (only
+changed file vs v15 — loader blob pixels: gray BG + diagram controls
+page), zip respun via `make release`, tag `0.9.0`. Zip embeds the
+commercial ROM — local use only, never upload. Remaining pool: T6
+(dev-disc experiment, value largely evaporated with the pool empty —
+operator's call to fund or wind down phase 7).
