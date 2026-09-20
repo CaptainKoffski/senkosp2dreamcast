@@ -15,8 +15,7 @@ real Dreamcast with a GDEMU-class SD ODE over both VGA and composite, and
 in Flycast; DreamShell serial-SD boots as a courtesy path (slower loads).
 Honest limit: single-rig evidence — one console, one GDEMU, one SD card.
 
-Where Cleopatra was a Naomi *cart* game, this is (as far as we know) the
-first Naomi *GD-ROM* game ported to the Dreamcast. The game was picked via
+The game was picked via
 the [naomi2dreamcast](https://github.com/CaptainKoffski/naomi2dreamcast)
 umbrella project — the portability assessment of the whole Naomi library.
 The complete investigation — every dead end included — is documented in
