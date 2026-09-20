@@ -1,9 +1,11 @@
 # Phase 7 — Polishing
 
-**Status:** chartered 2026-09-03 (this doc), not yet started. Phase 6 closed
-same day (tripwires 3/3, composite fixed + hardware-proven, DreamShell
-known-fail characterized, release packaged by the operator and sent to a
-closed-beta tester).
+**Status: CLOSED 2026-09-20** (operator decision; §Phase 7 wind-down at
+the end of this doc). Every pool task resolved — final release v16 /
+tag `0.9.0`. Originally chartered 2026-09-03; phase 6 closed the same
+day (tripwires 3/3, composite fixed + hardware-proven, DreamShell
+known-fail characterized, release packaged by the operator and sent to
+a closed-beta tester).
 
 **Ground rules (operator decisions, 2026-09-03):**
 
@@ -619,6 +621,11 @@ in 2P with no foreign projectiles, unrelated to slowdown. No action.
 **T6 — Dev-disc experiment** (postponed from phase 6): master the game
 disc with dcload as its boot binary → serial upload iteration without the
 GDEMU button-swap dance. Quality-of-life for us, invisible to users.
+→ **DECLINED 2026-09-20 (operator, phase wind-down):** never funded;
+its value — faster build-test cycles — evaporated with the pool empty.
+Recorded here in case future work revives the need; the `make
+deploy-dcload` target (GDmenu slot 04) already covers the serial-upload
+path for loose binaries.
 
 **T7 — Boot black-gap cosmetics** (rolled back once — operator judged the
 bar no better on hardware, commit `7476d47` has the whole implementation
@@ -2835,3 +2842,45 @@ page), zip respun via `make release`, tag `0.9.0`. Zip embeds the
 commercial ROM — local use only, never upload. Remaining pool: T6
 (dev-disc experiment, value largely evaporated with the pool empty —
 operator's call to fund or wind down phase 7).
+
+---
+
+## Phase 7 wind-down (2026-09-20, operator decision)
+
+Pool empty: every task resolved, T6 declined as no longer needed.
+**Phase 7 CLOSED. Final state: release v16 / tag `0.9.0`, `main`
+releasable, working tree clean.**
+
+Ledger (details in each §):
+
+| task | verdict |
+|---|---|
+| T1 DreamShell serial-SD boot (must-have) | CLOSED 2026-09-04, all 7 exit criteria, hardware PASS |
+| T2 load/freeze profiling (SHIMTIME) | CLOSED 2026-09-05, three pre-registered verdicts banked |
+| T3 G1 DMA + prefetch ring | CLOSED 2026-09-07, hardware PASS, release v9 |
+| T4 arena churn hypothesis | CLOSED via T2 (b): zero mid-match re-reads — not churn |
+| T5 Ernula barrier watch item | CLOSED 2026-09-04, feature not bug |
+| T6 dev-disc (dcload boot) experiment | DECLINED 2026-09-20, never funded |
+| T7 boot blink / composite banking | CLOSED 2026-09-10, PASS both cables, release v11 |
+| T8 video-mode pin (SPG) | CLOSED 2026-09-07, hardware PASS, release v10 |
+| T9 pre-game menu | CLOSED 2026-09-18, PASS all 6 legs, release v14 |
+| T10 load floor + char-select cosmetics | CLOSED 2026-09-20: floor reached (DMA ceiling 6.7 MB/s measured), anim-pin declined |
+| T11 2P hot-plug dead pad | CLOSED 2026-09-11, HOTPLUG-WAKE, release v12 |
+| T12 NAOMI logo on TM screen | CLOSED 2026-09-11, IPLOGO, release v13 |
+| T13 composite TM-screen glitch | CLOSED 2026-09-19, NO REPRO — environmental, reopen kit in §T13 |
+| T14 drop A+Start test-image combo | CLOSED 2026-09-19, release v15 / tag 0.8.0 |
+| T15 in-match slowdown (Lili spam) | CLOSED 2026-09-20, AUTHENTIC render-budget saturation — shelved |
+| T16 controls pad diagram + gray menu BG | CLOSED 2026-09-20, release v16 / tag 0.9.0 |
+
+Known residuals carried out of the phase (all banked, none gating):
+
+- DreamShell (courtesy path): loads stay long (link bandwidth; stage-2
+  DMA never applies on the syscall backend) and stage-8 freezes are
+  improved-not-closed (§T3 residuals).
+- The ~8.5 s cadence-locked 2-frame hitch (`w`=0x1d), menus and
+  matches, unattributed — benign (§T15 open oddity).
+- T13 composite TM-screen glitch: environmental, reopen on recurrence
+  (§T13 reopen kit).
+- Housekeeping (operator's call, sibling repo): delete
+  `../cleopatra/tools/flycast-src/build-old-sdk265/` (295 MB) — the
+  new Flycast build now has hardware-verified legs behind it.

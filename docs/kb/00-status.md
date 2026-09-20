@@ -1,15 +1,16 @@
 # Project status
 
-**Updated:** 2026-08-31 (Phase 5 Task 13 — **gate closed, all nine exit
-criteria evidenced** (`docs/kb/phase5-hardware.md` §Gate audit). The game
-boots, plays and soaks on the real bench Dreamcast + GDEMU: texture hang
-root-caused and fixed (T1 arena exhaustion → F-2u-r8 stack, verified over
-three hardware sessions), all five play criteria operator-attested with
-photos, pad-poll no-lag recorded, cyan splash reclassified emulator-only,
-release build A/B'd (perf symptoms = diagnostic serial cost; release
-PASS) and reproducible (`make clean` → `make gdi` → md5-identical to the
-recorded release set; `make test` green). Phase 5 — **DONE**. Honest
-limit: single-rig evidence — one console, one GDEMU, one SD card.)
+**Updated:** 2026-09-20 — **ALL SEVEN PHASES CLOSED.** The port is
+complete: the game boots, plays, and soaks on real hardware (Dreamcast
++ GDEMU; DreamShell serial-SD as courtesy path), with the phase-7
+polish pool fully resolved (16 tasks — ledger in
+`docs/kb/phase7-polishing.md` §Phase 7 wind-down). Final release
+**v16 / tag `0.9.0`**: pre-game settings menu with pad-diagram
+controls page, NAOMI TM-screen logo, G1 DMA + prefetch ring (loads at
+the measured 6.7 MB/s GDEMU ceiling, microfreezes gone), 2P hot-plug,
+video-mode pin for both cables. Known residuals are banked in the
+wind-down section. Honest limit unchanged: single-rig evidence — one
+console, one GDEMU, one SD card.
 
 ## What this is
 
@@ -1223,6 +1224,14 @@ IEE signature); **`ie2=0` — first full-session zero for the queued
 bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
+
+**PHASE 7 CLOSED (2026-09-20, operator decision): pool empty — T6
+declined as no longer needed (its value, faster build-test cycles,
+evaporated with no work left in the pool).** All 16 pool tasks
+resolved; full ledger + known residuals:
+`docs/kb/phase7-polishing.md` §Phase 7 wind-down. Final state: release
+v16 / tag `0.9.0`, `main` releasable, tree clean. The project has no
+open phases.
 
 **Phase 7 T16 CLOSED (2026-09-20, branch phase7-t16): CONTROLS pad
 diagram + gray menu BG — hardware PASS both rounds; release v16 / tag
