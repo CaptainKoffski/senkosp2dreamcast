@@ -3,12 +3,12 @@
 A static binary conversion of **Senko no Ronde Special** (G.Rev, 2006, Sega
 Naomi GD-ROM, GDL-0038) to the **Sega Dreamcast** — no game source code,
 following the method proven by the [Cleopatra Fortune Plus
-port](../cleopatra), done with AI heavy-lifting (Claude Code) driving the
+port](https://github.com/CaptainKoffski/cfp2dreamcast), done with AI heavy-lifting (Claude Code) driving the
 reverse engineering and conversion, with a human running the
 real-hardware test loop.
 
-**Status: complete — fully playable on real hardware** (release v16, tag
-`0.9.0`). 1P and 2P at full speed with 2P hot-plug, free-play, pre-game
+**Status: complete — fully playable on real hardware** (release v16 —
+the 16th build sent to hardware — git tag `0.9.0`). 1P and 2P at full speed with 2P hot-plug, free-play, pre-game
 settings menu with a controls pad-diagram page, NAOMI logo on the boot TM
 screen, loads at the measured GDEMU DMA ceiling (6.7 MB/s). Verified on a
 real Dreamcast with a GDEMU-class SD ODE over both VGA and composite, and
@@ -34,8 +34,8 @@ your own legally-obtained copies of:
 |---|---|---|
 | Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, regenerated from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`) — recipe in `docs/kb/tooling.md` |
 | Naomi BIOS | `bios/naomi/epr-21576h.ic27` (extracted from your `bios/naomi.zip`) | Japan bios0; kernel/data slices are embedded at build time |
-| Donor disc | `[GDI] Dolphin Blue.7z` (repo root) | the megavolt85 Atomiswave port GDI, used as a proven-bootable disc skeleton (tracks 1–3 + TOC cloned verbatim; only IP.BIN metadata is re-branded) |
-| RAM snapshot | `tools/ram-snapshot.bin` | 34 MB Naomi RAM dump from the instrumented emulator (BIOS kernel slice source) — recipe in `docs/kb/tooling.md` §Phase 3 |
+| Donor disc | `[GDI] Dolphin Blue.7z` (repo root) | the megavolt85 Atomiswave port GDI as distributed by its release (~44 MB archive), used as a proven-bootable disc skeleton (tracks 1–3 + TOC cloned verbatim; only IP.BIN metadata is re-branded) |
+| RAM snapshot | `tools/ram-snapshot.bin` | 32 MB Naomi RAM dump from the instrumented emulator (BIOS kernel slice source) — recipe in `docs/kb/tooling.md` §Phase 3 |
 | Boot splash | `loader/splash.png` | NAOMI boot-logo frame captured from your BIOS |
 | MIE capture | `captures/phase4/pc2.log` | instrumented-Flycast capture the shim's MIE reply blobs are extracted from at build time |
 
@@ -51,15 +51,26 @@ source repo, not the output.
 Built and tested on macOS (the build uses `dot_clean`, BSD tools; Linux
 would need minor Makefile tweaks). You need:
 
+- **Sibling checkouts** — build and capture scripts reach into neighbor
+  repos by fixed relative path; clone them next to this repo with exactly
+  these directory names:
+
+  ```sh
+  git clone https://github.com/CaptainKoffski/cfp2dreamcast cleopatra
+  git clone https://github.com/CaptainKoffski/naomi2dreamcast
+  ```
 - **sh-elf toolchain** at `/opt/toolchains/dc` and **KallistiOS** — this
   repo has no local KOS checkout; it sources `../cleopatra/tools/kos`
   (setup recipe in `docs/kb/tooling.md`)
-- **python3**, **7zz** (Homebrew p7zip), **git**
+- **python3**, **7zz** (Homebrew `sevenzip`), **chdman** (Homebrew
+  `rom-tools`), **clang** (Xcode command-line tools), **git**
 - **Instrumented Flycast** — the fork at
   github.com/CaptainKoffski/flycast4naomi2dreamcast, built per
-  `../cleopatra`'s recipe; needed for the one-time capture harvest and for
-  emulator testing. Copy `bios/naomi.zip` to
-  `~/Library/Application Support/Flycast/data/` so Naomi mode boots.
+  `../cleopatra`'s recipe (the capture scripts expect the built app at
+  `../cleopatra/tools/flycast-src/build/Flycast.app`); needed for the
+  one-time capture harvest and for emulator testing. Copy
+  `bios/naomi.zip` to `~/Library/Application Support/Flycast/data/` so
+  Naomi mode boots.
 
 ## Building from a fresh clone
 
@@ -68,27 +79,36 @@ inputs — full recipes with validation steps in `docs/kb/tooling.md`):
 
 ```sh
 # 1. Flat decrypted cart image from your romset (senkosp.zip + gdl-0038.chd),
-#    via the dat-extract toolset in the umbrella repo
+#    via the dat-extract toolset in the umbrella repo. The romset lives in
+#    TWO places: ../naomi2dreamcast/naomi/senkosp.zip +
+#    ../naomi2dreamcast/naomi/senkosp/gdl-0038.chd (chd2dat input), and
+#    roms/senkosp.zip + roms/senkosp/gdl-0038.chd in THIS repo (the
+#    Flycast capture legs of steps 2-3 boot from there).
 ( cd ../naomi2dreamcast/tools/dat-extract && ./chd2dat.sh senkosp )
 cp ../naomi2dreamcast/tools/dat-extract/out/senkosp.dat .
 head -c 16 senkosp.dat            # must start with the "NAOMI" magic
 
 # 2. Run the game once in instrumented Flycast (Naomi mode, interpreter,
 #    fork commit 0d55a1812+) to capture the MIE/JVS traffic the shim
-#    replays on DC; ~300 s unattended boot -> attract, then kill Flycast.
+#    replays on DC; ~300 s unattended boot -> attract, then:
+#    pkill -TERM -f "flycast-src.*Flycast"
 #    The shim build extracts the reply blobs from this log automatically.
 scripts/capture_leg.sh phase4/pc2
 
 # 3. Naomi RAM snapshot -> tools/ram-snapshot.bin (the loader needs one
 #    512-byte kernel window that exists in RAM only, not in the BIOS ROM).
 #    Enable Flycast's AutoSaveState, run ~150 s of attract in Naomi mode,
-#    quit Flycast (it auto-saves), carve + validate — then set
-#    AutoSaveState back to no:
+#    quit Flycast (it auto-saves), carve + validate, set AutoSaveState
+#    back to no:
 sed -i '' 's/AutoSaveState = no/AutoSaveState = yes/' ~/Library/Application\ Support/Flycast/emu.cfg
 scripts/capture_leg.sh canary-snapshot   # ~150 s, then: pkill -TERM -f "flycast-src.*Flycast"
 python3 scripts/carve_ram_snapshot.py    # 4 control tests -> tools/ram-snapshot.bin
+sed -i '' 's/AutoSaveState = yes/AutoSaveState = no/' ~/Library/Application\ Support/Flycast/emu.cfg
 
-# 4. Capture the NAOMI boot splash from your BIOS; pick the full-logo frame
+# 4. Capture the NAOMI boot splash (BIOS-drawn; any Naomi title shows it).
+#    The script hardcodes booting ../cleopatra's game image -- if you don't
+#    have "Cleopatra Fortune Plus.dat" there, edit the script's ROM path to
+#    point at your senkosp.dat. Pick the full-logo frame:
 ../cleopatra/scripts/capture_naomi_splash.sh   # emits naomi_boot_s*.png
 cp naomi_boot_s6.png loader/splash.png         # frame number may vary
 

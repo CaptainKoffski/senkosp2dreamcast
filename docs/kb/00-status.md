@@ -39,7 +39,7 @@ Charter + Phase 1 spec:
   proven by dry run on the Naomi profile. The fallback (shim-side streaming
   retarget + consumer-read patching) was not needed.
   `docs/kb/relocation-map.md`.
-- Asset cutting/compression is a last resort (REQUIREMENTS.md).
+- Asset cutting/compression is a last resort (original project brief).
 
 ## Phases
 
