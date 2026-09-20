@@ -734,6 +734,12 @@ transition parks on a misaligned frame during the ~1 s pause
 (operator screenshots 2026-09-07); options: pin the animation counter to
 the aligned frame while loading (game-code surgery, needs recon) or just
 shrink the pause via (i). Cosmetic; fund after T8/T9.
+→ **CLOSED 2026-09-20** (§T10 below): (i) load floor REACHED — first
+`TIME=1` profile on the v15 tree measured the GDEMU DMA ceiling at
+≈6.7 MB/s and split both windows (attract→char-select game-side-bound,
+stage-pak reload disc-bound at the ceiling); driver untouched. (ii)
+declined by operator — misaligned parked frame accepted as cosmetic
+(anim-pin surgery not worth it). Round-1 numbers banked.
 
 **T11 — BUG: 2P controller dead when connected after boot** (operator
 report 2026-09-10)
@@ -2721,3 +2727,8 @@ misaligned-frame park during the pause is now a two-option decision:
 loading — game-code surgery, recon required (find the char-select
 transition animation state in the game binary); or (b) accept as
 cosmetic. Operator's call; round 1 banked either way.
+
+**T10 CLOSED (2026-09-20): operator declined (ii)** — the anim-pin
+surgery isn't worth it for a parked frame during a physics-bound pause;
+accepted as cosmetic. No release respin (nothing shipped changed — the
+diag build was measurement-only). Remaining pool: T6.

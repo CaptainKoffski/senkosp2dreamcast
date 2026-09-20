@@ -1224,17 +1224,18 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
-**Phase 7 T10 round 1 (2026-09-20, branch phase7-t10): load floor
-REACHED — sub-item (i) closed, driver stays untouched.** First `TIME=1`
+**Phase 7 T10 CLOSED (2026-09-20, branch phase7-t10): load floor
+REACHED; cosmetic frame-pin declined by operator.** First `TIME=1`
 profile on the v15 tree (hardware leg `captures/phase7/hw-t10-1.log`,
 GDEMU): **stage-2 DMA ceiling measured ≈6.6–6.7 MB/s** (2.4× the T2 PIO
 2.8 MB/s), prefetch ring live (drip reads ~1 ms from RAM vs 15 ms PIO).
 Split: attract→char-select (felt ~1.5 s) is game-side-bound — only
 0.4 s disc, ≤0.4 s theoretical gain; the ~1 s misaligned-circles hang
 (game→2P char-select) is the 8.4 MB stage-pak reload at 93.8 % duty —
-disc-bound AT the device ceiling, physics. Sub-item (ii) now a
-two-option call: pin the circling animation counter (game-code surgery,
-recon needed) or accept as cosmetic. `phase7-polishing.md` §T10.
+disc-bound AT the device ceiling, physics. Sub-item (ii): operator
+declined the anim-pin surgery — misaligned parked frame accepted as
+cosmetic. No release respin (measurement-only round). Pool remaining:
+T6. `phase7-polishing.md` §T10.
 
 **Phase 7 T15 CLOSED (2026-09-20): hardware round 2 PASS — in-match
 slowdown is AUTHENTIC engine render-budget saturation; shelved.** FRAMEGAP
