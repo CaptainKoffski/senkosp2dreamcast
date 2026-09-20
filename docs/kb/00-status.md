@@ -1224,6 +1224,21 @@ bit-2 watch item**. Full record + verdicts:
 `phase7-polishing.md` §T2. Next (own task, own approval): T3 G1-DMA/
 async cart service per `gd.c`'s recorded caveats.
 
+**Phase 7 T15 CLOSED (2026-09-20): hardware round 2 PASS — in-match
+slowdown is AUTHENTIC engine render-budget saturation; shelved.** FRAMEGAP
+serial leg (`captures/phase7/hw-t15-2.log`, Mika MANIA vs stage-1 Lili)
+plus operator video: scene loop held 60 fps (`w`=0x11) through ~90 % of
+match windows INCLUDING every felt slowdown (video cross-check: HUD read
+0x11 while the picture chugged) — the engine skips render frames when
+over budget while logic/input keep 60 Hz, matching round 1's emulator
+FPSTAT finding. Disc path exonerated: constant ~1 read/s stream drip,
+served from the T3 prefetch ring in lockstep (`g`/`p`), zero spam
+correlation; all large stalls are the known T2b load-transition class
+(235 ms max at menu→game handoff). Final-blow slow-mo = scripted (loop
+stayed 60). Not fixable without rewriting the game's renderer. Full
+record: `phase7-polishing.md` §T15 round 2 CLOSED. Pool remaining: T6,
+T10.**
+
 **Phase 7 T15 round 1 DONE (2026-09-19): emulator control answered — the
 combat slowdown cannot reproduce in Flycast, and that is a fidelity
 limit, not evidence.** Flycast's dynarec charges ~1 issue-cycle/insn

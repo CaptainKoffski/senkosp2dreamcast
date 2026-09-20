@@ -2601,3 +2601,53 @@ ring hits. The read that settles question 2, taken DURING Lili spam
 (Mika MANIA vs stage-1 Lili): `w` climbing while `g`/`p` freeze =
 CPU/TA-bound → authentic saturation; `g`/`p` stepping mid-combat = disc
 drip contributes → fixable (T3 ladder). Operator leg: stop-and-wait.
+
+**Round 2 CLOSED — hardware PASS, T15 verdict: AUTHENTIC, SHELVED
+(2026-09-20).** Operator ran the `serial/` disc on the bench rig; logs
+`captures/phase7/hw-t15-1.log` (short first run, 57 SHIMGAP lines) and
+`hw-t15-2.log` (full session, 150 lines ≈ 2.5 min: menu → Mika vs
+stage-1 Lili match → kill). Operator also recorded video of TV + HUD.
+Decoded findings (all four counters per second; `w`/`x` in ms hex,
+0x11 = 60 fps, 0x21 ≈ a 30 fps frame):
+
+1. **Disc path exonerated for combat slowdown.** `g` ticks at a
+   constant ~1 read/s through the entire match (metronomic — most
+   plausibly a stream-buffer refill, audio/voice; inference, offsets
+   not logged in FRAMEGAP mode) and `p` ticks in lockstep: the T3
+   prefetch ring serves the drip from RAM. No read burst during
+   projectile spam, no freeze either — zero correlation with action.
+   Every large `w` spike sits on a load transition (known T2b class):
+   0xeb = 235 ms at menu→game handoff (session max, `x` holds it from
+   second 2 onward; first run measured 0xfc = 252 ms same spot), and
+   0x6e/0xa9/0xae = 110/169/174 ms exactly where `g` jumps +2..+4
+   (pre-match load screens).
+2. **Scene loop held 60 fps through virtually the whole match** —
+   `w` = 0x11 in ~90 % of match windows; isolated hitches only (two
+   0x31, one 0x21, one 0x18). The meter hooks the maple kick the game
+   runs once per scene-loop pass (`shims/src/main.c` fg_tick comment,
+   T2 attribution), so this is the logic/input cadence.
+3. **Video correlation (operator): during felt mid-match slowdowns the
+   HUD `w` read 0x11.** The 0x21/0x1d readings the operator saw during
+   battle did NOT coincide with felt slowdowns. So the visible chug is
+   render-side: the engine skips STARTRENDER frames when over budget
+   while logic/input keep 60 Hz — exactly the degradation mode round 1
+   measured in the emulator (FPSTAT: vbl steady, rnd drops). A
+   loop-cadence meter is blind to it by construction; the video read
+   was the closing cross-check.
+4. **Final-blow slow-mo is scripted, not saturation:** loop stayed at
+   60 (`w` = 0x11/0x1d) through the kill windows (`g` freezes at 0xb2
+   right after — match end, streaming stops).
+
+**Verdict: the felt in-match slowdown is the game's own render-budget
+saturation — authentic to the engine (Naomi and DC share SH4-200 +
+CLX2), with both conversion-addable paths measured clean (disc drip
+prefetch-served + frame loop at 60 Hz). Not fixable without rewriting
+the game's renderer. T15 CLOSED (shelved as authentic).** Remaining
+pool: T6, T10.
+
+Open oddity (benign, banked for reference): a 2-frame hitch (`w` =
+0x1d) recurs every ~8 windows (~8.5 s) like clockwork, in menus and
+matches alike, both runs. Cadence-locked and action-independent; NOT
+the SHIM_TRACE heartbeat (trace was off — no `MS n=` lines in the
+log). Matches the "little hiccups" the operator noticed in the
+emulator legs. Unattributed; not a gameplay concern.
