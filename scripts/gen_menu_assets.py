@@ -22,8 +22,12 @@ assert os.path.exists(FONT_PATH), f"stock macOS font missing: {FONT_PATH}"
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOADER_DIR = os.path.join(REPO, "loader")
 
-BG = (248, 248, 248)          # = splash.png bg; bmp2rgb565.py and rgb565()
-                              # truncate identically, so menu fill == splash white
+BG = (224, 224, 224)          # T16 round 2: soft gray -- operator found the
+                              # splash-white (248) menu bg too bright on a TV.
+                              # No longer matches splash.png's 248 bg; the
+                              # splash->menu transition shows a small shade
+                              # step (accepted). Exactly representable in
+                              # RGB565 (224>>3<<3 == 224).
 FG = (0x10, 0x10, 0x18)       # dark navy text (the pre-white-bg BG color)
 BLACK = (0, 0, 0)
 AMBER = (0xe0, 0xa0, 0x20)    # highlight bands (black text on top)
@@ -189,10 +193,32 @@ def main():
         pad = 12
         src = src.crop((max(bbox[0] - pad, 0), max(bbox[1] - pad, 0),
                         min(bbox[2] + pad, src.width), min(bbox[3] + pad, src.height)))
-    scale = min(620 / src.width, 416 / src.height)
+    scale = 0.85 * min(620 / src.width, 416 / src.height)  # T16 round 2:
+    # operator asked for a slightly smaller pad after seeing it on hardware
     dw, dh = round(src.width * scale), round(src.height * scale)
+    img = src.resize((dw, dh), Image.LANCZOS)
+    # tint the diagram so its own background lands exactly on the page BG:
+    # sample the bg level from the corners (inside the autocrop pad, pure
+    # bg by construction) and scale all pixels by BG/bg_level
+    g = img.convert("L")
+    bg_level = sorted(g.getpixel(p) for p in
+                      [(2, 2), (dw - 3, 2), (2, dh - 3), (dw - 3, dh - 3)])[2]
+    img = img.point(lambda p: min(255, p * BG[0] // bg_level))
+    # flatten the outer bg region to exactly BG (the tint gets it close;
+    # the diagram bg's soft gradient would still show as a faint block
+    # edge on the page without this). Interior whites (label boxes, pad
+    # body) are enclosed by dark outlines, so the fill can't reach them.
+    # thresh is PIL's summed-channel difference: 60 = ~20/channel, enough
+    # for the bg's +-8 gradient, far below the black outlines (~670).
+    # Two-pass sentinel fill: floodfill() no-ops when the seed already
+    # sits within thresh of the target value (our corners == BG by the
+    # tint above), so fill to a sentinel first, then sentinel -> BG.
+    SENTINEL = (255, 0, 255)
+    for corner in [(2, 2), (dw - 3, 2), (2, dh - 3), (dw - 3, dh - 3)]:
+        ImageDraw.floodfill(img, corner, SENTINEL, thresh=60)
+        ImageDraw.floodfill(img, corner, BG, thresh=60)
     ctrl = Image.new("RGB", (640, 480), BG)
-    ctrl.paste(src.resize((dw, dh), Image.LANCZOS), ((640 - dw) // 2, 8))
+    ctrl.paste(img, ((640 - dw) // 2, max((430 - dh) // 2, 0)))
     cd = ImageDraw.Draw(ctrl)
     check_fits(cd, 640, 480, "B: BACK", F_ROW)
     cd.text((320, 440), "B: BACK", font=F_ROW, fill=GREY, anchor="mm")

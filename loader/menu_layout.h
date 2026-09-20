@@ -5,7 +5,7 @@
 typedef struct { unsigned short x, y, w, h; } mrect_t;
 
 #define MENU_SHEET_W 640
-#define MENU_BG_COLOR 0xffdf
+#define MENU_BG_COLOR 0xe71c
 
 static const mrect_t MENU_TOP_LABEL[3][2] = {
   {{0,0,320,36}, {320,0,320,36}},

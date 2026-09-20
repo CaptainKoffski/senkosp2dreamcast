@@ -2784,3 +2784,41 @@ labels readable on the TV, B returns to the top menu; plus the usual
 menu regression (START GAME boots, SETTINGS opens/edits). Composite
 readability is the one open question a CRT answers better than the
 decode check.
+
+### Hardware round 1 (2026-09-20, operator) — PASS both cables
+
+Diagram page verified on VGA and composite ("Looks good!"). Operator
+follow-ups → round 2: (1) the pure-white menu background is too bright
+on a TV — make it gray; (2) shrink the pad image a little.
+
+### Round 2 — gray menu BG + smaller pad (2026-09-20)
+
+- **BG 248 → 224** (`gen_menu_assets.py` BG constant — the single
+  source: sheet + controls-page pixels AND the C-side clear via the
+  generated `MENU_BG_COLOR`, `menu.c clear_bg()`). 224 is exactly
+  representable in RGB565. Known cosmetic residual: `splash.png` keeps
+  its 248 bg (ROM-derived art, untouched), so the splash→menu
+  transition shows a one-shade step — accepted.
+- **Pad scaled ×0.85** → 441×354, vertically centered above the
+  footer.
+- Diagram-vs-page seam work (the diagram's soft off-white bg showed as
+  a faint block on the gray page): tint normalizes by the corner bg
+  level (254) so the diagram bg lands on 224, then the outer bg region
+  is flood-flattened to exactly BG. **PIL gotcha, recorded:**
+  `ImageDraw.floodfill` silently no-ops when the seed pixel is already
+  within `thresh` of the fill value (its early-exit compares
+  seed↔value, summed-channel diff) — and the tint puts the corner
+  seeds AT the fill color by construction. Fix: two-pass sentinel fill
+  (bg→magenta→BG). Verified by pixel sampling: pasted-region bg ==
+  canvas == (224,224,224), zero sentinel residue.
+- Verification: `make test` green; `make gdi` → `track04.iso` md5
+  `e529a6ca6b4a3ee8e9af4a50cbaf829a`; built `controls.bin` decoded +
+  eyeballed (seam gone, pad art intact — no fill leaks), sheet
+  eyeballed (contrast holds on gray).
+
+### Operator protocol (round 2 — stop-and-wait)
+
+Deploy (md5 `e529a6ca…`): menu brightness on the TV (the point of the
+round), CONTROLS page (smaller pad, uniform gray, no bright box around
+the diagram), B back, START GAME boots, SETTINGS edits. Both cables if
+convenient — brightness is cable/TV-dependent.
