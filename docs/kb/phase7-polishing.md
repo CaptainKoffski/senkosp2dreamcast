@@ -2651,3 +2651,73 @@ matches alike, both runs. Cadence-locked and action-independent; NOT
 the SHIM_TRACE heartbeat (trace was off — no `MS n=` lines in the
 log). Matches the "little hiccups" the operator noticed in the
 emulator legs. Unattributed; not a gameplay concern.
+
+## T10 — load floor + char-select transition cosmetics: round 1 (2026-09-20, branch phase7-t10)
+
+Sub-item (i) per the pool entry: profile the remaining load windows
+with `TIME=1` FIRST, split disc vs game-side, and only touch the driver
+if the numbers say disc. The T2 instrument (`SHIM_TIME=1` +
+`scripts/parse_shimtime.py`) reused unchanged — first run of it on the
+v15 tree, i.e. with the T3 prefetch ring and stage-2 DMA live (ring
+hits fall through the same SHIM_TIME tail, §T3 stage 1, so the
+timeline covers both served-from-RAM and real-transfer reads).
+
+### Diag build + emulator smoke
+
+`make clean && make gdi SERIAL=1 TIME=1` on the v15 tree →
+`build/track04.iso` md5 `1ba039d9199926f3fb5d9f9e29e5b188`. Smoke leg
+`captures/phase7/t10-emuctl1.stdout.log` (~150 s, DC profile,
+`Debug:SerialConsoleEnabled=yes`): 73 SHIMTIME lines, `tcr=00000002`,
+parser clean. Signatures as designed: big loads at flycast's modeled
+1.8 MB/s G1 DMA (1.5 MB preload = 854 ms, 100 % duty), attract drip
+served by the ring at RAM speed (~97 MB/s implied, `d`≈0). Instrument
+composes with DMA + prefetch; emulator throughput is a model, not a
+measurement — hardware only below.
+
+### Hardware leg (operator, GDEMU + coder's cable) — `captures/phase7/hw-t10-1.log`
+
+247 s, 150 reads, 35.8 MB delivered, `tcr=00000002`. Operator
+felt-times: attract→char-select ~1.5 s; game→2P char-select ~1 s
+(measured as the hang while the circling transition sits on the
+misaligned frame). Headline numbers:
+
+- **GDEMU stage-2 DMA ceiling measured: ≈6.6–6.7 MB/s** (6,587–6,696
+  KB/s at every saturated burst — 2.4× the T2 PIO ceiling of 2,825
+  KB/s). That number IS the measurement; it did not exist before this
+  leg (T3's round proved DMA faster, never rated it).
+- **Prefetch ring live on hardware:** every match/attract drip read
+  (38,912 B) delivered in ~1 ms at ~29.6 MB/s implied (SH4 memcpy from
+  the ring) vs 15 ms blocking PIO pre-T3.
+- Churn: whole-load repeats only (`o=0935a800 l=007e7800` ×2 = the
+  8.3 MB stage pak behind both match entries), **zero mid-match
+  re-reads** — third leg in a row (T2, T15) with the same clean
+  signature.
+
+### Window split (the (i) question, answered)
+
+| window | felt | burst bytes | wall | in-driver | duty | bound |
+|---|---|---|---|---|---|---|
+| attract→char-select entry | ~1.5 s | 2,723,840 (4 reads) | 648 ms | 402 ms | 62 % | **game-side** (~1.1 s of the felt window is tone/anim/init) |
+| game→2P char-select (stage-pak reload) | ~1 s hang | 8,400,896 (3 reads, incl. the 8.3 MB tuple) | 1,306 ms | 1,225 ms | 93.8 % | **disc, AT the DMA ceiling** (8.4 MB ÷ 6.7 MB/s is physics) |
+
+T2's honest exception carried over exactly: at PIO the char-select
+entry was 1.18 s disc in a felt ~3 s; DMA shrank the disc share to
+0.4 s and the game-side ~1.1 s floor stayed. Zeroing the disc entirely
+would save ≤0.4 s there. The reload window is the mirror image:
+saturated the whole wall, nothing game-side to shave, and the transfer
+rate is the device's own ceiling.
+
+**Verdict (i): load floor REACHED on both windows — the driver stays
+untouched**, per the pre-registered rule ("if CPU-bound, it's the
+floor — don't touch the driver on a hunch"). Window A barely uses the
+driver; window B is pinned at the GDEMU DMA ceiling. The only
+remaining lever on B would be async overlap (kick+poll conversion in
+`gd.c`, recorded caveats §T2 verdict (b)) — renderer-level surgery
+risk for a cosmetic payoff; not proposed.
+
+**Gate for (ii):** "shrink the pause via (i)" is off the table. The
+misaligned-frame park during the pause is now a two-option decision:
+(a) pin the circling animation counter to the aligned frame while
+loading — game-code surgery, recon required (find the char-select
+transition animation state in the game binary); or (b) accept as
+cosmetic. Operator's call; round 1 banked either way.
