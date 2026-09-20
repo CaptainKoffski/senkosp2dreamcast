@@ -577,6 +577,17 @@ header".
 
 ### Phase 3: RAM snapshot via Flycast AutoSaveState (Task 10b, 2026-08-20)
 
+*(2026-09-21: steps 4–5 below are now scripted —
+`python3 scripts/carve_ram_snapshot.py`, self-check
+`scripts/test_carve_ram_snapshot.py` → `ok`. Verified against the resident
+`senkosp.state` (a later, 2026-08-25 phase-5 save): 59,242,682-byte
+inflated stream, all four control tests PASS, and the carved KERNEL_A
+window `0x600..0x800` — the only bytes `loader/Makefile` reads from the
+snapshot — is byte-identical to the canonical 2026-08-20 snapshot despite
+coming from a different session, i.e. a re-generated snapshot yields the
+same build input. The script refuses to overwrite an existing
+`tools/ram-snapshot.bin`.)*
+
 Route: **no new fork code**. The stock savestate path in the reused
 instrumented build already serializes all 32 MB of Naomi main RAM
 (`Serializer` in `.../core/serialize.cpp`; save path `dc_savestate()`,
