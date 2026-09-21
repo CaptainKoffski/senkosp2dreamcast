@@ -207,6 +207,10 @@ cache limits, TV sync vs arcade-monitor geometry — are written up in
 - **DragonMinded's netboot tools** — Naomi ROM/EEPROM format documentation.
 - **stuart2773** — disc cover art, Sega TM-screen art, alpha-testing.
 
+This repo's original work (loader, shims, scripts, docs) is MIT-licensed
+(`LICENSE`). That covers none of the game/BIOS/donor content the build
+consumes or embeds — built discs remain non-redistributable.
+
 Not affiliated with or endorsed by Sega or G.Rev. NAOMI, Dreamcast, and
 all game titles are trademarks of their respective owners. This project is
 for preservation and interoperability; buy the games and support the
