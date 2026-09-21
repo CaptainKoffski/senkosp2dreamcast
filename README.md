@@ -32,8 +32,8 @@ your own legally-obtained copies of:
 
 | Input | Path expected | What it is |
 |---|---|---|
-| Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, regenerated from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`) — recipe in `docs/kb/tooling.md`. The romset goes in **two** places: `../naomi2dreamcast/naomi/senkosp.zip` + `../naomi2dreamcast/naomi/senkosp/gdl-0038.chd` (step 1's `chd2dat` input) and `roms/senkosp.zip` + `roms/senkosp/gdl-0038.chd` in this repo (the Flycast capture steps below boot from there) |
-| Naomi BIOS | `bios/naomi/epr-21576h.ic27` — extract it yourself: `unzip -j bios/naomi.zip '*epr-21576h.ic27' -x '__MACOSX/*' -d bios/naomi/`, then check md5 = `d1e4be4862f1f9592b17a042abc5831e` | Japan bios0; kernel/data slices are embedded at build time |
+| Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, generated in step 1 below from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`); the romset itself goes in **two** places — paths in step 1's comment |
+| Naomi BIOS | `bios/naomi/epr-21576h.ic27` — place your BIOS romset at `bios/naomi.zip`, then extract: `unzip -j bios/naomi.zip '*epr-21576h.ic27' -x '__MACOSX/*' -d bios/naomi/`, then check md5 = `d1e4be4862f1f9592b17a042abc5831e` | Japan bios0; kernel/data slices are embedded at build time |
 | Donor disc | `[GDI] Dolphin Blue.7z` (repo root) | the megavolt85 Atomiswave port GDI as distributed by its release (~44 MB archive), used as a proven-bootable disc skeleton (tracks 1–3 + TOC cloned verbatim; only IP.BIN metadata is re-branded) |
 
 Three more gitignored inputs are needed at build time, but there is
@@ -67,20 +67,19 @@ would need minor Makefile tweaks). You need:
   git clone https://github.com/CaptainKoffski/naomi2dreamcast
   git clone https://github.com/CaptainKoffski/flycast4naomi2dreamcast
   ```
-- **sh-elf toolchain** at `/opt/toolchains/dc` — no installer in this
-  repo; build it with KOS's toolchain builder (`tools/kos/utils/kos-chain`,
-  available after the KOS clone below). This port was built with
-  `sh-elf-gcc 15.2.0`. And **KallistiOS** at
-  `tools/kos` — a gitignored checkout *inside this repo*, pinned to the
-  verified-build commit:
+- **KallistiOS** at `tools/kos` — a gitignored checkout *inside this
+  repo*, pinned to the verified-build commit:
 
   ```sh
   git clone https://github.com/KallistiOS/KallistiOS.git tools/kos
   git -C tools/kos checkout 705c8629      # v2.2.0-932, the verified pin
-  # write tools/kos/environ.sh (KOS_BASE = absolute path of tools/kos;
-  # everything else stock) and build KOS -- exact recipe in
-  # docs/kb/tooling.md §"Decoupling from ../cleopatra"
   ```
+- **sh-elf toolchain** at `/opt/toolchains/dc` — no installer in this
+  repo; build it with KOS's toolchain builder (`tools/kos/utils/kos-chain`,
+  from the checkout above). This port was built with `sh-elf-gcc 15.2.0`.
+  Then write `tools/kos/environ.sh` (KOS_BASE = absolute path of
+  `tools/kos`; everything else stock) and build KOS — exact recipe in
+  `docs/kb/tooling.md` §"Decoupling from ../cleopatra".
 - **python3**, **7zz** (Homebrew `sevenzip`), **chdman** (Homebrew
   `rom-tools`), **cmake** (Homebrew), **clang** (Xcode command-line
   tools), **git**
@@ -170,7 +169,8 @@ make deploy     # copy to SD card (CARD=/Volumes/GDEMU/NN) + dot_clean guard
 
 Debug knobs (`make gdi SERIAL=1 CRC=1 ...`) are documented at the top of
 the `Makefile`. `build/disc.gdi` runs directly in Flycast's DC profile. On
-real hardware, feed the release zip to GDMENUCardManager (the disc
+real hardware, feed the release zip to
+[GDMENUCardManager](https://github.com/sonik-br/GDMENUCardManager) (the disc
 identifies as `T-SRS001M`, "SENKO NO RONDE SPECIAL").
 
 **DreamShell / serial-SD users (isoldr):** use the preset shipped in the

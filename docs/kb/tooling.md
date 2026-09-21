@@ -604,7 +604,10 @@ interaction is needed. Exact steps (reproducible):
    afterwards — the emulator persists config on exit).
 2. `scripts/capture_leg.sh canary-snapshot` (canary log class — deleted
    after use), let attract run ~150 s, then
-   `pkill -TERM -f "flycast-src.*Flycast"` and wait ~20 s.
+   `pkill -TERM -f "flycast4naomi2dreamcast.*Flycast"` and wait ~20 s.
+   (Pattern updated 2026-09-22: the instrumented build lives in the
+   `../flycast4naomi2dreamcast` sibling since the decoupling — the old
+   `flycast-src` pattern no longer matches and the auto-save never fires.)
 3. State lands at `~/Library/Application Support/Flycast/data/senkosp.state`
    (6.3 MB compressed for a 59.4 MB stream).
 4. **Carve** (python3, stdlib only): find the RZip magic `#RZIPv\x01#`
