@@ -32,8 +32,8 @@ your own legally-obtained copies of:
 
 | Input | Path expected | What it is |
 |---|---|---|
-| Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, regenerated from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`) — recipe in `docs/kb/tooling.md`. The romset itself is *also* needed at `roms/senkosp.zip` + `roms/senkosp/gdl-0038.chd` — the Flycast capture steps below boot from there |
-| Naomi BIOS | `bios/naomi/epr-21576h.ic27` (extracted from your `bios/naomi.zip`) | Japan bios0; kernel/data slices are embedded at build time |
+| Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, regenerated from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`) — recipe in `docs/kb/tooling.md`. The romset goes in **two** places: `../naomi2dreamcast/naomi/senkosp.zip` + `../naomi2dreamcast/naomi/senkosp/gdl-0038.chd` (step 1's `chd2dat` input) and `roms/senkosp.zip` + `roms/senkosp/gdl-0038.chd` in this repo (the Flycast capture steps below boot from there) |
+| Naomi BIOS | `bios/naomi/epr-21576h.ic27` — extract it yourself: `unzip -j bios/naomi.zip '*epr-21576h.ic27' -x '__MACOSX/*' -d bios/naomi/`, then check md5 = `d1e4be4862f1f9592b17a042abc5831e` | Japan bios0; kernel/data slices are embedded at build time |
 | Donor disc | `[GDI] Dolphin Blue.7z` (repo root) | the megavolt85 Atomiswave port GDI as distributed by its release (~44 MB archive), used as a proven-bootable disc skeleton (tracks 1–3 + TOC cloned verbatim; only IP.BIN metadata is re-branded) |
 
 Three more gitignored inputs are needed at build time, but there is
@@ -67,7 +67,10 @@ would need minor Makefile tweaks). You need:
   git clone https://github.com/CaptainKoffski/naomi2dreamcast
   git clone https://github.com/CaptainKoffski/flycast4naomi2dreamcast
   ```
-- **sh-elf toolchain** at `/opt/toolchains/dc` and **KallistiOS** at
+- **sh-elf toolchain** at `/opt/toolchains/dc` — no installer in this
+  repo; build it with KOS's toolchain builder (`tools/kos/utils/kos-chain`,
+  available after the KOS clone below). This port was built with
+  `sh-elf-gcc 15.2.0`. And **KallistiOS** at
   `tools/kos` — a gitignored checkout *inside this repo*, pinned to the
   verified-build commit:
 
@@ -106,15 +109,20 @@ inputs — full recipes with validation steps in `docs/kb/tooling.md`):
 cp ../naomi2dreamcast/tools/dat-extract/out/senkosp.dat .
 head -c 16 senkosp.dat            # must start with the "NAOMI" magic
 
-# 2. Run the game once in instrumented Flycast (Naomi mode, interpreter,
-#    fork commit 0d55a1812+) to capture the MIE/JVS traffic the shim
-#    replays on DC. The script runs Flycast in the foreground; let it sit
+# 2. Run the game once in instrumented Flycast (Naomi mode, fork commit
+#    0d55a1812+) to capture the MIE/JVS traffic the shim replays on DC.
+#    Must run under the interpreter -- the fork's entry gate and PC
+#    tagging fire only there -- so switch dynarec off first, back on
+#    after. (Key absent in a fresh emu.cfg? Toggle Dynarec in Flycast's
+#    UI instead.) The script runs Flycast in the foreground; let it sit
 #    ~300 s (unattended boot -> attract), then FROM A SECOND TERMINAL:
 #    pkill -TERM -f "flycast4naomi2dreamcast.*Flycast"
 #    The shim build extracts the reply blobs from this log automatically.
 #    Botched run? The script refuses to overwrite an existing leg log --
 #    delete captures/<leg>.log first, then rerun.
+sed -i '' 's/Dynarec.Enabled = yes/Dynarec.Enabled = no/' ~/Library/Application\ Support/Flycast/emu.cfg
 scripts/capture_leg.sh phase4/pc2
+sed -i '' 's/Dynarec.Enabled = no/Dynarec.Enabled = yes/' ~/Library/Application\ Support/Flycast/emu.cfg
 
 # 3. Naomi RAM snapshot -> tools/ram-snapshot.bin (the loader needs one
 #    512-byte kernel window that exists in RAM only, not in the BIOS ROM).
