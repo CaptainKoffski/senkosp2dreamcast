@@ -7,8 +7,8 @@ port](https://github.com/CaptainKoffski/cfp2dreamcast), done with AI heavy-lifti
 reverse engineering and conversion, with a human running the
 real-hardware test loop.
 
-**Status: complete — fully playable on real hardware** (release v16 —
-the 16th build sent to hardware — git tag `0.9.0`). 1P and 2P at full speed with 2P hot-plug, free-play, pre-game
+**Status: complete — fully playable on real hardware** (git tag `0.9.0`,
+the 16th build sent to hardware). 1P and 2P at full speed with 2P hot-plug, free-play, pre-game
 settings menu with a controls pad-diagram page, NAOMI logo on the boot TM
 screen, loads at the measured GDEMU DMA ceiling (6.7 MB/s). Verified on a
 real Dreamcast with a GDEMU-class SD ODE over both VGA and composite, and
@@ -33,8 +33,8 @@ your own legally-obtained copies of:
 | Input | Path expected | What it is |
 |---|---|---|
 | Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, generated in step 1 below from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`); the romset itself goes in **two** places — paths in step 1's comment |
-| Naomi BIOS | `bios/naomi/epr-21576h.ic27` — place your BIOS romset at `bios/naomi.zip`, then extract: `unzip -j bios/naomi.zip '*epr-21576h.ic27' -x '__MACOSX/*' -d bios/naomi/`, then check md5 = `d1e4be4862f1f9592b17a042abc5831e` | Japan bios0; kernel/data slices are embedded at build time |
-| Donor disc | `[GDI] Dolphin Blue.7z` (repo root) | the megavolt85 Atomiswave port GDI as distributed by its release (~44 MB archive), used as a proven-bootable disc skeleton (tracks 1–3 + TOC cloned verbatim; only IP.BIN metadata is re-branded) |
+| Naomi BIOS | `bios/naomi/epr-21576h.ic27` — extracted in step 0 below from your BIOS romset, which goes at `bios/naomi.zip` | Japan bios0; kernel/data slices are embedded at build time |
+| Donor disc | `[GDI] Dolphin Blue.7z` (repo root) | the megavolt85 Atomiswave port GDI as distributed by its release — search for the megavolt85 Dolphin Blue Dreamcast port release; the archive name and ~44 MB size identify the right one. Used as a proven-bootable disc skeleton (tracks 1–3 + TOC cloned verbatim; only IP.BIN metadata is re-branded) |
 
 Three more gitignored inputs are needed at build time, but there is
 nothing to hunt for — you generate each one from the inputs above in
@@ -98,6 +98,10 @@ One-time data preparation (all outputs are gitignored, derived from *your*
 inputs — full recipes with validation steps in `docs/kb/tooling.md`):
 
 ```sh
+# 0. Extract the Naomi BIOS from your romset at bios/naomi.zip:
+unzip -j bios/naomi.zip '*epr-21576h.ic27' -x '__MACOSX/*' -d bios/naomi/
+md5 bios/naomi/epr-21576h.ic27    # must be d1e4be4862f1f9592b17a042abc5831e
+
 # 1. Flat decrypted cart image from your romset (senkosp.zip + gdl-0038.chd),
 #    via the dat-extract toolset in the umbrella repo. The romset lives in
 #    TWO places: ../naomi2dreamcast/naomi/senkosp.zip +
@@ -106,7 +110,7 @@ inputs — full recipes with validation steps in `docs/kb/tooling.md`):
 #    Flycast capture legs of steps 2-3 boot from there).
 ( cd ../naomi2dreamcast/tools/dat-extract && ./chd2dat.sh senkosp )
 cp ../naomi2dreamcast/tools/dat-extract/out/senkosp.dat .
-head -c 16 senkosp.dat            # must start with the "NAOMI" magic
+head -c 5 senkosp.dat; echo       # must print NAOMI
 
 # 2. Run the game once in instrumented Flycast (Naomi mode, fork commit
 #    0d55a1812+) to capture the MIE/JVS traffic the shim replays on DC.
@@ -149,8 +153,7 @@ cp naomi_boot_s6.png loader/splash.png         # frame number may vary
 #    build/texpatch/ into the cart image at mastering time and FAILS
 #    without it. Needs numpy, hence the one-off venv. ORDER MATTERS:
 #    pktx_vq.py wipes build/texpatch/, shrink_vq.py appends to it.
-#    (Unpatched reference disc instead: source the KOS env first -- see
-#    the next block -- then `make loader`, then
+#    (Unpatched reference disc instead: `make loader`, then
 #    python3 scripts/make_gdi.py --no-texpatch.)
 python3 -m venv tools/pyenv && tools/pyenv/bin/pip install numpy
 tools/pyenv/bin/python3 scripts/pktx_vq.py
@@ -160,8 +163,8 @@ tools/pyenv/bin/python3 scripts/shrink_vq.py
 Then, and on every rebuild after:
 
 ```sh
-source tools/kos/environ.sh
 make gdi        # shims -> patch table -> loader -> mastered GDI in build/
+                # (the Makefile sources tools/kos/environ.sh itself)
 make test       # host-runnable shim tests + the static maple-literal scan
 make release    # build/[GDI] Senko no Ronde Special.zip (disc folder + DS/ preset tree + tester README)
 make deploy     # copy to SD card (CARD=/Volumes/GDEMU/NN) + dot_clean guard
