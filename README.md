@@ -8,9 +8,10 @@ reverse engineering and conversion, with a human running the
 real-hardware test loop.
 
 **Status: complete — fully playable on real hardware** (git tag `0.9.0`,
-the 16th build sent to hardware). 1P and 2P at full speed with 2P hot-plug, free-play, pre-game
-settings menu with a controls pad-diagram page, NAOMI logo on the boot TM
-screen, loads at the measured GDEMU DMA ceiling (6.7 MB/s). Verified on a
+the 16th build sent to hardware). 1P and 2P run at full speed, with 2P
+hot-plug and free-play; loads run at the measured GDEMU DMA ceiling
+(6.7 MB/s). Extras: a pre-game settings menu with a controls pad-diagram
+page, and the NAOMI logo on the boot TM screen. Verified on a
 real Dreamcast with a GDEMU-class SD ODE over both VGA and composite, and
 in Flycast; DreamShell serial-SD boots as a courtesy path (slower loads).
 Honest limit: single-rig evidence — one console, one GDEMU, one SD card.
@@ -32,9 +33,14 @@ your own legally-obtained copies of:
 
 | Input | Path expected | What it is |
 |---|---|---|
-| Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, generated in step 1 below from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`); the romset itself goes in **two** places — paths in step 1's comment |
+| Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, generated in step 1 below from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`) |
 | Naomi BIOS | `bios/naomi/epr-21576h.ic27` — extracted in step 0 below from your BIOS romset, which goes at `bios/naomi.zip` | Japan bios0; kernel/data slices are embedded at build time |
 | Donor disc | `[GDI] Dolphin Blue.7z` (repo root) | the megavolt85 Atomiswave port GDI as distributed by its release — search for the megavolt85 Dolphin Blue Dreamcast port release; the archive name and ~44 MB size identify the right one. Used as a proven-bootable disc skeleton (tracks 1–3 + TOC cloned verbatim; only IP.BIN metadata is re-branded) |
+
+The romset itself must sit in **two** places: under
+`../naomi2dreamcast/naomi/` (step 1's converter reads it there) *and*
+under this repo's `roms/` (the Flycast capture legs of steps 2–3 boot
+from there) — exact paths in step 1's comment.
 
 Three more gitignored inputs are needed at build time, but there is
 nothing to hunt for — you generate each one from the inputs above in
