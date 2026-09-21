@@ -14,7 +14,7 @@
  *                                                         ATA/SPI command codes
  *   ../flycast4naomi2dreamcast/core/hw/gdrom/gdromv3.cpp  the state machine that
  *                                                         will actually run this
- *   ../cleopatra/tools/kos/kernel/arch/dreamcast/hardware/g1ata.c
+ *   tools/kos/kernel/arch/dreamcast/hardware/g1ata.c
  *                                                         KOS's own G1 task-file
  *                                                         driver (same map, same
  *                                                         polled PIO shape)

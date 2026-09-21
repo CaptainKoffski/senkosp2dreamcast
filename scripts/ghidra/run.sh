@@ -6,13 +6,13 @@
 # ROM content: tools/boot.bin and tools/ghidra-proj are gitignored (/tools/). Never commit.
 set -e
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-GHIDRA_HOME="${GHIDRA_HOME:-$REPO/../cleopatra/tools/ghidra_12.1.2_PUBLIC}"
+GHIDRA_HOME="${GHIDRA_HOME:-$REPO/tools/ghidra_12.1.2_PUBLIC}"
 PROJ="$REPO/tools/ghidra-proj"
 NAME=senkosp3
 BOOT="$REPO/tools/boot.bin"
 HL="$GHIDRA_HOME/support/analyzeHeadless"
 
-# openjdk from brew (see ../cleopatra/docs/kb/tooling.md §Ghidra) — Java 21+.
+# openjdk from brew (see docs/kb/tooling.md §Ghidra) — Java 21+.
 export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
 
 [ -x "$HL" ] || { echo "ERROR: analyzeHeadless not found: $HL" >&2; exit 1; }

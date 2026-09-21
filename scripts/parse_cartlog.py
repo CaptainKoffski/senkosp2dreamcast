@@ -382,7 +382,7 @@ def pc_checks(legs, cart_fn, input_fn, eeprom_fn, stack):
 
 
 # FB_W_SOF2's never-written BIOS default (relocation-map.md §Dry-run evidence
-# ruling; cites ../cleopatra/tools/flycast-src/core/hw/naomi/naomi.cpp:256-258:
+# ruling; cites ../flycast4naomi2dreamcast/core/hw/naomi/naomi.cpp:256-258:
 # "31 kHz progressive parks the field-2 pointer at 0xc00000" — masked, so
 # this exact value costs nothing when nothing was ever written there).
 FB_W_SOF2_BIOS_DEFAULT = 0x00c00000

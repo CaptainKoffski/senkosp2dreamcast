@@ -15,14 +15,15 @@ port (`../cleopatra`).
   at repo root (gitignored, regenerable — see `docs/kb/tooling.md`).
 - **BIOS:** `bios/` (gitignored).
 - **Sibling repos:**
-  - `../cleopatra` — the prior Naomi→DC port: KB, reusable loader/shim
-    code, and the **built instrumented Flycast**
-    (`tools/flycast-src/build/Flycast.app/Contents/MacOS/Flycast`).
   - `../naomi2dreamcast` — Naomi library assessment; this game's report:
     `assessments/senkosp.md`. Also the `.dat` toolset
-    (`tools/dat-extract/`).
+    (`tools/dat-extract/`). **Build-required sibling.**
   - `../flycast4naomi2dreamcast` — the instrumented Flycast fork (source
-    of truth for emulator instrumentation).
+    of truth for emulator instrumentation); the built app this project
+    runs is `build/Flycast.app` inside it. **Build-required sibling.**
+  - `../cleopatra` — the prior Naomi→DC port: KB and method lineage only.
+    Since 2026-09-21 the build does not reach into it (KOS lives at
+    `tools/kos` in this repo — see `docs/kb/tooling.md` §Decoupling).
 
 Rules: every hardware claim in the KB carries a citation (primary sources
 outrank wikis); record every tool install in `docs/kb/tooling.md`; never

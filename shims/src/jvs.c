@@ -92,7 +92,7 @@ unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned *test_bit) {
  *
  * w2/w3 are reply words 2 and 3, i.e. the `cont_cond_t` the DC controller
  * returns one word past the function code (KOS
- * ../cleopatra/tools/kos/kernel/arch/dreamcast/hardware/maple/controller.c:
+ * tools/kos/kernel/arch/dreamcast/hardware/maple/controller.c:
  * 28-36 raw struct, :171 `raw = respbuf + 1`):
  *   w2 = u16 buttons | rtrig << 16 | ltrig << 24
  *   w3 = joyx | joyy << 8 | joy2x << 16 | joy2y << 24

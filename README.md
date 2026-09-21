@@ -35,9 +35,16 @@ your own legally-obtained copies of:
 | Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, regenerated from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`) — recipe in `docs/kb/tooling.md`. The romset itself is *also* needed at `roms/senkosp.zip` + `roms/senkosp/gdl-0038.chd` — the Flycast capture steps below boot from there |
 | Naomi BIOS | `bios/naomi/epr-21576h.ic27` (extracted from your `bios/naomi.zip`) | Japan bios0; kernel/data slices are embedded at build time |
 | Donor disc | `[GDI] Dolphin Blue.7z` (repo root) | the megavolt85 Atomiswave port GDI as distributed by its release (~44 MB archive), used as a proven-bootable disc skeleton (tracks 1–3 + TOC cloned verbatim; only IP.BIN metadata is re-branded) |
-| RAM snapshot | `tools/ram-snapshot.bin` | 32 MB Naomi RAM dump from the instrumented emulator (BIOS kernel slice source) — recipe in `docs/kb/tooling.md` §"Phase 3: RAM snapshot" |
-| Boot splash | `loader/splash.png` | NAOMI boot-logo frame captured from your BIOS |
-| MIE capture | `captures/phase4/pc2.log` | instrumented-Flycast capture the shim's MIE reply blobs are extracted from at build time |
+
+Three more gitignored inputs are needed at build time, but there is
+nothing to hunt for — you generate each one from the inputs above in
+the numbered steps below:
+
+| Generated input | Path | Made in |
+|---|---|---|
+| MIE capture | `captures/phase4/pc2.log` | step 2 — instrumented-Flycast capture the shim's MIE reply blobs are extracted from at build time |
+| RAM snapshot | `tools/ram-snapshot.bin` | step 3 — 32 MB Naomi RAM dump from the instrumented emulator (BIOS kernel slice source); recipe also in `docs/kb/tooling.md` §"Phase 3: RAM snapshot" |
+| Boot splash | `loader/splash.png` | step 4 — NAOMI boot-logo frame captured from your BIOS |
 
 Optional, also gitignored: `0GDTEX.png`/`.pvr` (disc art for the DC BIOS /
 GDEMU menu) and `iplogo.mr` (license-screen logo).
@@ -56,18 +63,29 @@ would need minor Makefile tweaks). You need:
   these directory names:
 
   ```sh
-  git clone https://github.com/CaptainKoffski/cfp2dreamcast cleopatra
+  cd ..    # siblings sit NEXT TO this repo, not inside it
   git clone https://github.com/CaptainKoffski/naomi2dreamcast
+  git clone https://github.com/CaptainKoffski/flycast4naomi2dreamcast
   ```
-- **sh-elf toolchain** at `/opt/toolchains/dc` and **KallistiOS** — this
-  repo has no local KOS checkout; it sources `../cleopatra/tools/kos`
-  (setup recipe in `docs/kb/tooling.md`)
+- **sh-elf toolchain** at `/opt/toolchains/dc` and **KallistiOS** at
+  `tools/kos` — a gitignored checkout *inside this repo*, pinned to the
+  verified-build commit:
+
+  ```sh
+  git clone https://github.com/KallistiOS/KallistiOS.git tools/kos
+  git -C tools/kos checkout 705c8629      # v2.2.0-932, the verified pin
+  # write tools/kos/environ.sh (KOS_BASE = absolute path of tools/kos;
+  # everything else stock) and build KOS -- exact recipe in
+  # docs/kb/tooling.md §"Decoupling from ../cleopatra"
+  ```
 - **python3**, **7zz** (Homebrew `sevenzip`), **chdman** (Homebrew
-  `rom-tools`), **clang** (Xcode command-line tools), **git**
-- **Instrumented Flycast** — the fork at
-  github.com/CaptainKoffski/flycast4naomi2dreamcast, built per
-  `../cleopatra`'s recipe (the capture scripts expect the built app at
-  `../cleopatra/tools/flycast-src/build/Flycast.app`); needed for the
+  `rom-tools`), **cmake** (Homebrew), **clang** (Xcode command-line
+  tools), **git**
+- **Instrumented Flycast** — build the `flycast4naomi2dreamcast` sibling
+  you cloned above: submodule init, apply the Syphon patch shipped in its
+  `patches/`, then cmake (exact flags in `docs/kb/tooling.md`
+  §"Instrumented Flycast"). The capture scripts expect the built app at
+  `../flycast4naomi2dreamcast/build/Flycast.app`; needed for the
   one-time capture harvest and for emulator testing. Copy
   `bios/naomi.zip` to `~/Library/Application Support/Flycast/data/` so
   Naomi mode boots.
@@ -92,7 +110,7 @@ head -c 16 senkosp.dat            # must start with the "NAOMI" magic
 #    fork commit 0d55a1812+) to capture the MIE/JVS traffic the shim
 #    replays on DC. The script runs Flycast in the foreground; let it sit
 #    ~300 s (unattended boot -> attract), then FROM A SECOND TERMINAL:
-#    pkill -TERM -f "flycast-src.*Flycast"
+#    pkill -TERM -f "flycast4naomi2dreamcast.*Flycast"
 #    The shim build extracts the reply blobs from this log automatically.
 #    Botched run? The script refuses to overwrite an existing leg log --
 #    delete captures/<leg>.log first, then rerun.
@@ -105,15 +123,13 @@ scripts/capture_leg.sh phase4/pc2
 #    back to no. (If the sed matches nothing -- fresh Flycast install
 #    without the key -- toggle Auto Save State in Flycast's UI instead.)
 sed -i '' 's/AutoSaveState = no/AutoSaveState = yes/' ~/Library/Application\ Support/Flycast/emu.cfg
-scripts/capture_leg.sh canary-snapshot   # ~150 s, then: pkill -TERM -f "flycast-src.*Flycast"
+scripts/capture_leg.sh canary-snapshot   # ~150 s, then: pkill -TERM -f "flycast4naomi2dreamcast.*Flycast"
 python3 scripts/carve_ram_snapshot.py    # 4 control tests -> tools/ram-snapshot.bin
 sed -i '' 's/AutoSaveState = yes/AutoSaveState = no/' ~/Library/Application\ Support/Flycast/emu.cfg
 
-# 4. Capture the NAOMI boot splash (BIOS-drawn; any Naomi title shows it).
-#    The script hardcodes booting ../cleopatra's game image -- if you don't
-#    have "Cleopatra Fortune Plus.dat" there, edit the script's ROM path to
-#    point at your senkosp.dat. Pick the full-logo frame:
-../cleopatra/scripts/capture_naomi_splash.sh   # emits naomi_boot_s*.png
+# 4. Capture the NAOMI boot splash (BIOS-drawn; the script boots your
+#    senkosp.dat). Pick the full-logo frame:
+scripts/capture_naomi_splash.sh                # emits naomi_boot_s*.png
 cp naomi_boot_s6.png loader/splash.png         # frame number may vary
 
 # 5. Optional: disc cover art (DC BIOS menu / GDEMU menu) — drop a 256x256
@@ -126,8 +142,9 @@ cp naomi_boot_s6.png loader/splash.png         # frame number may vary
 #    build/texpatch/ into the cart image at mastering time and FAILS
 #    without it. Needs numpy, hence the one-off venv. ORDER MATTERS:
 #    pktx_vq.py wipes build/texpatch/, shrink_vq.py appends to it.
-#    (Unpatched reference disc instead: python3 scripts/make_gdi.py
-#    --no-texpatch, after `make loader`.)
+#    (Unpatched reference disc instead: source the KOS env first -- see
+#    the next block -- then `make loader`, then
+#    python3 scripts/make_gdi.py --no-texpatch.)
 python3 -m venv tools/pyenv && tools/pyenv/bin/pip install numpy
 tools/pyenv/bin/python3 scripts/pktx_vq.py
 tools/pyenv/bin/python3 scripts/shrink_vq.py
@@ -136,7 +153,7 @@ tools/pyenv/bin/python3 scripts/shrink_vq.py
 Then, and on every rebuild after:
 
 ```sh
-source ../cleopatra/tools/kos/environ.sh
+source tools/kos/environ.sh
 make gdi        # shims -> patch table -> loader -> mastered GDI in build/
 make test       # host-runnable shim tests + the static maple-literal scan
 make release    # build/[GDI] Senko no Ronde Special.zip (disc folder + DS/ preset tree + tester README)

@@ -9,7 +9,7 @@
 #   play            -- headed: tester plays as long as they like, quits Flycast;
 #                      the longer/wider the session, the more paths observed.
 #
-# Oracle (Flycast source, ../cleopatra/tools/flycast-src -- the same build we run):
+# Oracle (Flycast source, ../flycast4naomi2dreamcast -- the same build we run):
 #   - VMU flash writes hit the backing vmu_save_*.bin immediately
 #     (core/hw/maple/maple_devs.cpp:679-707, MDCF_BlockWrite -> fwrite).
 #   - Startup rewrites a VMU file ONLY if missing or all-zero (auto-format,
@@ -27,14 +27,14 @@ SECS="${2:-150}"
 case "$MODE" in attract|play) ;; *) echo "usage: $0 [attract|play] [secs]" >&2; exit 2 ;; esac
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-BIN="$REPO/../cleopatra/tools/flycast-src/build/Flycast.app/Contents/MacOS/Flycast"
+BIN="$REPO/../flycast4naomi2dreamcast/build/Flycast.app/Contents/MacOS/Flycast"
 DISC="$REPO/build/disc.gdi"
 [ -x "$BIN" ]  || { echo "ERROR: Flycast not built (sibling repo): $BIN" >&2; exit 1; }
 [ -f "$DISC" ] || { echo "ERROR: disc not built (make disc): $DISC" >&2; exit 1; }
 
 # Launch gotchas: stale instance wedges SH4 vmem; macOS relaunch modal blocks
 # boot forever (docs/kb/tooling.md).
-pkill -9 -f "flycast-src.*Flycast" 2>/dev/null || true
+pkill -9 -f "flycast4naomi2dreamcast.*Flycast" 2>/dev/null || true
 defaults write com.flyinghead.Flycast ApplePersistenceIgnoreState -bool YES 2>/dev/null || true
 defaults write com.flyinghead.Flycast NSQuitAlwaysKeepsWindows -bool false 2>/dev/null || true
 

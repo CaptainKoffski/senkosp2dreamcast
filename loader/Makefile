@@ -1,5 +1,5 @@
-# Requires: source ../cleopatra/tools/kos/environ.sh (KOS reused from the
-# Cleopatra port -- this repo has no local KOS checkout; docs/kb/tooling.md).
+# Requires: source tools/kos/environ.sh from the repo root (gitignored KOS
+# checkout -- setup in docs/kb/tooling.md).
 TARGET = loader.elf
 OBJS = main.o handoff.o gd.o gd_sys.o shim_blob.o bios_data.o splash_blob.o naomi_crc.o \
        menu.o menu_sheet_blob.o controls_blob.o
@@ -101,8 +101,8 @@ bios_data.o: ../build/bios_data.bin
 # Boot splash: the real Naomi BIOS logo frame (BIOS property, not game
 # content -- same epr-21576h.ic27 Cleopatra captured it from, reused as-is).
 # splash.png is gitignored (BIOS-rendered output, same category as the BIOS
-# ROM) -- regenerate with ../cleopatra's scripts/capture_naomi_splash.sh if
-# ever missing. sips is stock macOS; converter is stdlib-only.
+# ROM) -- regenerate with scripts/capture_naomi_splash.sh if ever missing.
+# sips is stock macOS; converter is stdlib-only.
 ../build/splash.bin: splash.png ../scripts/bmp2rgb565.py
 	mkdir -p ../build
 	sips -s format bmp splash.png --out ../build/splash.bmp > /dev/null

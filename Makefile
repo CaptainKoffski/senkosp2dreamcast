@@ -1,8 +1,8 @@
 # Senko no Ronde Special -- Naomi->DC port. Top-level build (Phase 4).
 #
 #   make shims   = shim.bin + shim.map (shims/build/)
-#   make loader  = 1ST_READ.BIN (build/) -- sources KOS via ../cleopatra
-#                  (this repo has no local KOS checkout; docs/kb/tooling.md)
+#   make loader  = 1ST_READ.BIN (build/) -- sources KOS from tools/kos
+#                  (gitignored local checkout; setup in docs/kb/tooling.md)
 #   make gdi     = build/disc.gdi -- B5 donor-clone mastering (make_gdi.py);
 #                  needs the donor archive at repo root, docs/kb/tooling.md
 #                  §GDI mastering (Task 8)
@@ -19,8 +19,8 @@
 #                  make deploy CARD=/Volumes/GDEMU/03
 #   make test-serial = coder's-cable two-way check (boot GDmenu slot 04 first)
 #
-# Requires: sh-elf toolchain at /opt/toolchains/dc, KOS via
-# ../cleopatra/tools/kos, BIOS at bios/naomi/epr-21576h.ic27 (gitignored).
+# Requires: sh-elf toolchain at /opt/toolchains/dc, KOS at tools/kos
+# (gitignored checkout), BIOS at bios/naomi/epr-21576h.ic27 (gitignored).
 
 # SERIAL=1 (e.g. make gdi SERIAL=1): debug build with the SCIF voice on --
 # shim SHIM_SERIAL + loader LOADER_SERIAL. Coder's-cable sessions only; a
@@ -133,7 +133,7 @@ shims:
 	$(MAKE) -C shims
 
 loader: shims
-	. ../cleopatra/tools/kos/environ.sh && $(MAKE) -C loader
+	. tools/kos/environ.sh && $(MAKE) -C loader
 
 gdi: loader
 	python3 scripts/make_gdi.py
@@ -202,7 +202,7 @@ deploy-dcload:
 # then run this. Upload proves host->DC, the echoed "Hello world!" +
 # "Program returned 0" prove DC->host. Known-good: captures/phase6/dcload-hello.log
 DC_TOOL    = tools/dcload-serial/host-src/tool/dc-tool-ser
-HELLO_ELF  = ../cleopatra/tools/kos/examples/dreamcast/hello/hello.elf
+HELLO_ELF  = tools/kos/examples/dreamcast/hello/hello.elf
 SERIAL_DEV ?= $(firstword $(wildcard /dev/cu.usbserial*))
 test-serial:
 	test -n "$(SERIAL_DEV)"   # cable plugged in?
@@ -210,4 +210,4 @@ test-serial:
 
 clean:
 	$(MAKE) -C shims clean
-	. ../cleopatra/tools/kos/environ.sh && $(MAKE) -C loader clean
+	. tools/kos/environ.sh && $(MAKE) -C loader clean

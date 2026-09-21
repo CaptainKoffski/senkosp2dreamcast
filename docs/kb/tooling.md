@@ -5,18 +5,19 @@ The environment must be rebuildable from scratch from this file.
 Deep recipes that already live in `../cleopatra/docs/kb/tooling.md` are
 referenced, not duplicated — that file is part of this project's method.
 
-### Instrumented Flycast (reused build)
+### Instrumented Flycast
 
-- **Binary:** `../cleopatra/tools/flycast-src/build/Flycast.app/Contents/MacOS/Flycast`
-  (Mach-O arm64), `flycast-src` checkout commit `625425f72` (Phase 5 Task 2,
-  rebuilt 2026-08-23 — see below). Originally the same build the senkosp
-  assessment v9 capture used (`../naomi2dreamcast/assessments/senkosp.md` §1,
-  then `f014a410c`).
-- **Source of truth:** `../flycast4naomi2dreamcast` (fork), HEAD `79182301d`
-  (Phase 5 Task 2, 2026-08-23) — the built copy is current. Phase 2 rebuilds
-  only if it adds instrumentation; full build recipe (CMake 3.31.6 pin,
-  DEVELOPER_DIR, ZLIB_TBD, Syphon patch): `../cleopatra/docs/kb/tooling.md`
-  §"Flycast — source build".
+- **Binary (since 2026-09-21):**
+  `../flycast4naomi2dreamcast/build/Flycast.app/Contents/MacOS/Flycast`
+  (Mach-O arm64), built in the fork checkout itself — full recipe in
+  §"Decoupling from ../cleopatra (2026-09-21)" below. Before that date the
+  project ran the reused build at
+  `../cleopatra/tools/flycast-src/build/Flycast.app` (checkout commit
+  `625425f72`, Phase 5 Task 2, rebuilt 2026-08-23 — see below); originally
+  the same build the senkosp assessment v9 capture used
+  (`../naomi2dreamcast/assessments/senkosp.md` §1, then `f014a410c`).
+- **Source of truth:** `../flycast4naomi2dreamcast` (fork) — now also the
+  only checkout this project uses.
   **Note (2026-08-22):** `../cleopatra/tools/flycast-src` and
   `../flycast4naomi2dreamcast` are two independent checkouts of the same
   `origin` remote (`CaptainKoffski/flycast4naomi2dreamcast`) and can drift —
@@ -292,11 +293,12 @@ referenced, not duplicated — that file is part of this project's method.
   `/opt/homebrew/bin/7zz`, clang (auto-builds `extract_dat` on first run).
 - **Invocation for this game:** see §"senkosp.dat" below.
 
-### Ghidra — 12.1.2 (reused install)
+### Ghidra — 12.1.2
 
-- `../cleopatra/tools/ghidra_12.1.2_PUBLIC/` + OpenJDK via
-  `export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"`. Install recipe +
-  headless harness: `../cleopatra/docs/kb/tooling.md` §Ghidra. Not
+- Expected at `tools/ghidra_12.1.2_PUBLIC/` (gitignored; on this rig a
+  symlink to the original install in `../cleopatra/tools/`) + OpenJDK via
+  `export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"`. Any Ghidra 12.1.2
+  unzip works — set `GHIDRA_HOME` if it lives elsewhere. Not
   exercised in Phase 1; Phase 3 sets up this repo's own project dir +
   scripts (below).
 
@@ -304,7 +306,7 @@ referenced, not duplicated — that file is part of this project's method.
 
 Everything here is driven by the committed wrapper `scripts/ghidra/run.sh`
 (it exports the openjdk PATH itself and defaults
-`GHIDRA_HOME=../cleopatra/tools/ghidra_12.1.2_PUBLIC`; override the env var
+`GHIDRA_HOME=tools/ghidra_12.1.2_PUBLIC`; override the env var
 if the install moves). Java in use: **OpenJDK 26.0.1 (Homebrew)**.
 
 **1. The working image — the boot slice.** Static analysis runs on the main
@@ -920,19 +922,19 @@ sampling — Task 9's precedent, reused for Task 1) need `= no`; **restore
 `= yes` after** — later legs depend on it. Verified restored 2026-08-22
 after Task 1's captures.
 
-### sh-elf / KOS toolchain — reused install (Phase 4 Task 6)
-
-This repo has no local toolchain or KOS checkout — both reused in place
-from the Cleopatra port, same pattern as the Ghidra/Flycast entries above.
+### sh-elf / KOS toolchain (Phase 4 Task 6; KOS in-repo since 2026-09-21)
 
 - **sh-elf (dc-chain):** `/opt/toolchains/dc/sh-elf/bin/` — machine-wide
   install, not per-repo. `sh-elf-gcc --version` → `sh-elf-gcc (GCC) 15.2.0`.
   Used directly by `shims/Makefile` (`CC`/`NM`/`OBJCOPY` point at this path)
   and indirectly by KOS's `kos-cc` wrapper (below).
-- **KOS:** `../cleopatra/tools/kos` — reused checkout, not copied into this
-  repo. `source ../cleopatra/tools/kos/environ.sh` before any `make -C
+- **KOS (since 2026-09-21):** `tools/kos` — gitignored in-repo checkout,
+  KallistiOS commit `705c8629` (v2.2.0-932); clone + build recipe in
+  §"Decoupling from ../cleopatra (2026-09-21)" below. (Until that date the
+  build reused `../cleopatra/tools/kos` — same commit, same environ.sh
+  settings.) `source tools/kos/environ.sh` before any `make -C
   loader` or top-level `make loader`/`make test`; sets `KOS_BASE` to the
-  Cleopatra-repo path (absolute), `KOS_CC_BASE=/opt/toolchains/dc/sh-elf`,
+  `tools/kos` path (absolute), `KOS_CC_BASE=/opt/toolchains/dc/sh-elf`,
   `KOS_ARCH=dreamcast`, `KOS_SUBARCH` unset (defaults to `pristine` — this
   loader boots as a normal DC homebrew via GDEMU, not native Naomi).
   `kos-cc --version` → `sh-elf-gcc (GCC) 15.2.0` (kos-cc wraps sh-elf-gcc
@@ -942,7 +944,7 @@ from the Cleopatra port, same pattern as the Ghidra/Flycast entries above.
   Japan bios0), md5 `d1e4be4862f1f9592b17a042abc5831e`.
 - **Finding (Task 6, load-address collision):** KOS's default link origin
   for this pristine-subarch target is `0x8c010000`
-  (`../cleopatra/tools/kos/utils/ldscripts/shlelf.xc` line 10,
+  (`tools/kos/utils/ldscripts/shlelf.xc` line 10,
   `LOAD_OFFSET = ... 0x8c010000`) — confirmed empirically:
   `sh-elf-nm loader/loader.elf` places `_start`/`__executable_start` at
   `0x8c010000` and `_main` at `0x8c010158`, with a combined text+data+bss
@@ -961,9 +963,10 @@ from the Cleopatra port, same pattern as the Ghidra/Flycast entries above.
 
 ### GDI mastering (Task 8) — `make gdi`
 
-- **Donor archive:** `[GDI] Dolphin Blue.7z` (44 MB) copied from
-  `../cleopatra/` to this repo's root:
-  `cp "../cleopatra/[GDI] Dolphin Blue.7z" .` — gitignored (`*.7z` line
+- **Donor archive:** `[GDI] Dolphin Blue.7z` (44 MB) at this repo's root
+  (historically copied from `../cleopatra/`:
+  `cp "../cleopatra/[GDI] Dolphin Blue.7z" .` — any copy of the same
+  megavolt85 release archive works) — gitignored (`*.7z` line
   added to `.gitignore`; `git check-ignore -v "[GDI] Dolphin Blue.7z"`
   confirms). Same donor, same B5 max-clone structure and extraction method as
   Cleopatra's own recipe (`../cleopatra/docs/kb/tooling.md` §"Reference
@@ -1037,10 +1040,12 @@ fresh checkout doesn't have to rediscover them the same way:
   means rebuilding that fork commit and re-running a Naomi leg, not a
   one-line `dd` — preserve it deliberately.
 
-Recipe, run against a clone that is **not** a sibling of `../cleopatra` (a
-scratch directory), so the top-level `Makefile`'s `. ../cleopatra/tools/kos/
-environ.sh` needs the same relative path to resolve — fixed with one
-parent-directory symlink rather than editing the (tracked) Makefile:
+Recipe as run at the time (historical — the Makefile then sourced
+`../cleopatra/tools/kos/environ.sh`; since the 2026-09-21 decoupling, KOS
+lives at `tools/kos` and the `<scratch>/cleopatra` symlink below is no
+longer needed). Run against a clone that is **not** a sibling of
+`../cleopatra` (a scratch directory), fixed with one parent-directory
+symlink rather than editing the (tracked) Makefile:
 
 ```sh
 git clone -b phase4-conversion /Users/captainkoffski/AntigravityProjects/senkosp2dreamcast <scratch>/senkosp-clean
@@ -1354,13 +1359,13 @@ stale); one non-gating `TEXERR code=6` (watch item). Verdict:
   (created if absent; GDEMU stops scanning at the first missing folder
   number, so slots must stay contiguous), override with `DCLOAD_CARD=`.
 - **Known-good payload:** KOS `examples/dreamcast/hello/hello.elf`
-  (`../cleopatra/tools/kos`, rebuilt 2026-09-02 with the same environ.sh the
-  loader build sources). Its `printf` routes through dcload's console
+  (`tools/kos`; originally `../cleopatra/tools/kos`, rebuilt 2026-09-02 —
+  same KOS commit and environ.sh settings the loader build sources). Its `printf` routes through dcload's console
   syscalls back over the cable — upload + execute + return traffic = two-way
   link proof in one leg.
 - **Upload command (Mac side):**
   `tools/dcload-serial/host-src/tool/dc-tool-ser -t /dev/cu.usbserial-XXXX
-  -x ../cleopatra/tools/kos/examples/dreamcast/hello/hello.elf`
+  -x tools/kos/examples/dreamcast/hello/hello.elf`
   Default 57600 8N1 = dcload's boot rate; fewest variables for the control
   leg (the cable is proven at 115200 — raise with `-b` only after the
   control passes). **NEVER run dc-tool with the serial-SD dongle attached**
@@ -2116,7 +2121,7 @@ released.
   `_menu_sheet_bin`/`_menu_sheet_bin_end`/`_controls_bin`/`_controls_bin_end`
   symbols are present and correctly named, confirmed via `sh-elf-nm`
   on the standalone `.o` files) but get discarded by the SH4 target's
-  `-Wl,--gc-sections` (`../cleopatra/tools/kos/environ_dreamcast.sh:34`)
+  `-Wl,--gc-sections` (`tools/kos/environ_dreamcast.sh:34`)
   because nothing in the current C sources references them yet — that
   wiring is Task 5's `menu.o`. Verified the plumbing is correct anyway:
   a throwaway link with `-Wl,-u,_menu_sheet_bin -Wl,-u,_controls_bin`
@@ -2399,3 +2404,86 @@ only) track04 `bb95e6d9ec64c24dc3d9c873e214e6cb`; `FRAMEGAP=1 SERIAL=1`
 `cd30db57bccf7a2b691243e6ede61058` = release v15 byte-identical
 (discipline check PASS). Staged under `build-t15/{silent,serial}/`
 (gitignored — ROM bytes, never ship).
+
+### Decoupling from ../cleopatra (2026-09-21)
+
+Until this date three build/runtime paths reached into the sibling
+`../cleopatra` checkout (KOS env, the built instrumented Flycast, the
+splash-capture script). All three are now local or point at the fork
+sibling directly — building this port needs only this repo plus the
+`../naomi2dreamcast` and `../flycast4naomi2dreamcast` siblings.
+`../cleopatra` remains as knowledge lineage only (KB citations, design
+specs, adapted-from notes — deliberately untouched).
+
+- **KOS at `tools/kos`** (gitignored): same commit as the previously
+  reused cleopatra checkout —
+  `git -C ../cleopatra/tools/kos rev-parse HEAD` = `705c862957b2f…`
+  (v2.2.0-932-g705c8629, banner identifies as v2.3.0). Install:
+
+  ```sh
+  git clone https://github.com/KallistiOS/KallistiOS.git tools/kos
+  git -C tools/kos checkout 705c862957b2f6091a6ce4784943744daecc3e2b
+  # environ.sh = doc/environ.sh.sample with ONE change: KOS_BASE set to
+  # the absolute path of tools/kos (verified: that was also the only
+  # export-line delta in cleopatra's environ.sh)
+  . tools/kos/environ.sh
+  make -C tools/kos/kernel -j8 && make -C tools/kos/addons -j8
+  make -C tools/kos/examples/dreamcast/hello   # test-serial payload
+  ```
+
+  Two caveats, both hit on first build: (1) top-level `make -C tools/kos`
+  dies in `utils/` — `makeip` wants `png.h`, `vqenc` wants `jpeglib.h`
+  (no Homebrew libpng/libjpeg here); the utils are NOT needed (IP.BIN
+  comes from the donor), hence kernel+addons built directly. (2)
+  `environ_dreamcast.sh` probes unset `KOS_SUBARCH` and kills `set -u`
+  shells — source from a normal shell.
+- **Byte-compare control (same session):** full `make clean && make gdi`
+  against `tools/kos` vs the same-day baseline against
+  `../cleopatra/tools/kos`: `shim.bin`, tracks 01–03, `disc.gdi`
+  byte-identical; `1ST_READ.BIN`/`track04.iso` differ. Characterized:
+  `sh-elf-nm -S` symbol tables identical in every name and size EXCEPT
+  `_banner` `0xe4`→`0xec` (+8 B = the KOS_BASE path embedded in the KOS
+  boot banner is 8 chars longer: `…/senkosp2dreamcast/tools/kos` vs
+  `…/cleopatra/tools/kos`; datestamp changed too) — every other
+  differing byte is relocation fallout from that one shifted string.
+  Determinism control: rebuilding against each KOS reproduces its own
+  hash exactly (old `c680ee74…`, new `ea5f1bd6…`). `make test` PASS
+  after the swap. Emulator gate: `captures/decouple-boot.log` leg
+  (1,385 GDDMA/GDPIO cart-read lines, attract-demo frame verified).
+  **Hardware: operator booted a fresh `make gdi` disc on the GDEMU rig
+  same day, reported working fine (2026-09-21)** — verify-on-target
+  rule satisfied for the decoupled environment.
+- **Splash capture in-repo:** `scripts/capture_naomi_splash.sh` — port of
+  cleopatra's script; boots this repo's `senkosp.dat` instead of the CFP
+  image (the splash is BIOS-drawn, any Naomi title shows it), Flycast
+  path + pkill pattern updated to the fork sibling.
+- **Path repoints:** `Makefile` + `loader/Makefile` source
+  `tools/kos/environ.sh`; `HELLO_ELF` → `tools/kos/examples/…`;
+  `capture_leg.sh`/`capture_dc_leg.sh`/`test_vmu_untouched.sh` `bin=` →
+  `../flycast4naomi2dreamcast/build/Flycast.app/…`; every
+  `pkill -f "flycast-src.*Flycast"` → `"flycast4naomi2dreamcast.*Flycast"`
+  (the old pattern would match nothing against the new binary path);
+  `scripts/ghidra/run.sh` `GHIDRA_HOME` default → repo-local
+  `tools/ghidra_12.1.2_PUBLIC` (on this rig a symlink:
+  `ln -sfn ../../cleopatra/tools/ghidra_12.1.2_PUBLIC tools/ghidra_12.1.2_PUBLIC`).
+- **Instrumented Flycast built in the fork checkout** (2026-09-21, fork
+  HEAD `1626f8b70` — same commit the retired `flycast-src` copy was on):
+
+  ```sh
+  cd ../flycast4naomi2dreamcast
+  git submodule update --init --force --recursive   # slow: Spout2/SDL history
+  git -C core/deps/Syphon apply "$PWD/patches/flycast-syphon-build-fix.diff"
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  ZLIB_TBD="$DEVELOPER_DIR/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libz.tbd"
+  cmake -B build -DCMAKE_BUILD_TYPE=Release -DUSE_BREAKPAD=OFF -DUSE_VULKAN=OFF \
+        -DCMAKE_OSX_ARCHITECTURES=arm64 -DZLIB_LIBRARY="$ZLIB_TBD"
+  cmake --build build -j"$(sysctl -n hw.ncpu)"
+  # -> build/Flycast.app/Contents/MacOS/Flycast (Mach-O arm64)
+  ```
+
+  Same flags as the cleopatra-KB recipe, but **Homebrew cmake 4.4.0**
+  configured and built clean — the 3.31.6 pin
+  (`../cleopatra/tools/cmake-3.31.6-macos-universal/`) was not needed
+  this time. The Syphon patch lands as a working-tree modification inside
+  the submodule (` M CMakeLists.txt` — expected; a fork can't carry
+  submodule commits, see the fork's `patches/README.md`). Exit 0.
