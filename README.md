@@ -32,10 +32,10 @@ your own legally-obtained copies of:
 
 | Input | Path expected | What it is |
 |---|---|---|
-| Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, regenerated from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`) — recipe in `docs/kb/tooling.md` |
+| Game ROM | `senkosp.dat` (repo root) | flat decrypted 251,342,848-byte Naomi GD-ROM image, regenerated from your `senkosp` romset (`senkosp.zip` + `gdl-0038.chd`) — recipe in `docs/kb/tooling.md`. The romset itself is *also* needed at `roms/senkosp.zip` + `roms/senkosp/gdl-0038.chd` — the Flycast capture steps below boot from there |
 | Naomi BIOS | `bios/naomi/epr-21576h.ic27` (extracted from your `bios/naomi.zip`) | Japan bios0; kernel/data slices are embedded at build time |
 | Donor disc | `[GDI] Dolphin Blue.7z` (repo root) | the megavolt85 Atomiswave port GDI as distributed by its release (~44 MB archive), used as a proven-bootable disc skeleton (tracks 1–3 + TOC cloned verbatim; only IP.BIN metadata is re-branded) |
-| RAM snapshot | `tools/ram-snapshot.bin` | 32 MB Naomi RAM dump from the instrumented emulator (BIOS kernel slice source) — recipe in `docs/kb/tooling.md` §Phase 3 |
+| RAM snapshot | `tools/ram-snapshot.bin` | 32 MB Naomi RAM dump from the instrumented emulator (BIOS kernel slice source) — recipe in `docs/kb/tooling.md` §"Phase 3: RAM snapshot" |
 | Boot splash | `loader/splash.png` | NAOMI boot-logo frame captured from your BIOS |
 | MIE capture | `captures/phase4/pc2.log` | instrumented-Flycast capture the shim's MIE reply blobs are extracted from at build time |
 
@@ -90,16 +90,20 @@ head -c 16 senkosp.dat            # must start with the "NAOMI" magic
 
 # 2. Run the game once in instrumented Flycast (Naomi mode, interpreter,
 #    fork commit 0d55a1812+) to capture the MIE/JVS traffic the shim
-#    replays on DC; ~300 s unattended boot -> attract, then:
+#    replays on DC. The script runs Flycast in the foreground; let it sit
+#    ~300 s (unattended boot -> attract), then FROM A SECOND TERMINAL:
 #    pkill -TERM -f "flycast-src.*Flycast"
 #    The shim build extracts the reply blobs from this log automatically.
+#    Botched run? The script refuses to overwrite an existing leg log --
+#    delete captures/<leg>.log first, then rerun.
 scripts/capture_leg.sh phase4/pc2
 
 # 3. Naomi RAM snapshot -> tools/ram-snapshot.bin (the loader needs one
 #    512-byte kernel window that exists in RAM only, not in the BIOS ROM).
 #    Enable Flycast's AutoSaveState, run ~150 s of attract in Naomi mode,
 #    quit Flycast (it auto-saves), carve + validate, set AutoSaveState
-#    back to no:
+#    back to no. (If the sed matches nothing -- fresh Flycast install
+#    without the key -- toggle Auto Save State in Flycast's UI instead.)
 sed -i '' 's/AutoSaveState = no/AutoSaveState = yes/' ~/Library/Application\ Support/Flycast/emu.cfg
 scripts/capture_leg.sh canary-snapshot   # ~150 s, then: pkill -TERM -f "flycast-src.*Flycast"
 python3 scripts/carve_ram_snapshot.py    # 4 control tests -> tools/ram-snapshot.bin
@@ -117,6 +121,16 @@ cp naomi_boot_s6.png loader/splash.png         # frame number may vary
 #    Optional: iplogo.mr (Sega MR format, <=8 KB) for the boot TM screen.
 #    Absent, the donor's art / a blank logo slot are kept.
 #    Both contributed by stuart2773 for the release build.
+
+# 6. Texture VQ pass (VRAM arena fit) -- `make gdi` splices
+#    build/texpatch/ into the cart image at mastering time and FAILS
+#    without it. Needs numpy, hence the one-off venv. ORDER MATTERS:
+#    pktx_vq.py wipes build/texpatch/, shrink_vq.py appends to it.
+#    (Unpatched reference disc instead: python3 scripts/make_gdi.py
+#    --no-texpatch, after `make loader`.)
+python3 -m venv tools/pyenv && tools/pyenv/bin/pip install numpy
+tools/pyenv/bin/python3 scripts/pktx_vq.py
+tools/pyenv/bin/python3 scripts/shrink_vq.py
 ```
 
 Then, and on every rebuild after:
