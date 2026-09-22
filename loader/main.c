@@ -227,6 +227,10 @@ static int apply_patches(uint8 *img, const patch_t *table, unsigned n, uint32 lo
 int main(void) {
     dbglog(DBG_INFO, "SENKOSP LOADER PHASE4 TASK10\n");
 
+#ifdef LOADER_LZ4BENCH
+    { extern void lz4bench_run(void); lz4bench_run(); }   /* T10b spike, THROWAWAY */
+#endif
+
 #if LOADER_FORCE_PRESET_NOTE
     preset_note();                       /* screenshot leg; never returns */
 #endif

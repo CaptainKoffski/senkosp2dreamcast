@@ -5,6 +5,12 @@ OBJS = main.o handoff.o gd.o gd_sys.o shim_blob.o bios_data.o splash_blob.o naom
        menu.o menu_sheet_blob.o controls_blob.o
 CFLAGS += -I../shims/include -I../build
 CFLAGS += $(DEFS)   # debug toggles from the top Makefile (e.g. SERIAL=1)
+# T10b spike (THROWAWAY, branch t10b-spike): LZ4BENCH=1 adds the SH4
+# decompress benchmark + its embedded sample. Vendored lz4 v1.10.0
+# (tools/t10b/lz4, BSD) compiles under kos-cc unchanged.
+ifneq (,$(findstring LOADER_LZ4BENCH,$(DEFS)))
+OBJS += lz4bench.o lz4_sh4.o t10b_sample_blob.o
+endif
 BIOS = ../bios/naomi/epr-21576h.ic27   # Naomi Japan bios0 (gitignored ROM)
 all: ../build/1ST_READ.BIN
 include $(KOS_BASE)/Makefile.rules
@@ -48,6 +54,24 @@ gd_sys.o: ../shims/src/gd_sys.c ../shims/include/shim_iface.h
                         ../shims/include/shim_iface.h ../senkosp.dat \
                         ../scripts/reloc_patchset.json
 	cd .. && python3 scripts/build_patch_table.py
+# T10b spike rules (THROWAWAY). Sample blob: host tool carves + LZ4-HC-9
+# compresses 8 x 128 KB stripes of the T10 stage pak from ../senkosp.dat
+# (gitignored ROM -- the blob is derived game bytes, ../build only, never
+# committed). Host cc, not kos-cc.
+lz4_sh4.o: ../tools/t10b/lz4/lz4.c
+	kos-cc $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+lz4bench.o: lz4bench.c ../tools/t10b/lz4/lz4.h naomi_crc.h
+../build/pack_sample: ../tools/t10b/pack_sample.c ../tools/t10b/lz4/lz4.c \
+                      ../tools/t10b/lz4/lz4hc.c naomi_crc.c
+	cc -O2 -o $@ ../tools/t10b/pack_sample.c ../tools/t10b/lz4/lz4.c \
+	  ../tools/t10b/lz4/lz4hc.c naomi_crc.c
+../build/t10b_sample.bin: ../build/pack_sample ../senkosp.dat
+	../build/pack_sample ../senkosp.dat $@
+t10b_sample_blob.o: ../build/t10b_sample.bin
+	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
+	  --redefine-sym _binary____build_t10b_sample_bin_start=_t10b_sample \
+	  --redefine-sym _binary____build_t10b_sample_bin_end=_t10b_sample_end \
+	  $< $@
 # shim.bin embedded as _shim_bin / _shim_bin_end (C's leading-underscore prefix;
 # raw objcopy names verified with sh-elf-nm against the ../shims/build/shim.bin path).
 shim_blob.o: ../shims/build/shim.bin

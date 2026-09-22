@@ -47,6 +47,14 @@ endif
 ifeq ($(FRAMEGAP),1)
 DEFS += -DSHIM_FRAMEGAP=1
 endif
+# LZ4BENCH=1 (needs SERIAL=1 to be audible): T10b spike (branch t10b-spike,
+# THROWAWAY) -- loader runs an SH4 LZ4-decompress benchmark at main() entry
+# on 8 x 128 KB real stage-pak stripes (loader/lz4bench.c) and prints one
+# L4BENCH line. Emulator = correctness smoke only; the rate is only evidence
+# on hardware. Never ship.
+ifeq ($(LZ4BENCH),1)
+DEFS += -DLOADER_LZ4BENCH=1
+endif
 # PREFETCH=0: disable the T3 prefetch ring (A/B legs only; DEFAULT ON -- the
 # ring IS the (b)/(c) hitch fix, docs/kb/phase7-polishing.md §T3). The
 # heap-base steal (reloc entry "0x13ae68") stays applied either way; with the
