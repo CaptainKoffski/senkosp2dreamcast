@@ -3134,3 +3134,29 @@ deploy invocation (the gotcha above). Leg protocol identical to
 hw-t10b-3: capture serial, boot, 2P match → Beginner → 2P START →
 second char-select entry → stage select → fight; power off after the
 second match begins.
+
+**Result (leg `phase7/hw-t10b-4`, operator-played, card md5 verified
+`ed495597…` before eject; `captures/phase7/hw-t10b-4.log`):**
+
+    SHIMTIME o=0935a800 l=007e7800 s=ff205aea d=000c1ae4
+    SHIMLZ4 w=0000b8fc c=000b4bc6
+    SHIMTIME o=0935a800 l=007e7800 s=fa18d86f d=000c1b74
+    SHIMLZ4 w=0000b884 c=000b4cd5
+
+Both serves agree to ≤0.3 ms. At 781.25 kHz: d = 1.0154/1.0156 s,
+**w = 60.6/60.5 ms, c = 947.6/947.9 ms**, residual d−w−c = 7.3 ms
+(arm/packet + the 5.28 MB pre-kick ocbi walk, as predicted). d is
++2.9 ms vs hw-t10b-3 — instrumentation + rebuild noise, 0.3%.
+
+**Verdict: decode-bound, decisively — the second pre-registered
+regime.** The decoder runs 93% of the window; it waited on the link
+only 61 ms. Under the concurrent G1 DMA the decode rate is
+8,288,256 B / 0.9477 s = **8.7 MB/s — down 39% from the bench's
+contention-free 14.3 MB/s** (`t10b-spike.md`). Cross-check: the
+decoder consumes compressed bytes at 5.57 MB/s, and the link kept
+just ahead of exactly that — the DMA is pacing the decoder, not the
+reverse. Any further win must come from speeding the decode, i.e.
+cutting the CPU-side RAM traffic that stalls against the running DMA
+(output line allocate-read + writeback, the SH4 OC being 16 KB
+direct-mapped copy-back — `tools/kos/.../arch/cache.h:39-45`,
+`dc/cache.h:42`).
