@@ -788,6 +788,15 @@ pf_served:;
         scif_puts(" s=");         scif_puthex(t_in);
         scif_puts(" d=");         scif_puthex(t_in - t_out);
         scif_puts("\n");
+#if SHIM_LZ4 && SHIM_G1DMA
+        if (lz4_served == 1) {   /* this read was compressed-delivered: its
+                                  * d= splits into link-wait + CPU-work */
+            lz4_served = 2;
+            scif_puts("SHIMLZ4 w="); scif_puthex(lz4_t_wait);
+            scif_puts(" c=");        scif_puthex(lz4_t_work);
+            scif_puts("\n");
+        }
+#endif
     }
 #endif
 #if SHIM_CRC

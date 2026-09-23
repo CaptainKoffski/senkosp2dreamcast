@@ -3100,3 +3100,37 @@ Stable-build return point tagged **`t10b-v1`** (= commit `3f11b75`,
 the exact build on the card for this leg) at the operator's request.
 The leg also doubled as the hardware functional pass: two full match
 entries played live, no die-screen, no visual corruption reported.
+
+### Iteration diagnostic: SHIMLZ4 wait/work split (leg hw-t10b-4)
+
+Before building the contention fix, one diagnostic leg decides which
+regime the 1.011 s lives in. `gd_read_lz4` now accumulates two TMU0
+tick buckets per served window (`#if SHIM_TIME` only; knob-off builds
+byte-identical): **w** = ticks spent spinning on `SB_GDLEND` (decoder
+ahead of the link, incl. the engine-drain tail) and **c** = ticks in
+CPU work (decode + copies + per-chunk ocbp). `gd_read_cart`'s SHIMTIME
+tail prints them as one extra row per compressed serve, after the
+`d=` stamp is taken so serial cost stays outside all three numbers:
+
+    SHIMTIME o=0935a800 l=007e7800 s=... d=...
+    SHIMLZ4 w=<link-wait ticks> c=<cpu-work ticks>
+
+Same 781.25 kHz ticks as `d=`; expect w + c ≈ d minus ~1–2 ms of
+arm/packet overhead (the pre-kick 5.28 MB ocbi walk sits in neither
+bucket). Reading the split, against the bench's contention-free
+14.3 MB/s decode rate (`t10b-spike.md`):
+
+- **c ≈ 0.58 s, w ≈ 0.43 s** — decode still at bench speed, the LINK
+  slowed by contention (6.7 → ~5.2 MB/s effective). The fix must cut
+  CPU RAM traffic to give the DMA more bus.
+- **c ≫ 0.58 s, w small** — the DECODER slowed by contention (its own
+  allocate-read/writeback traffic stalls against the running DMA).
+  Same fix, but the payoff estimate changes: speeding decode directly
+  shortens the wall.
+
+Build: `make gdi SERIAL=1 TIME=1 LZ4=1`, track04 md5
+`ed495597991125919f09199b11a5fb3c`. Deploy with the same knobs on the
+deploy invocation (the gotcha above). Leg protocol identical to
+hw-t10b-3: capture serial, boot, 2P match → Beginner → 2P START →
+second char-select entry → stage select → fight; power off after the
+second match begins.

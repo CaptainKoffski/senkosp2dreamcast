@@ -33,6 +33,18 @@ void scif_puts(const char *); void scif_puthex(unsigned int);
 
 #define GD_E_LZ4 10   /* decode/CRC failure on a compressed chunk (fell back) */
 
+#if SHIM_TIME
+/* T10b diagnostic (operator-authorized 2026-09-23): split a served window's
+ * in-driver time into link-wait ticks (decoder ahead, spinning on GDLEND)
+ * vs CPU-work ticks (decode + copies + ocbp). Printed as one SHIMLZ4 row
+ * by gd_read_cart's SHIMTIME tail, same TMU0 ticks as its d= field.
+ * Nonzero inits keep them in .data (house style -- no .bss clear); both
+ * counters are re-zeroed per serve and lz4_served is a sentinel
+ * (1 = row pending, else idle), so load-time values are never trusted. */
+static unsigned lz4_t_wait = 1, lz4_t_work = 1;
+static unsigned lz4_served = 2;
+#endif
+
 /* Wait for the DMA frontier to cover `target` bytes. Progress-rearmed
  * budget, same policy as gd_read_fad's GDST poll (gd.c:481-486): only a
  * STALLED GDLEND burns budget; GDST clearing ends the transfer either way
@@ -139,6 +151,9 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
      * command words, :466 GDST kick). Sole deviation: SB_GDEN = 0 on the
      * packet-wait failure -- the engine is already armed here, whereas in
      * gd_read_fad that failure site is shared with the PIO path. ---- */
+#if SHIM_TIME
+    lz4_t_wait = lz4_t_work = 0;
+#endif
     gd_hw_init();
     GD_DRVSEL = 0xa0;
     if (gd_wait_clear(ST_BSY | ST_DRQ)) return gd_fail(GD_E_IDLE, f);
@@ -168,11 +183,18 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
     struct lz4_lay L;
     for (unsigned i = 0; i < e->nchunk; i++) {
         lz4pak_lay(e, i, &L);
+#if SHIM_TIME
+        unsigned tw0 = TIME_TCNT0;
+#endif
         if (lz4_wait_lend(L.lend_target)) {
             SB_GDEN = 0;
             *(volatile unsigned int *)0xa05f6900 = 1u << 14;
             return gd_fail(GD_E_DMA, f);
         }
+#if SHIM_TIME
+        unsigned tw1 = TIME_TCNT0;          /* down-counter: elapsed = old - new */
+        lz4_t_wait += tw0 - tw1;
+#endif
         if (L.stored) {
             lz4_copy32(out + L.out_off, inb + L.in_off, L.usize);
         } else if (L.bounced) {
@@ -205,6 +227,9 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
             goto lz4_bad;
 #endif
         lz4_ocbp(phys + L.out_off, L.usize);
+#if SHIM_TIME
+        lz4_t_work += tw1 - TIME_TCNT0;
+#endif
     }
 
     /* ---- epilogue: mirror of gd_read_fad's DMA end (KEEP IN SYNC:
@@ -212,6 +237,9 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
      * :540-555 the shared end-of-command verdict -- minus its :545-550
      * drain-forensics loop, which counts leftover PIO DRQ bytes and says
      * nothing on a path that just asserted GDLEND == r_bytes) ---- */
+#if SHIM_TIME
+    unsigned tw2 = TIME_TCNT0;
+#endif
     if (lz4_wait_lend(e->r_bytes)) {
         SB_GDEN = 0;
         *(volatile unsigned int *)0xa05f6900 = 1u << 14;
@@ -225,6 +253,9 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
             if (now != seen2) { seen2 = now; i2 = 0; }
         }
     }
+#if SHIM_TIME
+    lz4_t_wait += tw2 - TIME_TCNT0;         /* engine-drain tail is link wait */
+#endif
     unsigned lend = SB_GDLEND;
     gd_diag[6] = lend;
     *(volatile unsigned int *)0xa05f6900 = 1u << 14;
@@ -236,6 +267,9 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
     scif_puts("LZ4OK o="); scif_puthex(cart_off);
     scif_puts(" l=");      scif_puthex(len);
     scif_puts("\n");
+#endif
+#if SHIM_TIME
+    lz4_served = 1;         /* SHIMTIME tail prints + clears the SHIMLZ4 row */
 #endif
     return 0;
 
