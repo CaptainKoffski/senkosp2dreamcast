@@ -45,7 +45,10 @@
                          * into main RAM (loads 2.8 MB/s PIO -> DMA rates).
                          * Ships ON; G1DMA=0 (top Makefile) for A/B legs.
                          * Raw-ATA backend only -- the syscall backend never
-                         * enters gd_read_fad, so isoldr's policy is untouched. */
+                         * enters gd_read_fad, so isoldr's policy is untouched.
+                         * SHIM_LZ4 (T10b) adds gd_lz4.inc.c below gd_read_fad
+                         * -- compressed pak delivery, spec 2026-09-23; it
+                         * needs this knob on (it drives the engine itself). */
 #endif
 #if SHIM_CRC || SHIM_TIME || SHIM_PF_VERIFY
 void scif_puts(const char *); void scif_puthex(unsigned int);
@@ -683,6 +686,10 @@ static void pf_verify(unsigned off, const unsigned char *dst_p2, unsigned len) {
 unsigned int gd_calls = 1;      /* .data nonzero (house style); main.c paints it */
 #endif
 
+#if SHIM_LZ4 && SHIM_G1DMA
+#include "gd_lz4.inc.c"     /* T10b -- uses this file's statics; see its header */
+#endif
+
 int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
     if (!len) return 0;
 #if SHIM_FRAMEGAP
@@ -721,6 +728,17 @@ int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
     }
 #endif
 
+#if SHIM_LZ4 && SHIM_G1DMA
+    /* T10b: mapped whole-pak read -> compressed delivery. 0 = served;
+     * negative = transport death, today's envelope; 1/2 = serve the
+     * untouched original below (2 left a gd_fail record behind). */
+    {
+        int lr = gd_read_lz4(cart_off, dst, len);
+        if (lr == 0) goto delivered;
+        if (lr < 0) return lr;
+    }
+#endif
+
     if (pl.head_len) {
         if ((r = gd_read(fad, b, 1)) < 0) return r;      /* head */
         for (i = 0; i < pl.head_len; i++) d[i] = b[pl.head_skip + i];
@@ -736,6 +754,9 @@ int gd_read_cart(unsigned cart_off, void *dst, unsigned len) {
         if ((r = gd_read(fad, b, 1)) < 0) return r;      /* tail */
         for (i = 0; i < pl.tail_len; i++) d[i] = b[i];
     }
+#if SHIM_LZ4 && SHIM_G1DMA
+delivered:;      /* lz4-served reads take the same miss re-aim + TIME/CRC tail */
+#endif
 #if SHIM_PREFETCH
     if (pf_state == 1) {            /* miss: re-aim the window at the stream's
                                      * new position, sector-rounded DOWN so a

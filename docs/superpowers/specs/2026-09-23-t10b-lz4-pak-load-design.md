@@ -78,8 +78,12 @@ cart image**:
       savings of kept chunks after it, else it is stored.
     Guarantees `a_i ≤ u_i` for every chunk and the in-place margin for
     every non-bounced LZ4 chunk.
-  - Host round-trip verify (decode + compare + CRC16 via
-    `naomi_eeprom_crc`) — the build fails if it fails.
+  - Host round-trip verify (decode + compare + CRC) — the build fails
+    if it fails. **Amended during planning 2026-09-23:** the per-chunk
+    checksum is **crc32 via the shim's own `shim_crc32`** (gd.c), not
+    the spike's naomi crc16 — one implementation on host and target
+    (the pack tool links gd.c's pure section, the `test_gd_math.c`
+    idiom), so a divergence is a link failure rather than a copy.
 - Blob layout (equals the RAM tail image byte-for-byte):
   `front_pad ‖ chunk_0 ‖ … ‖ chunk_63`, right-justified:
   `S = Σ a_i`, `R = ceil(S/2048)·2048`, `front_pad = R − S` garbage
@@ -88,8 +92,8 @@ cart image**:
 - The tool emits the blob plus a **generated header**
   (`build/lz4pak_map.h`) compiled into the shim: per pak
   `{cart_off, ulen, blob_fad, R}`, per chunk
-  `{csize (exact, u32), flags (lz4|stored), crc16}` — ~1 KB for 64
-  chunks. `scripts/make_gdi.py` appends the blob to track04 when the
+  `{csize (exact, u32), flags (lz4|stored|bounce), crc32}` — ~1 KB per
+  64 chunks. `scripts/make_gdi.py` appends the blob to track04 when the
   knob is on (and asserts blob length == R).
 
 ## Runtime read path
@@ -99,7 +103,9 @@ check (an 8.3 MB request can never hit the 64 KB ring), before the
 head/body/tail plan: exact `(cart_off,len)` match against the map
 **and** backend == raw-ATA **and** `dst` 32-aligned **and** `SHIM_LZ4`
 (which requires `SHIM_G1DMA` compiled in — the route drives the DMA
-engine) ⇒ `gd_read_lz4(entry, dst)` (new file `shims/src/gd_lz4.c`). Success
+engine) ⇒ `gd_read_lz4(entry, dst)` (**amended during planning 2026-09-23**:
+`shims/src/gd_lz4.inc.c`, `#include`d into gd.c — see §Files touched).
+Success
 exits through the same `SHIM_TIME`/`SHIM_CRC` tail as any other read,
 and performs the same prefetch miss re-aim, so instruments and T3
 behavior are unchanged.
@@ -125,7 +131,7 @@ behavior are unchanged.
    later P2 prefetch fill on writeback — the C1 rule); stored chunk →
    forward copy (skip when src == dst). Then `ocbp` (write-back +
    invalidate) the output range so the game's uncached reads see it.
-   Optional `SHIM_LZ4CRC`: crc32 the output chunk against the map.
+   Optional `SHIM_LZ4CRC`: `shim_crc32` the output chunk against the map.
    Ring preconditions (route disqualifiers, checked before the DMA
    kick — the same two tripwires as `pf_armed`, gd.c): the heap-base
    pool word must read back patched (the ring RAM is really reserved)
@@ -165,13 +171,24 @@ With `ulen = Σu_i`, unconsumed input after chunk N starts at
 
 ## Failure policy — never worse than today
 
-Any disqualifier or failure (map miss, syscall backend, unaligned
-dest, DMA error, `LZ4_decompress_safe` error, short `GDLEND`) ⇒ abort
-the engine if needed (`GDEN = 0`), record forensics
-(`gd_diag`/`gd_last_err`/serial), and **fall through to the existing
-uncompressed read of the original region**, which is still on disc,
-untouched. Compressed delivery is an optimization, never the only
-copy.
+**Amended during planning 2026-09-23** (the original rule was a single
+sentence: *any* failure falls back). Failures split in two, because
+re-issuing a read on a wedged DMA engine without a drive reset would be
+a NEW hang mode — strictly worse than today:
+
+- **Disqualifiers** (map miss, syscall backend, unaligned dest, ring
+  not reserved / test boot, ring overlapping the dest) and
+  **decode-stage failures** (`LZ4_decompress_safe` error, `SHIM_LZ4CRC`
+  mismatch) ⇒ drain + settle the engine, record forensics
+  (`gd_diag`/`gd_last_err`/serial, site `GD_E_LZ4`), and **fall through
+  to the existing uncompressed read of the original region**, which is
+  still on disc, untouched. Compressed delivery is an optimization,
+  never the only copy.
+- **Transport failures** (DMA error, short `GDLEND`, ATA end-of-command
+  verdict, a drain that never settles) ⇒ abort the engine (`GDEN = 0`),
+  ack ISTNRM bit 14, and **propagate the negative site** — the caller
+  dies exactly as it does today for the same failure on the
+  uncompressed path. Transport failures keep today's die-loud envelope.
 
 ## Gates (all before any merge/release decision)
 
@@ -214,9 +231,15 @@ copy.
 
 ## Files touched
 
-- `shims/src/gd_lz4.c` (new, ~150 lines), `shims/src/gd.c` (extract
-  DMA kick/epilogue helpers; ~10-line routing in `gd_read_cart`),
-  `shims/include/shim_iface.h` (BLOB_FAD constant), `shims/Makefile`.
+- `shims/src/gd_lz4.inc.c` (new, ~200 lines), `shims/src/gd.c` (~15
+  lines: include + routing + `delivered:` label in `gd_read_cart`),
+  `shims/Makefile`. **Amended during planning 2026-09-23:** the runtime
+  is an `.inc.c` `#include`d into gd.c, NOT a separate TU with helpers
+  extracted from `gd_read_fad` — extraction would change knob-off
+  codegen and break gate 5's bit-identity. The DMA arm/kick/epilogue
+  sequences are therefore MIRRORED, with `KEEP IN SYNC` markers citing
+  `gd_read_fad`'s line ranges. No `shim_iface.h` change either: the
+  blob FAD is generated data in `build/lz4pak_map.h`, not a constant.
 - `tools/lz4pak/pack_paks.c` (new host tool; reuses
   `tools/t10b/lz4/`), top `Makefile` (knob + blob/header deps),
   `scripts/make_gdi.py` (append blob).

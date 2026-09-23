@@ -32,23 +32,40 @@ SRCS = src/main.c src/scif.c src/util.c src/gd.c src/gd_sys.c src/gd_testsrv.c \
 # supplied here as function-like -D macros or the build errors out.
 # (2) sh-elf-ld's bare default emulation is big-endian; our -ml object needs
 # -m shlelf or it refuses to merge ("incompatible instructions").
+# (3) -DLZ4_FORCE_SW_BITCOUNT: lz4.c's default ctz path is __builtin_ctz, which
+# gcc lowers to a libgcc ___ctzsi2 call on SH4 (no count-trailing-zeros
+# instruction). We link -nostdlib with no libgcc, so force the source's own
+# software bit-count instead of supplying the helper (Task-4 review).
+# (4) --redefine-sym: lz4.c's variable-length builtins land on memcpy/memmove/
+# memset, but src/util.c already owns those names shim-wide (and must keep
+# them byte-for-byte -- gate 5). Rewrite the three undefined refs in the
+# partial-linked object onto src/lz4_mem.c's word-fast lz4_* versions.
+# Leading underscores are this toolchain's C symbol prefix; the loader blob
+# recipe uses the same --redefine-sym trick.
 ifneq (,$(findstring SHIM_LZ4,$(DEFS)))
 LD = /opt/toolchains/dc/sh-elf/bin/sh-elf-ld
 SRCS += src/lz4_lay.c src/lz4_mem.c $(B)/lz4_dec.o
 CFLAGS += -I../build
 $(B)/lz4_dec.o: ../tools/t10b/lz4/lz4.c
 	mkdir -p $(B)
-	$(CC) $(CFLAGS) -DLZ4_FREESTANDING=1 \
+	$(CC) $(CFLAGS) -DLZ4_FREESTANDING=1 -DLZ4_FORCE_SW_BITCOUNT \
 	  -D'LZ4_memcpy(d,s,n)=__builtin_memcpy(d,s,n)' \
 	  -D'LZ4_memmove(d,s,n)=__builtin_memmove(d,s,n)' \
 	  -D'LZ4_memset(d,c,n)=__builtin_memset(d,c,n)' \
 	  -ffunction-sections -fdata-sections \
 	  -c $< -o $(B)/lz4_full.o
 	$(LD) -m shlelf -r --gc-sections -u _LZ4_decompress_safe $(B)/lz4_full.o -o $@
+	$(OBJCOPY) --redefine-sym _memcpy=_lz4_memcpy \
+	  --redefine-sym _memmove=_lz4_memmove \
+	  --redefine-sym _memset=_lz4_memset $@
 $(B)/shim.elf: $(B)/lz4_dec.o ../build/lz4pak_map.h src/gd_lz4.inc.c include/lz4_lay.h
 endif
 
 .PHONY: all test clean
+# Pin the default goal: under SHIM_LZ4 the conditional block above contributes
+# the first explicit rule ($(B)/lz4_dec.o), which would otherwise BE the
+# default goal and a bare `make -C shims` would stop after the decoder object.
+.DEFAULT_GOAL := all
 all: $(B)/shim.bin $(B)/shim.map
 
 test:

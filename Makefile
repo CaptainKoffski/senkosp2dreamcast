@@ -74,7 +74,9 @@ endif
 # pak from a compressed copy appended past the cart image -- raw-ATA backend
 # only; decode failures fall back to the untouched original. OFF by default
 # until the phase-7 gates pass (branch t10b-spike); knob-off builds are
-# bit-identical to v16. Knob flips need `make clean` (tooling.md).
+# bit-identical to the branch point (v16's hash is unreachable since the
+# 2026-09-21 KOS decoupling -- see spec gate 5). Knob flips need `make clean`
+# (tooling.md).
 ifeq ($(LZ4),1)
 DEFS += -DSHIM_LZ4=1
 GDI_FLAGS += --lz4
