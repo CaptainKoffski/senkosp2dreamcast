@@ -3063,3 +3063,40 @@ merges). **Between: operator's call** — present both numbers and ask.
 Steps 3–5 (run the leg live, digest the log, record the verdict) are
 the controller/operator's to run — not executed from this session; no
 hardware was touched preparing this entry.
+
+### Task 7 result: gate 4 hardware leg (2026-09-23)
+
+**Leg `phase7/hw-t10b-2` was wasted — the deploy gotcha above
+materialized.** The card still carried the T10b *spike* disc (never
+redeployed after the bench build); its log has an `L4BENCH` line and no
+`SHIMTIME`. Silver lining: a fresh reconfirmation of the spike's
+decompress rate, `lz4=13983 KB/s` — bit-identical to `hw-t10b-1`
+(`captures/phase7/hw-t10b-2.log`). The controller then ran
+`make deploy SERIAL=1 TIME=1 LZ4=1 NOEJECT=1`, verified
+`track04.iso` md5 `9a0d115cfea556b7cfe29b848d0856b3` **on the card**,
+and ejected; the operator re-ran the leg as `phase7/hw-t10b-3`.
+
+**Leg `phase7/hw-t10b-3` (operator-played, 160 SHIMTIME rows,
+`captures/phase7/hw-t10b-3.log`):** window B served twice
+(`o=0935a800 l=007e7800`, the both-match-entries churn signature):
+
+    SHIMTIME tcr=00000002
+    SHIMTIME o=0935a800 l=007e7800 s=ff1c81c2 d=000c11fd
+    SHIMTIME o=0935a800 l=007e7800 s=fa691c9b d=000c132f
+
+`tcr=2` ⇒ TMU0 at P/64 = 781.25 kHz (§T1). d = 790,013 / 790,319
+ticks = **1.0112 s / 1.0116 s** — two serves agreeing to ±0.4 ms.
+Effective delivery over the compressed 5,279,744 B ≈ 5.2 MB/s (vs the
+idle-CPU 6.7 MB/s ceiling, §T10) — the spec's unmeasured-contention
+caveat, measured: CPU decode traffic and G1 DMA share the RAM bus.
+
+**Verdict vs the pre-registered bar: 1.011 s vs baseline 1.237 s =
+−0.226 s (−18.3%).** Not ≤ 0.9 s (keep), not > 1.1 s (discard) —
+**between: operator's call**, as pre-registered. **Operator's call
+(2026-09-23): one targeted contention iteration, then re-leg** —
+attack the decode path's RAM traffic (output allocate-read +
+writeback), re-measure, then decide keep/discard from the new number.
+Stable-build return point tagged **`t10b-v1`** (= commit `3f11b75`,
+the exact build on the card for this leg) at the operator's request.
+The leg also doubled as the hardware functional pass: two full match
+entries played live, no die-screen, no visual corruption reported.
