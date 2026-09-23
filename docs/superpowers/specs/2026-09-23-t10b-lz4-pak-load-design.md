@@ -185,7 +185,15 @@ copy.
    **keep ≤ 0.9 s; discard > 1.1 s**; between = operator's call.
    This is where the unmeasured RAM-contention caveat becomes a
    measurement.
-5. Knob-off rebuild: track04 md5 identical to release v16.
+5. Knob-off rebuild: track04 md5 identical to a fresh build at the
+   branch point (`merge-base main t10b-spike` = 3ca47dc). Amended
+   2026-09-23: the original "identical to release v16" is unattainable
+   for a reason predating this feature — the 2026-09-21 KOS decoupling
+   changed the absolute checkout path `libkallisti.a` embeds in every
+   loader binary (`…/cleopatra/tools/kos` → `…/senkosp2dreamcast/
+   tools/kos`, found in both artifact generations at loader offset
+   ~207.9 k). The redefined gate proves the same thing the original
+   wanted: T10b contributes zero bytes to a knob-off image.
 
 ## Risks
 
