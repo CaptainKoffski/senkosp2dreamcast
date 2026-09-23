@@ -3160,3 +3160,37 @@ cutting the CPU-side RAM traffic that stalls against the running DMA
 (output line allocate-read + writeback, the SH4 OC being 16 KB
 direct-mapped copy-back — `tools/kos/.../arch/cache.h:39-45`,
 `dc/cache.h:42`).
+
+### Iteration fix: SH4 span wildcopy with movca.l (spec Amendment 4)
+
+Root cause refined by disassembling `lz4_dec.o`: GCC lowers the
+8-byte `LZ4_memcpy` to a **call per 8 bytes** on SH4 (strict
+alignment), so long copies were jsr-loops into a byte-ish memcpy, on
+top of the per-line allocate-reads. Fix (commit `453335c`): vendored
+`LZ4_wildCopy8` patched under `-DLZ4_SH4_WILDCOPY` (target decoder
+object only; host builds pristine) to call `lz4_sh4_wildcopy`
+(`shims/src/lz4_mem.c`) — byte head to 32-align dst, interior lines
+via `movca.l` first-word allocate-without-fetch + 7 word stores
+(co-aligned sources word-load; misaligned shift-merge), exact byte
+tail, and a `|d−s| ≥ 32`/span ≥ 64 guard that falls back to exact
+forward byte copy. Full safety argument + citations (SH7750 §4.2.5,
+KOS `arch_dcache_alloc_line`, Flycast `movca.l` = plain store
+"TODO ocache") in the spec amendment.
+
+**Gates re-run (2026-09-23):**
+- Pack round-trip + invariants: PASS (unchanged pack, rebuilt anyway).
+- Knob-off A/B: `750879c8cabd6622c53a5c93d852770e` == branch point.
+- Emulator CRC + functional leg `phase7/t10b-lz4-crc6`
+  (operator-played, build `SERIAL=1 LZ4=1 LZ4CRC=1`, track04 md5
+  `6ebe4f7f224ed6902d97aa9912b2366c`): `LZ4OK o=0935a800 l=007e7800`
+  ×2 — both window-B serves, per-chunk crc32 vs source all 127
+  chunks, no LZ4FAIL/fallback; played through both match entries.
+  Proves copy sequencing; movca cache semantics are hardware-only
+  (Flycast caveat above) — covered by the leg below.
+
+**Hardware leg `hw-t10b-5` (pending):** build
+`make gdi SERIAL=1 TIME=1 LZ4=1`, track04 md5
+`4643c3cf518b98dd7625da67758fcf2d`; deploy with the same knobs;
+protocol identical to hw-t10b-3/-4 (same play recipe, SHIMLZ4 split
+row expected). Bar: unchanged gate-4 bar — ≤ 0.9 s keep, > 1.1 s
+discard, between = operator's call.
