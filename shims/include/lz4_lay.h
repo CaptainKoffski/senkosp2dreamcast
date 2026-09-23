@@ -6,11 +6,18 @@
 #ifndef LZ4_LAY_H
 #define LZ4_LAY_H
 
-#define LZ4PAK_CHUNK   131072u        /* bench-matched chunk size (spike) */
+#define LZ4PAK_CHUNK   65536u         /* 64 KB -- exact T3-ring fit (execution
+                                        * ruling 2026-09-23, spike's 131072
+                                        * margin-pass was defective) */
 #define LZ4PAK_STORED  0x80000000u    /* csize_flags bit: raw chunk, no LZ4 */
+#define LZ4PAK_BOUNCE  0x40000000u    /* csize_flags bit: decode via T3 ring
+                                        * (innermost kept-LZ4 chunk -- output
+                                        * disjoint from input, no in-place
+                                        * margin needed) */
+#define LZ4PAK_CSIZE_MASK 0x3fffffffu
 
 struct lz4pak_chunk {
-    unsigned csize_flags;   /* exact compressed size | LZ4PAK_STORED */
+    unsigned csize_flags;   /* exact compressed size | LZ4PAK_STORED | LZ4PAK_BOUNCE */
     unsigned crc32;         /* shim_crc32 of the PLAIN chunk (diag legs) */
 };
 
@@ -32,6 +39,7 @@ struct lz4_lay {
     unsigned usize;         /* plain size (LZ4PAK_CHUNK, short last chunk) */
     unsigned csize;         /* exact compressed size (== usize when stored) */
     unsigned stored;        /* 1 = raw copy, 0 = LZ4_decompress_safe */
+    unsigned bounced;       /* 1 = decode via the T3 ring, not in-place */
     unsigned lend_target;   /* SB_GDLEND must reach this before decoding */
 };
 

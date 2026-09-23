@@ -167,6 +167,17 @@ test:
 	python3 scripts/test_maple_literals.py
 	python3 scripts/test_eeprom_game_diff.py
 
+# T10b: build the compressed-pak blob + generated map (spec 2026-09-23).
+# Host-side; needs senkosp.dat at repo root. Outputs are derived game
+# bytes -- they live in gitignored build/ and are never committed.
+.PHONY: lz4pak
+lz4pak:
+	mkdir -p build
+	cc -O2 -DHOST_TEST -Ishims/include -Itools/t10b/lz4 -o build/pack_paks \
+	  tools/lz4pak/pack_paks.c tools/t10b/lz4/lz4.c tools/t10b/lz4/lz4hc.c \
+	  shims/src/lz4_lay.c shims/src/gd.c
+	build/pack_paks senkosp.dat build
+
 # VMU-safety canary runs (Cleopatra's harness ported; design spec:
 # ../cleopatra/docs/superpowers/specs/2026-07-26-vmu-safety-design.md):
 # test-vmu = unattended 150 s attract; test-vmu-play = headed, tester plays then quits.

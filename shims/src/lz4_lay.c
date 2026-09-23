@@ -14,11 +14,12 @@ int lz4pak_lay(const struct lz4pak_entry *e, unsigned i, struct lz4_lay *L) {
     /* ponytail: O(i) rescan per call, O(n^2) over 64 chunks -- microseconds
      * against a 0.77 s transfer; a running cursor would add caller state. */
     for (j = 0; j < i; j++) {
-        pos += a32(e->chunks[j].csize_flags & ~LZ4PAK_STORED);
+        pos += a32(e->chunks[j].csize_flags & LZ4PAK_CSIZE_MASK);
         out += LZ4PAK_CHUNK;
     }
-    L->csize = e->chunks[i].csize_flags & ~LZ4PAK_STORED;
+    L->csize = e->chunks[i].csize_flags & LZ4PAK_CSIZE_MASK;
     L->stored = (e->chunks[i].csize_flags & LZ4PAK_STORED) != 0;
+    L->bounced = (e->chunks[i].csize_flags & LZ4PAK_BOUNCE) != 0;
     L->in_off = pos;
     L->out_off = out;
     L->usize = e->ulen - out < LZ4PAK_CHUNK ? e->ulen - out : LZ4PAK_CHUNK;

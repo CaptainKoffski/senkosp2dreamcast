@@ -81,6 +81,12 @@
  * compiled out of the loader build (GD_LOADER_BUILD). */
 #define CART_SIZE       0x0efb3000  /* 251,342,848 = len(senkosp.dat) */
 
+/* T10b: compressed-pak blob appended past the cart image in track04
+ * (make_gdi.py --lz4). First blob sector = first sector after the .dat
+ * region; CART_SIZE is a 2048-multiple so the division is exact.
+ * Spec: docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md */
+#define BLOB_FAD        (CART_FAD + CART_SIZE / 2048)   /* 574604 */
+
 /* Phase 7 T3: prefetch ring -- 64 KB stolen from the game heap's BOTTOM by
  * reloc_patchset.json entry "0x13ae68" (heap-base pool word 0x8c1de200 ->
  * 0x8c1ee200; address-invariant, see that entry's why). The ring caches the
