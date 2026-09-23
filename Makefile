@@ -69,6 +69,23 @@ endif
 ifeq ($(PFVERIFY),1)
 DEFS += -DSHIM_PF_VERIFY=1
 endif
+# LZ4=1: T10b transparent LZ4 pak load (spec docs/superpowers/specs/
+# 2026-09-23-t10b-lz4-pak-load-design.md): shim inflates the window-B stage
+# pak from a compressed copy appended past the cart image -- raw-ATA backend
+# only; decode failures fall back to the untouched original. OFF by default
+# until the phase-7 gates pass (branch t10b-spike); knob-off builds are
+# bit-identical to v16. Knob flips need `make clean` (tooling.md).
+ifeq ($(LZ4),1)
+DEFS += -DSHIM_LZ4=1
+GDI_FLAGS += --lz4
+LZ4_DEP = lz4pak
+endif
+# LZ4CRC=1 (pair with LZ4=1; emulator legs only -- ~50 cycles/byte): CRC32
+# every inflated chunk against the map + one LZ4OK/LZ4FAIL serial line per
+# served pak (needs SERIAL=1 to be audible). Never ship.
+ifeq ($(LZ4CRC),1)
+DEFS += -DSHIM_LZ4CRC=1
+endif
 # G1DMA=0: disable the T3 stage-2 real G1-DMA path (A/B legs only; DEFAULT
 # ON). Multi-sector bodies into main RAM then fall back to polled PIO at the
 # 2.8 MB/s ceiling. Raw-ATA backend only either way -- the syscall backend
@@ -137,14 +154,14 @@ ZIP = build/[GDI] Senko no Ronde Special.zip
 
 .PHONY: shims loader gdi disc release test test-vmu test-vmu-play deploy deploy-dcload test-serial clean
 
-shims:
+shims: $(LZ4_DEP)
 	$(MAKE) -C shims
 
 loader: shims
 	. tools/kos/environ.sh && $(MAKE) -C loader
 
 gdi: loader
-	python3 scripts/make_gdi.py
+	python3 scripts/make_gdi.py $(GDI_FLAGS)
 
 disc: gdi
 

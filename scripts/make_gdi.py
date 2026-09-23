@@ -258,6 +258,8 @@ def main():
     ap.add_argument("--out", default="build")
     ap.add_argument("--no-texpatch", action="store_true",
                     help="unpatched reference build (A/B gate, task 17)")
+    ap.add_argument("--lz4", action="store_true",
+                    help="T10b: append build/lz4paks.bin past the cart image")
     a = ap.parse_args()
     out = pathlib.Path(a.out); out.mkdir(exist_ok=True)
     donor = donor_tracks(out)
@@ -288,6 +290,24 @@ def main():
         t4.write(ldr)
         t4.write(b"\0" * (BOOT_REGION - len(ldr)))
         t4.write(rom)
+        if a.lz4:
+            mj = json.loads((out / "lz4pak_map.json").read_text())
+            blob = (out / "lz4paks.bin").read_bytes()
+            assert len(mj) == 1, "multi-pak append math not wired yet"
+            assert len(blob) == mj[0]["r_bytes"] and len(blob) % SECTOR == 0
+            # the shim streams the blob from BLOB_FAD = cart FAD + cart sectors;
+            # this write puts byte 0 of the blob exactly there
+            assert mj[0]["blob_fad"] == CART_LBA + 150 + CART_SIZE // SECTOR
+            # pack_paks compresses the RAW .dat, so the compressed copy only
+            # equals what the uncompressed path delivers while no texpatch
+            # record intersects a packed pak -- build-fatal tripwire
+            if not a.no_texpatch:
+                for t in json.loads(pathlib.Path("build/texpatch/manifest.json").read_text()):
+                    assert not (t["pvrt_off"] < mj[0]["cart_off"] + mj[0]["ulen"] and
+                                t["pvrt_off"] + t["orig_len"] > mj[0]["cart_off"]), \
+                        f"texpatch record {t['pvrt_off']:#x} intersects the LZ4 pak"
+            t4.write(blob)
+            print(f"lz4pak: {len(blob)} B appended at FAD {mj[0]['blob_fad']}")
 
     # stale outputs from any earlier layout confuse SD-card deploys -- drop them
     for f in ("senkosp.gdi", "track01.bin", "track03.bin", "track04.bin"):
