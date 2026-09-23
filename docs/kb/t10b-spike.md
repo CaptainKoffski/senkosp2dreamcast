@@ -1,6 +1,28 @@
 # T10b spike — can the load floor be beaten? (branch `t10b-spike`, THROWAWAY)
 
-**Status: instrument ready, awaiting the operator hardware leg.**
+**Status: ANSWERED (2026-09-23, hardware leg `phase7/hw-t10b-1`) — YES,
+the bar is met.** Operator-run boot on the bench rig (GDEMU + coder's
+cable), bench build track04 `3da5e22…`:
+
+    L4BENCH n=8 u=1048576 c=642833 fail=0 reps=4
+            lz4_us=292919 mc_us=138253 lz4=13983 KB/s memcpy=29626 KB/s
+
+- **fail=0** — all 8 chunks decode byte-correct (CRC16) on real SH4.
+- **LZ4 decompress: 14.3 MB/s** (4,194,304 B / 292,919 µs) — clears the
+  pre-registered 10.8 MB/s bar with ~32 % margin. Verdict row fired:
+  **window-B wall ~1.24 s → ~0.78 s (−0.46 s, −37 %) — build it.**
+- **memcpy control: 30.3 MB/s** — matches T10's independently measured
+  ~29.6 MB/s ring-memcpy figure, so the timer and the machine are
+  behaving; decompress at ~half memcpy speed is textbook LZ4.
+- Two honest caveats for the real build: (1) overlap is REQUIRED, not
+  optional — serial read-then-inflate is 0.765 + 0.579 = 1.34 s, WORSE
+  than today; only chunked double-buffering (DMA N+1 ∥ inflate N) wins.
+  (2) The bench measured decompress alone; under overlap the G1 DMA
+  competes for RAM bandwidth. The 32 % margin (0.579 s vs 0.765 s)
+  absorbs contention on paper; the real build's hardware leg must
+  measure the actual wall before any verdict.
+
+**Status before the leg: instrument ready, awaiting the operator hardware leg.**
 Everything on this branch is spike code: it answers a question, it does
 not ship. If the answer is "not worth it," discard the branch.
 
