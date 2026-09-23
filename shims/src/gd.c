@@ -47,8 +47,7 @@
                          * Raw-ATA backend only -- the syscall backend never
                          * enters gd_read_fad, so isoldr's policy is untouched.
                          * SHIM_LZ4 (T10b) adds gd_lz4.inc.c below gd_read_fad
-                         * -- compressed pak delivery, spec 2026-09-23; it
-                         * needs this knob on (it drives the engine itself). */
+                         * -- compressed pak delivery, spec 2026-09-23. */
 #endif
 #if SHIM_CRC || SHIM_TIME || SHIM_PF_VERIFY
 void scif_puts(const char *); void scif_puthex(unsigned int);

@@ -34,7 +34,7 @@ void scif_puts(const char *); void scif_puthex(unsigned int);
 #define GD_E_LZ4 10   /* decode/CRC failure on a compressed chunk (fell back) */
 
 /* Wait for the DMA frontier to cover `target` bytes. Progress-rearmed
- * budget, same policy as gd_read_fad's GDST poll (gd.c:479-484): only a
+ * budget, same policy as gd_read_fad's GDST poll (gd.c:481-486): only a
  * STALLED GDLEND burns budget; GDST clearing ends the transfer either way
  * (it clears only when GDLEND reaches GDLEN, gdromv3.cpp:1333-1336), so
  * re-read GDLEND on that exit before calling it short. */
@@ -96,17 +96,26 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
     if (!e) return 1;
     if (P2(SHIM_STATE)[SHIM_STATE_GD_BACKEND]) return 1;   /* raw ATA only */
 
-    /* ring-bounce prerequisites -- the same two tripwires as pf_armed
-     * (gd.c): the heap-base steal must have taken (the 64 KB ring RAM
-     * at PF_RING_BASE is really reserved) and the boot must be
-     * main-mode. Scribbling the ring is safe: the pf miss re-aim
-     * empties the window after every mapped read, and prefetch ticks
+    /* ring-bounce prerequisites: the heap-base steal must have taken (the
+     * 64 KB ring RAM at PF_RING_BASE is really reserved) and the boot must
+     * be main-mode. pf_armed (gd.c) is exactly those two tripwires PLUS the
+     * sticky disarm, so ask IT rather than re-implement the pair: cart.c's
+     * fence disarms at site 4 precisely when a game DMA dest overlapped the
+     * ring -- i.e. the ring RAM is demonstrably live game memory, which a
+     * bounce decode must not touch. (pf_armed may arm prefetch as a side
+     * effect of probing; that is the same probe gd_read_cart already runs a
+     * few lines above.) Scribbling an ARMED ring is safe: the pf miss
+     * re-aim empties the window after every mapped read, and prefetch ticks
      * cannot interleave with a read (hooks do not nest). */
+#if SHIM_PREFETCH
+    if (!pf_armed()) return 1;
+#else
     if (*P2(PF_HEAP_BASE_WORD) != PF_HEAP_BASE_NEW) return 1;
     if (P2(SHIM_STATE)[0] != 0) return 1;
+#endif
 
     unsigned phys = (unsigned)(unsigned long)dst & 0x1fffffffu;
-    /* same qualifier shape as gd_read_fad's dma test (gd.c:413-414) */
+    /* same qualifier shape as gd_read_fad's dma test (gd.c:415-416) */
     if ((phys & 31u) || phys < 0x0c000000u || 0x0d000000u - phys < len)
         return 1;
     /* ...plus one this path needs and gd_read_fad does not: the bounce
@@ -125,9 +134,9 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
     unsigned f = e->blob_fad;
 
     /* ---- arm + packet: mirror of gd_read_fad's DMA path (KEEP IN SYNC:
-     * gd.c:381-389 gd_hw_init/DRVSEL/idle, :416-421 OCBI + SB_* arm,
-     * :423-431 FEATURES..BCHI + PACKET, :435 DRQ wait, :455-460 the six
-     * command words, :464 GDST kick). Sole deviation: SB_GDEN = 0 on the
+     * gd.c:383-391 gd_hw_init/DRVSEL/idle, :418-423 OCBI + SB_* arm,
+     * :425-433 FEATURES..BCHI + PACKET, :437 DRQ wait, :457-462 the six
+     * command words, :466 GDST kick). Sole deviation: SB_GDEN = 0 on the
      * packet-wait failure -- the engine is already armed here, whereas in
      * gd_read_fad that failure site is shared with the PIO path. ---- */
     gd_hw_init();
@@ -170,17 +179,22 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
             /* innermost LZ4 chunk: in-place margin is structurally
              * absent (spec amendment 2026-09-23) -- decode into the
              * disjoint 64 KB T3 ring instead, then copy home. */
-            if (LZ4_decompress_safe((const char *)(inb + L.in_off),
-                                    (char *)PF_RING_BASE,
-                                    (int)L.csize, (int)L.usize) != (int)L.usize)
-                goto lz4_bad;
-            lz4_copy32(out + L.out_off,
-                       (const unsigned char *)PF_RING_BASE, L.usize);
+            int rb = LZ4_decompress_safe((const char *)(inb + L.in_off),
+                                         (char *)PF_RING_BASE,
+                                         (int)L.csize, (int)L.usize);
+            if (rb == (int)L.usize)
+                lz4_copy32(out + L.out_off,
+                           (const unsigned char *)PF_RING_BASE, L.usize);
             /* ring lines are dirty P1 now; discard them so a later P2
              * prefetch fill can't be clobbered by a stale writeback
-             * (the C1 rule) */
+             * (the C1 rule). Runs BEFORE the verdict, so the failure exit
+             * cleans up too: a partial decode's write extent is unknown,
+             * so discard the whole span it could have touched -- leaking
+             * dirty ring lines into gd_prefetch_tick's next P2 fill would
+             * corrupt prefetch-served cart bytes on eviction. */
             for (unsigned a2 = PF_RING_BASE, e2 = a2 + L.usize; a2 < e2; a2 += 32u)
                 __asm__ __volatile__("ocbi @%0" : : "r"(a2) : "memory");
+            if (rb != (int)L.usize) goto lz4_bad;
         } else if (LZ4_decompress_safe((const char *)(inb + L.in_off),
                                        (char *)(out + L.out_off),
                                        (int)L.csize, (int)L.usize) != (int)L.usize) {
@@ -194,8 +208,10 @@ static int gd_read_lz4(unsigned cart_off, void *dst, unsigned len) {
     }
 
     /* ---- epilogue: mirror of gd_read_fad's DMA end (KEEP IN SYNC:
-     * gd.c:479-494 GDST poll/gd_diag[6]/ISTNRM ack/GDST+GDLEND verdict,
-     * :538-553 the shared end-of-command verdict) ---- */
+     * gd.c:481-494 GDST poll/gd_diag[6]/ISTNRM ack/GDST+GDLEND verdict,
+     * :540-555 the shared end-of-command verdict -- minus its :545-550
+     * drain-forensics loop, which counts leftover PIO DRQ bytes and says
+     * nothing on a path that just asserted GDLEND == r_bytes) ---- */
     if (lz4_wait_lend(e->r_bytes)) {
         SB_GDEN = 0;
         *(volatile unsigned int *)0xa05f6900 = 1u << 14;
