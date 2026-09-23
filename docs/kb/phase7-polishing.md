@@ -2994,3 +2994,72 @@ with no visible corruption.
 Emulator legs are correctness evidence only; the rate/wall evidence is
 the hardware leg (Task 7, gate 4 — the `SHIM_TIME` leg against the
 1.237 s baseline wall).
+
+### Task 7 (steps 1–2): hardware timing build — banked, deploy pending
+
+Build:
+```
+make clean && make gdi SERIAL=1 TIME=1 LZ4=1
+```
+`build/track04.iso` md5 `9a0d115cfea556b7cfe29b848d0856b3`. No
+CRC/LZ4CRC knobs (they'd distort the timing; SHIMTIME's own overhead is
+the same one the 1.237 s baseline carried) and no `MENU=0` (the
+operator is present and presses START — menu ON is the ship shape).
+
+**Deploy gotcha found this round:** `deploy: gdi` unconditionally reruns
+`make_gdi.py $(GDI_FLAGS)`, and `GDI_FLAGS += --lz4` is gated on `LZ4=1`
+being set **on that make invocation** — it is a make-variable, not
+persisted from the build above (each `make` call is a fresh process). A
+bare `make deploy` run after the flagged build above silently
+re-mastered `track04.iso` **without** the appended LZ4 pak — confirmed
+first-hand: md5 changed to `24baa4a385cba8472744016bb31193c3`, no
+`lz4pak:` line in the log. That would have deployed the wrong disc to
+hardware. `SERIAL=1`/`TIME=1` don't need repeating for deploy (already
+baked into the linked `loader.elf`/`1ST_READ.BIN`, which the `gdi`
+target doesn't recompile) — but **`LZ4=1` must be repeated on the
+deploy invocation**:
+```
+make deploy SERIAL=1 TIME=1 LZ4=1        # CARD=/Volumes/GDEMU/NN to override
+```
+Rebuilt with `make gdi SERIAL=1 TIME=1 LZ4=1` after catching this; md5
+back to `9a0d115cfea556b7cfe29b848d0856b3` (deterministic — same build
+command, same output).
+
+**Deploy: pending.** `/Volumes/GDEMU/03` (default `CARD`) not mounted
+this session — expected, no card inserted. Operator must insert the
+GDEMU card and run `make deploy SERIAL=1 TIME=1 LZ4=1` (or
+`CARD=/Volumes/GDEMU/NN` for a different slot) before the hardware leg.
+
+### Task 7: operator protocol (hardware leg, gate 4)
+
+Coder's cable attached; **serial-SD dongle DETACHED** (both own the
+same SCIF pins — tooling.md's own rule, never run the two together).
+
+1. `scripts/capture_serial.sh phase7/hw-t10b-2` — start **before**
+   powering on the console, so the loader banner lands in the log.
+2. Boot the console. Play recipe (mirrors §T10b gate-2's leg, above):
+   menu START GAME → 2P match → mode select → Beginner → 2P START →
+   second char-select entry (the window-B reload) → stage select →
+   into the fight.
+3. **Power off after the second match begins** — window B has fired
+   twice by then (once per match entry, the same "both match entries"
+   churn signature the emulator legs recorded).
+4. Hand back the log.
+
+**Digest:**
+```
+python3 scripts/parse_shimtime.py captures/phase7/hw-t10b-2.log
+```
+Read the `o=0935a800 l=007e7800` row's `d=` (in-driver wall, TMU0
+ticks → seconds via the echoed `tcr`).
+
+**Pre-registered bar** (spec gate 4,
+`docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md`):
+today's 1.237 s in-driver baseline (§T10, uncompressed). **≤ 0.9 s:
+keep** (record −X %, proceed to Task 8). **> 1.1 s: discard** (record
+the number, stop — the branch keeps the spike + evidence, nothing
+merges). **Between: operator's call** — present both numbers and ask.
+
+Steps 3–5 (run the leg live, digest the log, record the verdict) are
+the controller/operator's to run — not executed from this session; no
+hardware was touched preparing this entry.
