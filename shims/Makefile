@@ -49,6 +49,7 @@ CFLAGS += -I../build
 $(B)/lz4_dec.o: ../tools/t10b/lz4/lz4.c
 	mkdir -p $(B)
 	$(CC) $(CFLAGS) -DLZ4_FREESTANDING=1 -DLZ4_FORCE_SW_BITCOUNT \
+	  -DLZ4_SH4_WILDCOPY=1 \
 	  -D'LZ4_memcpy(d,s,n)=__builtin_memcpy(d,s,n)' \
 	  -D'LZ4_memmove(d,s,n)=__builtin_memmove(d,s,n)' \
 	  -D'LZ4_memset(d,c,n)=__builtin_memset(d,c,n)' \

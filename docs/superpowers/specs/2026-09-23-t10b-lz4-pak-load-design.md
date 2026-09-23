@@ -248,3 +248,68 @@ a NEW hang mode — strictly worse than today:
 - KB: `docs/kb/t10b-spike.md` pointer to this spec;
   `docs/kb/phase7-polishing.md` §T10 addendum; leg records as they
   land.
+
+## Amendment 4 (2026-09-23): decode-bound fix — SH4 span wildcopy with movca.l
+
+**Why.** Gate 4 landed at 1.011 s (between-band; operator ruled: one
+targeted iteration). The diagnostic leg `hw-t10b-4` (SHIMLZ4 split, KB
+§T10b) proved the window **decode-bound**: w = 61 ms link-wait vs
+c = 948 ms CPU work; decode runs 8.7 MB/s under the live DMA vs 14.3
+contention-free. Disassembly of `lz4_dec.o` shows why the decoder is
+this slow: on SH4, GCC lowers `LZ4_memcpy(d,s,8)` (unknown alignment,
+strict-alignment target) to a **call** — every long literal/match copy
+is a `jsr lz4_memcpy` loop, 8 bytes per call — and every output line
+write-miss costs an allocate-read (OC is 16 KB direct-mapped copy-back,
+write-allocate: `tools/kos/.../arch/cache.h:39-45`, `dc/cache.h:42`).
+
+**Design.** All long copies in the generic decode path funnel through
+`LZ4_wildCopy8` (lz4.c:465; call sites 2332 literals, 2425/2432
+matches; the FAST_DEC_LOOP variants are not compiled on SH4). Patch
+exactly that function, under `#if defined(LZ4_SH4_WILDCOPY)` (target
+build only — host pack/verify builds stay pristine), to call
+`lz4_sh4_wildcopy(d, s, e)` in `shims/src/lz4_mem.c`:
+
+- **Fallback** (distance `|d−s| < 32` or span < 64 B): exact forward
+  byte copy. Forward-exact is safe for every overlap the caller can
+  legally present (callers guarantee offset ≥ 8 after the offset<8
+  fixup; forward byte copy is safe for offset ≥ 1).
+- **Line path** (distance ≥ 32 and span ≥ 64): byte-copy head until
+  dst is 32-aligned, then per interior 32-byte line: `movca.l` the
+  first word (allocate WITHOUT the RAM read — SH7750 manual §4.2.5;
+  same instruction KOS wraps as `arch_dcache_alloc_line`,
+  arch/cache.h:83), store the remaining 7 words; co-aligned sources
+  use word loads, misaligned sources shift-merge from aligned words
+  (LE merge: `(prev>>8a)|(cur<<(32−8a))`). Exact byte tail.
+- **No overrun**: unlike stock wildCopy8 (up to 8 B past dstEnd), the
+  replacement copies exactly [d,e) — strictly within the contract and
+  the in-place margins.
+
+**Safety argument (movca writes garbage to unwritten line bytes).**
+`movca.l` is issued only on lines fully inside [d,e), so no byte
+outside the requested copy is ever touched. Within the span: reads for
+the line being filled come from `line ± distance` with distance ≥ 32,
+i.e. never from the line under construction (matches read ≥ 32 behind
+the write frontier — already final; literals read ≥ 32 ahead — outside
+the movca'd line). Interrupt-eviction mid-line is self-healing: the
+eviction writes back garbage tail bytes, the resuming store misses,
+allocate-reads them back and overwrites — no reader exists mid-decode.
+Both decode destinations (game buffer, T3 ring) are P1 copy-back
+(`CCR_CB`, dc/cache.h:42), the mode movca requires. The per-chunk
+`lz4_ocbp` flush after decode is unchanged, so delivered bytes reach
+RAM exactly as before.
+
+**Emulator caveat.** Flycast implements `movca.l` as a plain 32-bit
+store with no cache model (`core/hw/sh4/interpr/sh4_opcodes.cpp:
+788-794`, "TODO ocache") — the emulator CRC gate therefore proves the
+copy SEQUENCING (shift-merge math, guards, tails) but not the cache
+semantics; those are covered by the line-interior-only rule above and
+observed on the hardware leg.
+
+**Gates (re-registered).** Build A/B knob-off md5 vs branch point
+(`750879c8cabd6622c53a5c93d852770e`); emulator CRC leg (LZ4CRC per-chunk
+crc32 vs source, both window-B serves, plus functional play-through);
+hardware leg `hw-t10b-5` with the SHIMLZ4 split. **Bar: unchanged
+gate-4 bar** — ≤ 0.9 s keep, > 1.1 s discard, between = operator's
+call. Expectation: c drops toward ~0.6-0.7 s; if the decoder starts
+outrunning the link, w grows (GDLEND polling is P4 traffic, not RAM)
+and the wall approaches the link floor ~0.8 s.

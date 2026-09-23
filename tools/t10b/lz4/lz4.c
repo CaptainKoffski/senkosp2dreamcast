@@ -464,11 +464,24 @@ static void LZ4_writeLE16(void* memPtr, U16 value)
 LZ4_FORCE_INLINE
 void LZ4_wildCopy8(void* dstPtr, const void* srcPtr, void* dstEnd)
 {
+#if defined(LZ4_SH4_WILDCOPY)
+    /* senkosp T10b (vendor patch, target build only): on SH4, GCC lowers
+     * the 8-byte LZ4_memcpy to a CALL per iteration, and every output
+     * line write-miss allocate-reads from RAM against the live G1 DMA.
+     * Route the whole span to an SH4 copy that movca.l-allocates interior
+     * lines. Copies exactly [dstPtr,dstEnd) -- no 8-byte overrun --
+     * strictly within this function's contract. Spec: senkosp
+     * docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md
+     * Amendment 4; impl: shims/src/lz4_mem.c. */
+    extern void lz4_sh4_wildcopy(void *d, const void *s, void *e);
+    lz4_sh4_wildcopy(dstPtr, srcPtr, dstEnd);
+#else
     BYTE* d = (BYTE*)dstPtr;
     const BYTE* s = (const BYTE*)srcPtr;
     BYTE* const e = (BYTE*)dstEnd;
 
     do { LZ4_memcpy(d,s,8); d+=8; s+=8; } while (d<e);
+#endif
 }
 
 static const unsigned inc32table[8] = {0, 1, 2,  1,  0,  4, 4, 4};
