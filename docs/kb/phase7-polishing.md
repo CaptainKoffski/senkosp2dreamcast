@@ -2884,3 +2884,113 @@ Known residuals carried out of the phase (all banked, none gating):
 - Housekeeping (operator's call, sibling repo): delete
   `../cleopatra/tools/flycast-src/build-old-sdk265/` (295 MB) — the
   new Flycast build now has hardware-verified legs behind it.
+
+---
+
+## T10b — transparent LZ4 pak load (spec 2026-09-23)
+
+Post-wind-down follow-on (branch `t10b-spike`, spec
+`docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md`): T10
+closed with window B (game→2P char-select stage-pak reload,
+`0x0935a800`/`0x7e7800`, 8.3 MB) pinned at the measured 6.7 MB/s GDEMU
+DMA ceiling, no headroom left on the wire. The `t10b-spike` throwaway
+branch asked whether **fewer bytes** could still shrink the wall —
+LZ4-compressed on disc, shim-inflated at load, chunked
+DMA-N+1‖decompress-N overlap — and answered YES on the bench
+(`docs/kb/t10b-spike.md`: SH4 decompress 14.3 MB/s, clears the 10.8 MB/s
+bar). Tasks 1–5 built the real feature behind `LZ4=1`/`LZ4CRC=1` knobs;
+this entry banks the emulator correctness gates (gates 2–3) that decide
+whether the hardware leg (gate 4, Task 7) is worth running.
+
+### Build
+
+```
+make clean && make gdi SERIAL=1 CRC=1 LZ4=1 LZ4CRC=1
+```
+`track04.iso` md5 `c9aa7f33e79b112a9c2b14f330ce0aa3`. This default build
+hangs/reboot-loops at the loader's own T9 pre-game menu under an
+*unattended* capture window (the menu waits for input by design — not
+an LZ4 defect). Rebuilt with the existing "unattended emulator legs"
+knob:
+```
+make clean && make gdi SERIAL=1 CRC=1 LZ4=1 LZ4CRC=1 MENU=0
+```
+`track04.iso` md5 `be428622ddf3e7ac6a70d8846d9ec565` — **this is the
+build the passing legs below ran against.**
+
+### Tooling note (found this round)
+
+`scripts/capture_leg.sh`'s default ROM arg is the stock `roms/senkosp.zip`
+(Naomi-cart profile — confirmed via the `N[NAOMI]: NAOMI GAME ID` log
+line) and never touches the built loader/shim at all. The script for the
+built disc is `scripts/capture_dc_leg.sh` (defaults to `build/disc.gdi`,
+also writes the `.stdout.log` companion itself). Three early legs
+(`t10b-lz4-boot-smoke1/2/3`) used the wrong script and are not evidence
+of anything about this build.
+
+### Reaching window B: needs a human
+
+Confirmed (not assumed) this round: `o=0935a800` is the **game-start**
+read — fires on a real 2P match entry, not during attract's own
+scripted demo battle (which reads a different tuple, `o=0b496800
+l=003be800`). No scripted-input path exists in this environment:
+`osascript … keystroke` still fails `-1743` (no Accessibility grant),
+matching the `tooling.md` §T8 dead end from 2026-09-07. Four unattended
+attempts (`t10b-lz4-crc1..4`, default and `MENU=0` builds, 360–560 s
+each, two with the operator manually pressing A past the pre-game menu)
+never reached window B — attract alone is slow and RNG/sequence-dependent
+in the emulator (per T9's own ~150 s "just to enter attract" figure) and
+a blind long window is not a reliable way to catch the moment. The gate
+only closed once the operator drove the leg live.
+
+### Gate 2 (CRC) — PASS
+
+**Leg:** `captures/phase7/t10b-lz4-crc5.stdout.log` (+ `.log` cartlog),
+`MENU=0` build (md5 above), launched via `scripts/capture_dc_leg.sh`,
+killed by PID after play. Narrative (operator-driven, verbatim):
+attract → char select 2P → match (P1 won) → mode select → Beginner → 2P
+START → char select **second** entry (the window-B transition) → stage
+select → fight. The log's opening stretch is unattended attract
+(operator briefly away) — irrelevant to the gate, noted for anyone
+reading the raw log.
+
+`LZ4OK` count = **2** (both `o=0935a800 l=007e7800` — one per match
+entry, matching T10's own "behind both match entries" churn signature).
+`LZ4FAIL` = 0. `SHIMERR` = 0. Both serves' `SHIMCRC c=757517bb`;
+independently verified `zlib.crc32(senkosp.dat[0x0935a800:+0x7e7800]) ==
+0x757517bb` (this pak region is texpatch-free, so the raw `.dat` is
+valid ground truth here).
+
+`scripts/check_stream_crc.py --stdout … --cartlog … --dat senkosp.dat
+--track04 build/track04.iso`: `gdread_match` PASS (10,577 reads
+verified, 0 mismatches); `coverage_nonzero` PASS (shim 530 / drive
+10,581); `shimcrc_match` reported 18/530 mismatches **against the raw
+`.dat`** — every one of the 18 cross-references to a
+`build/texpatch/manifest.json` record (the script's own documented
+caveat: default `make_gdi.py` builds splice `shrink_vq.py` texture
+records into track04's cart region, so a pristine `.dat` mismatches
+there by design; `gdread_match` — checked against `track04.iso`, the
+on-disc truth — already confirms those bytes are correct). The 18
+`(o,l)` pairs, all texpatch hits: `0x01e76800/0x179800`,
+`0x05ce7800/0xeb000`, `0x0626d000/0xc5800`, `0x077d5000/0xf6800`,
+`0x07e43000/0x124000`, `0x0b496800/0x3be800` (×2),
+`0x05ebd000/0xea800` (×2), `0x060e7800/0xc3000`, `0x079c1000/0xf2000`,
+`0x0741a800/0x11a800`, `0x063fb800/0xbd800`, `0x05a2e800/0xe6800` (×2),
+`0x05dd2800/0xea800` (×2), `0x07bab800/0xfb000`.
+
+**Gate 2 verdict: PASS.** Window B served compressed, decoded correct,
+zero fallback, zero corruption signal.
+
+### Gate 3 (functional) — PASS
+
+Same leg, same narrative: the played sequence proceeded through **two**
+match entries across the window-B reload — no die-screen, no hang, no
+serial error line (`SHIMERR` = 0 for the whole capture). Char-select,
+stage-select and in-fight textures all rendered through the sequence
+with no visible corruption.
+
+**Gate 3 verdict: PASS.**
+
+Emulator legs are correctness evidence only; the rate/wall evidence is
+the hardware leg (Task 7, gate 4 — the `SHIM_TIME` leg against the
+1.237 s baseline wall).
