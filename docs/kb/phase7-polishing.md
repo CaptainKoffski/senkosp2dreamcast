@@ -3188,9 +3188,30 @@ KOS `arch_dcache_alloc_line`, Flycast `movca.l` = plain store
   Proves copy sequencing; movca cache semantics are hardware-only
   (Flycast caveat above) — covered by the leg below.
 
-**Hardware leg `hw-t10b-5` (pending):** build
-`make gdi SERIAL=1 TIME=1 LZ4=1`, track04 md5
-`4643c3cf518b98dd7625da67758fcf2d`; deploy with the same knobs;
-protocol identical to hw-t10b-3/-4 (same play recipe, SHIMLZ4 split
-row expected). Bar: unchanged gate-4 bar — ≤ 0.9 s keep, > 1.1 s
-discard, between = operator's call.
+**Hardware leg `hw-t10b-5`** (build `make gdi SERIAL=1 TIME=1 LZ4=1`,
+track04 md5 `4643c3cf518b98dd7625da67758fcf2d`, verified on card
+before eject; operator-played, same recipe;
+`captures/phase7/hw-t10b-5.log`):
+
+    SHIMTIME o=0935a800 l=007e7800 s=fe8519a0 d=000ad072
+    SHIMTIME o=0935a800 l=007e7800 s=fa08a840 d=000ad0dc
+    SHIMLZ4 w=00014cf4 c=00096d4e
+    SHIMLZ4 w=00014bd9 c=00096ed4
+
+At 781.25 kHz: **d = 0.9072/0.9073 s** (serves agree to 0.14 ms),
+w = 109.1/108.7 ms, c = **790.8/791.3 ms**, residual 7.3 ms (same
+arm/ocbi overhead as hw-t10b-4). No LZ4FAIL, no fallback, no failure
+records; both serves compressed-delivered; played through both match
+entries clean — the movca cache semantics held on real silicon.
+
+**Effect of Amendment 4:** decode CPU work 947.7 → 790.9 ms
+(decode rate 8.7 → **10.5 MB/s** under the live DMA, +20%); link-wait
+60.6 → 109 ms (decoder now outruns the link in stretches). The
+pipeline is near-balanced: c ≈ 0.79 s ≈ the 5,279,744 B ÷ 6.7 MB/s
+transfer floor (0.788 s) — the two legs of the overlap now finish
+within ~2% of each other.
+
+**Progression:** baseline 1.237 s → v1 in-place 1.011 s → movca
+0.907 s = **−0.330 s, −26.7% total**. Vs the pre-registered bar
+(≤ 0.9 keep / > 1.1 discard): 0.907 s is 7 ms (0.8%) above the keep
+bar — formally the between-band again: operator's call.
