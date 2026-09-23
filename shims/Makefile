@@ -20,6 +20,33 @@ SRCS = src/main.c src/scif.c src/util.c src/gd.c src/gd_sys.c src/gd_testsrv.c \
 # body is `#if GD_TEST_SERVER` -- an empty translation unit on every normal
 # build, live only under the top Makefile's TESTSRV=1 (fix round 2,
 # task-6-report.md).
+# T10b (SHIM_LZ4 builds only): vendored LZ4 decoder, decompressor-only.
+# lz4.c compiles with -ffunction-sections, then a partial link keeps just
+# _LZ4_decompress_safe's call graph -- the compressor (~8-10 KB) would blow
+# the 16 KB shim window (shim.ld ASSERT). LZ4_FREESTANDING=1: no libc
+# includes; variable-length builtins land on src/lz4_mem.c's symbols.
+# Two deviations from the vendored source's own defaults, discovered building
+# this: (1) lz4.h's LZ4_FREESTANDING guard checks LZ4_memcpy/memmove/memset
+# are already #defined at the top of lz4.c's own #include "lz4.h" -- before
+# lz4.c's later (line ~347) __builtin_* fallback runs -- so they must be
+# supplied here as function-like -D macros or the build errors out.
+# (2) sh-elf-ld's bare default emulation is big-endian; our -ml object needs
+# -m shlelf or it refuses to merge ("incompatible instructions").
+ifneq (,$(findstring SHIM_LZ4,$(DEFS)))
+LD = /opt/toolchains/dc/sh-elf/bin/sh-elf-ld
+SRCS += src/lz4_lay.c src/lz4_mem.c $(B)/lz4_dec.o
+CFLAGS += -I../build
+$(B)/lz4_dec.o: ../tools/t10b/lz4/lz4.c
+	mkdir -p $(B)
+	$(CC) $(CFLAGS) -DLZ4_FREESTANDING=1 \
+	  -D'LZ4_memcpy(d,s,n)=__builtin_memcpy(d,s,n)' \
+	  -D'LZ4_memmove(d,s,n)=__builtin_memmove(d,s,n)' \
+	  -D'LZ4_memset(d,c,n)=__builtin_memset(d,c,n)' \
+	  -ffunction-sections -fdata-sections \
+	  -c $< -o $(B)/lz4_full.o
+	$(LD) -m shlelf -r --gc-sections -u _LZ4_decompress_safe $(B)/lz4_full.o -o $@
+$(B)/shim.elf: $(B)/lz4_dec.o ../build/lz4pak_map.h src/gd_lz4.inc.c include/lz4_lay.h
+endif
 
 .PHONY: all test clean
 all: $(B)/shim.bin $(B)/shim.map
