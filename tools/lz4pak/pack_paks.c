@@ -129,13 +129,73 @@ int main(int argc, char **argv) {
         }
         struct lz4pak_entry e = { PAKS[p].off, ulen, blob_fad, R, front, n, ch };
         struct lz4_lay L;
+        unsigned base_off = ulen - R;   /* dest offset of the DMA/blob window */
         for (unsigned i = 0; i < n; i++) {
             if (lz4pak_lay(&e, i, &L) || L.csize != csize[i] || L.stored != stored[i]
                 || L.bounced != bounce[i]) {
                 fprintf(stderr, "pak %u chunk %u: lay mismatch\n", p, i); return 1; }
-            if (L.out_off + L.usize > (ulen - R) + L.lend_target) {
+            if (L.out_off + L.usize > base_off + L.lend_target) {
                 fprintf(stderr, "pak %u chunk %u: INVARIANT FAIL\n", p, i); return 1; }
+            /* fix-loop finding 2(a): the lay re-check above only proves
+             * slack >= 0 (weaker) -- prove the REAL LZ4 in-place margin
+             * for every non-bounced kept-LZ4 chunk (lz4.h
+             * LZ4_DECOMPRESS_INPLACE_MARGIN: dst needs (csize>>8)+32
+             * bytes of headroom past where unconsumed input starts). */
+            if (!L.stored && !L.bounced) {
+                unsigned long long have = (unsigned long long)base_off + L.in_off + L.csize;
+                unsigned long long need = (unsigned long long)L.out_off + L.usize
+                                         + (L.csize >> 8) + 32u;
+                if (have < need) {
+                    fprintf(stderr, "pak %u chunk %u: MARGIN FAIL (have=%llu need=%llu)\n",
+                            p, i, have, need); return 1;
+                }
+            }
         }
+        /* fix-loop finding 2(b): control test -- simulate the REAL in-place
+         * decode once on the host instead of round-tripping each chunk in
+         * isolation into scratch (that only proves the compressor works;
+         * this proves the mastering). Lay the padded stream right-
+         * justified exactly like the blob/DMA would, then decode chunk by
+         * chunk IN PLACE in delivery order: stored = forward copy,
+         * bounced = via a 64 KB scratch (reuses `back`, standing in for
+         * the T3 ring) then copied in, kept-LZ4 = true in-place
+         * LZ4_decompress_safe (src and dst alias the same buffer). A sign
+         * error in the classification sweep would corrupt an unconsumed
+         * chunk here even if the isolated round-trip above passed. */
+        {
+            unsigned char *sim = malloc(ulen);
+            if (!sim) { perror("malloc sim"); return 1; }
+            for (unsigned i = 0; i < n; i++) {
+                lz4pak_lay(&e, i, &L);
+                unsigned in_abs = base_off + L.in_off;
+                memcpy(sim + in_abs, comp[i], L.csize);
+                memset(sim + in_abs + L.csize, 0, a32(L.csize) - L.csize);
+            }
+            for (unsigned i = 0; i < n; i++) {
+                lz4pak_lay(&e, i, &L);
+                unsigned in_abs = base_off + L.in_off;
+                if (L.stored) {
+                    memmove(sim + L.out_off, sim + in_abs, L.usize);
+                } else if (L.bounced) {
+                    if (LZ4_decompress_safe((char *)sim + in_abs, (char *)back,
+                                            (int)L.csize, (int)L.usize) != (int)L.usize) {
+                        fprintf(stderr, "pak %u chunk %u: SIM BOUNCE FAIL\n", p, i);
+                        free(sim); return 1;
+                    }
+                    memcpy(sim + L.out_off, back, L.usize);
+                } else if (LZ4_decompress_safe((char *)sim + in_abs, (char *)sim + L.out_off,
+                                               (int)L.csize, (int)L.usize) != (int)L.usize) {
+                    fprintf(stderr, "pak %u chunk %u: SIM IN-PLACE FAIL\n", p, i);
+                    free(sim); return 1;
+                }
+            }
+            if (memcmp(sim, plain, ulen)) {
+                fprintf(stderr, "pak %u: IN-PLACE SIM MISMATCH\n", p);
+                free(sim); return 1;
+            }
+            free(sim);
+        }
+        printf("pak %u: IN-PLACE SIM PASS\n", p);
         /* emit blob: front pad, then each chunk zero-padded to a32 */
         static const unsigned char zero[2048];
         fwrite(zero, 1, front, fb);
