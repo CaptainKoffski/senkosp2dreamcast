@@ -2743,6 +2743,13 @@ remaining lever on B would be async overlap (kick+poll conversion in
 `gd.c`, recorded caveats §T2 verdict (b)) — renderer-level surgery
 risk for a cosmetic payoff; not proposed.
 
+> **Addendum (2026-09-24): the floor was revisited and beaten by T10b
+> (§T10b below, branch `t10b-spike`).** The ceiling claim stands — the
+> link never got faster — but sending FEWER bytes (transparent LZ4 pak
+> delivery, DMA-overlapped SH4 inflate, movca.l copy path) took window
+> B from 1.237 s to 0.907 s (−26.7%). "Floor reached" was true of the
+> transport, not of the window.
+
 **Gate for (ii):** "shrink the pause via (i)" is off the table. The
 misaligned-frame park during the pause is now a two-option decision:
 (a) pin the circling animation counter to the aligned frame while
@@ -3215,3 +3222,20 @@ within ~2% of each other.
 0.907 s = **−0.330 s, −26.7% total**. Vs the pre-registered bar
 (≤ 0.9 keep / > 1.1 discard): 0.907 s is 7 ms (0.8%) above the keep
 bar — formally the between-band again: operator's call.
+
+### T10b FINAL VERDICT (2026-09-24): operator ruled KEEP
+
+Rationale accepted with the ruling: the pipeline is balanced (decode
+0.791 s ≈ transfer floor 0.788 s), so the theoretical remaining prize
+with this format is ~0.10 s and not worth further build-gate-leg
+cycles. Feature stays on branch `t10b-spike` pending the operator's
+merge decision (finishing flow). Stable tags: `t10b-v1` (in-place
+build, 1.011 s); final tree = branch HEAD.
+
+**Record correction (Task 8):** Task 3's ledgered knob-off baseline
+md5 `9a0b34bb…` predates the gate-5 redefinition and reproduces at
+neither end of the branch (KOS-decoupling path bake, see the gate-5
+investigation note in the spec) — the authoritative knob-off
+reference is the branch-point A/B md5
+`750879c8cabd6622c53a5c93d852770e`, re-verified after every
+amendment, last on 2026-09-23 (Amendment 4).

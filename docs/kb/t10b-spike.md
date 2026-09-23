@@ -1,5 +1,12 @@
 # T10b spike — can the load floor be beaten? (branch `t10b-spike`, THROWAWAY)
 
+> **The real build was implemented from this spike (2026-09-23/24) and
+> KEPT: window B 1.237 → 0.907 s on hardware.** This file remains the
+> spike record only. The implementation story lives in
+> `phase7-polishing.md` §T10b; design + 4 amendments in
+> `docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md`;
+> tooling records in `tooling.md` §T10b.
+
 **Status: ANSWERED (2026-09-23, hardware leg `phase7/hw-t10b-1`) — YES,
 the bar is met.** Operator-run boot on the bench rig (GDEMU + coder's
 cable), bench build track04 `3da5e22…`:

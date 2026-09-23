@@ -12,6 +12,18 @@ video-mode pin for both cables. Known residuals are banked in the
 wind-down section. Honest limit unchanged: single-rig evidence — one
 console, one GDEMU, one SD card.
 
+**Post-release experiment (2026-09-23/24, branch `t10b-spike`,
+UNMERGED — main untouched): T10b transparent LZ4 pak load, KEPT by
+operator ruling.** The 2P char-select stage-pak reload (window B, the
+one felt load pause) went 1.237 s → 0.907 s (−26.7%) on real
+hardware: paks stored LZ4-HC on disc, one G1 DMA into the tail of the
+game's own dest buffer, chunk-wise in-place inflate chasing
+`SB_GDLEND`, movca.l line-allocating copy path. All gates green
+(per-chunk CRC vs source on target, knob-off builds byte-identical to
+branch point, three hardware timing legs). Story: `phase7-polishing.md`
+§T10b; spec `docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md`
+(4 amendments); merge decision pending with the operator.
+
 ## What this is
 
 Static binary conversion of *Senko no Ronde Special* (Sega Naomi GD-ROM,

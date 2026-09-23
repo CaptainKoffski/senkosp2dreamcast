@@ -2490,3 +2490,76 @@ specs, adapted-from notes — deliberately untouched).
   this time. The Syphon patch lands as a working-tree modification inside
   the submodule (` M CMakeLists.txt` — expected; a fork can't carry
   submodule commits, see the fork's `patches/README.md`). Exit 0.
+
+## T10b — LZ4 pak toolchain (2026-09-23/24, branch t10b-spike)
+
+Everything below exists only on branch `t10b-spike` (kept by operator
+ruling 2026-09-24; unmerged as of writing). Story: `phase7-polishing.md`
+§T10b; spec + 4 amendments:
+`docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md`.
+
+### pack_paks (host mastering tool)
+
+`tools/lz4pak/pack_paks.c` (in git via `git add -f`; tools/ is
+gitignored). Built and run by the top-level `make lz4pak` (also a
+dependency of `make gdi LZ4=1`):
+
+    cc -O2 -DHOST_TEST -Ishims/include -Itools/t10b/lz4 -o build/pack_paks \
+      tools/lz4pak/pack_paks.c tools/t10b/lz4/lz4.c tools/t10b/lz4/lz4hc.c \
+      shims/src/lz4_lay.c shims/src/gd.c
+    build/pack_paks senkosp.dat build   # emits build/lz4paks.bin + lz4pak_map.{h,json}
+
+Compresses the window-B pak (0x0935a800+0x7e7800) as 127 × 64 KB
+LZ4-HC-9 chunks (right-justified in-place layout, innermost kept chunk
+flagged BOUNCE), verifies an exact in-place decode simulation
+(`IN-PLACE SIM PASS`) + margin asserts + round-trip, and emits the blob
+(5,279,744 B) + map. Outputs are derived game bytes — gitignored, never
+committed.
+
+### Build knobs (top-level Makefile)
+
+- `LZ4=1` — compile the shim compressed-delivery path
+  (`-DSHIM_LZ4=1`), append the blob inside track04 (`make_gdi.py
+  --lz4`, FAD 574604 = CART_FAD + CART_SIZE/2048), depend on
+  `lz4pak`. **Must be repeated on `make deploy`** — the deploy target
+  re-masters track04 and make variables do not persist across
+  invocations (gotcha materialized: leg hw-t10b-2 booted a stale
+  disc; always verify the md5 ON THE CARD before eject).
+- `LZ4CRC=1` — per-chunk crc32 vs the source-derived map at runtime +
+  `LZ4OK`/`LZ4FAIL` serial rows (correctness legs only).
+- `TIME=1` — SHIMTIME rows; LZ4-served reads add a `SHIMLZ4 w= c=`
+  row (link-wait vs CPU-work TMU0 ticks, 781.25 kHz).
+- Knob hygiene: `make clean` between knob flips; knob-off builds are
+  byte-identical to the branch point
+  (`750879c8cabd6622c53a5c93d852770e`), re-verified per amendment.
+
+### Freestanding decoder object (lz4_dec.o technique)
+
+Vendored lz4 v1.10.0 (`tools/t10b/lz4/`, BSD-2) compiled freestanding
+for the shim (shims/Makefile, under `SHIM_LZ4` in `DEFS`):
+
+    sh-elf-gcc $(CFLAGS) -DLZ4_FREESTANDING=1 -DLZ4_FORCE_SW_BITCOUNT \
+      -DLZ4_SH4_WILDCOPY=1 -D'LZ4_memcpy(d,s,n)=__builtin_memcpy(d,s,n)' \
+      ... -c tools/t10b/lz4/lz4.c -o build/lz4_full.o
+    sh-elf-ld -m shlelf -r --gc-sections -u _LZ4_decompress_safe \
+      build/lz4_full.o -o build/lz4_dec.o
+    sh-elf-objcopy --redefine-sym _memcpy=_lz4_memcpy \
+      --redefine-sym _memmove=_lz4_memmove \
+      --redefine-sym _memset=_lz4_memset build/lz4_dec.o
+
+Why each flag: `-r --gc-sections -u` keeps only the decompressor from
+the full lz4.c (compression side dropped); `LZ4_FORCE_SW_BITCOUNT`
+kills a libgcc `___ctzsi2` reference (SH4 has no ctz);
+`--redefine-sym` retargets the compiler-emitted mem* calls onto the
+LZ4-private `shims/src/lz4_mem.c` versions (the plain names collide
+with util.c's shim-wide byte-loop mem*, which must not change or
+knob-off bytes move); `LZ4_SH4_WILDCOPY=1` activates the one vendor
+patch — `LZ4_wildCopy8` routed to `lz4_sh4_wildcopy` (lz4_mem.c):
+movca.l line-allocating span copy (Amendment 4; host builds of the
+same lz4.c stay pristine — the define is target-only).
+
+### Vendor patch note
+
+`tools/t10b/lz4/lz4.c` carries exactly one senkosp modification: the
+`#if defined(LZ4_SH4_WILDCOPY)` block inside `LZ4_wildCopy8`
+(lz4.c:465). Upgrading the vendored lz4 requires re-applying it.
