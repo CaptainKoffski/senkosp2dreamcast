@@ -3239,3 +3239,13 @@ investigation note in the spec) — the authoritative knob-off
 reference is the branch-point A/B md5
 `750879c8cabd6622c53a5c93d852770e`, re-verified after every
 amendment, last on 2026-09-23 (Amendment 4).
+
+**Final whole-branch review (2026-09-24, 23 commits, independent
+reviewer + scoped re-verify):** 0 Critical / 2 Important / 8 Minor,
+verdict "ready to merge with fixes"; both Importants fixed and
+verified (deploy tripwire in `make_gdi.py` + `make clean` now clears
+LZ4 products; shift-merge safety comment corrected to the real
+floor4-vs-32-aligned-bases invariant), minors swept in the same
+commit (`2645b2c`), re-review CLEAN with no new defects. Battery
+after fixes: knob-off `750879c8…`, LZ4 build green, tripwire fires
+only on true mismatch.
