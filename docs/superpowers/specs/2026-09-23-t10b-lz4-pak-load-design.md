@@ -51,16 +51,33 @@ cart image**:
   and Flycast; +~2,510 sectors is the same class of out-of-spec.
 - A host pack tool (grown from `tools/t10b/pack_sample.c`, vendored
   lz4 v1.10.0 in `tools/t10b/lz4/`, BSD-2) compresses the pak in
-  **128 KB chunks** (bench-matched), LZ4-HC-9:
-  - 64 chunks: 63 × 131,072 B + one 30,720 B tail (`u_i`).
+  **64 KB chunks**, LZ4-HC-9 (amended during execution 2026-09-23 —
+  see the bounce note below; LZ4's match window is 64 KB, so the
+  spike's ratio and rate carry over):
+  - 127 chunks: 126 × 65,536 B + one 30,720 B tail (`u_i`).
   - Each chunk's compressed stream is padded to a **32-byte multiple**
     (`a_i = align32(c_i)`) so every input range is cache-line-exact.
-  - **Stored-chunk demotion**, backward pass from the last chunk:
-    maintain `slack = Σ_{i>N}(u_i − a_i)`; demote chunk N to stored
-    (raw bytes, `a_N = u_N`) when it is LZ4 and
-    `slack < margin_N = a_N/256 + 32` (LZ4's in-place margin), or when
-    `a_N ≥ u_N` (compression didn't pay). Guarantees `a_i ≤ u_i` for
-    every chunk and the in-place margin for every LZ4 chunk.
+  - **Chunk classification**, backward pass from the last chunk
+    (amended during execution 2026-09-23; the original slack-only pass
+    was defective — slack seeds at zero at the tail and stored chunks
+    add none, so it demoted every chunk, data-independently. The root
+    cause is structural: right-justified geometry gives the innermost
+    kept-LZ4 chunk a start-gap of exactly its own savings `u−a`, while
+    LZ4's in-place rule needs `(u−c) + ((c>>8)+32)`
+    (lz4.h `LZ4_DECOMPRESS_INPLACE_MARGIN`) — short by `pad+margin`
+    for ANY contiguous placement):
+    - a chunk where compression doesn't pay (`a_N ≥ u_N`) is
+      **stored** (raw bytes, `a_N = u_N`);
+    - the **innermost** kept-LZ4 chunk is flagged **BOUNCE**: at
+      runtime it decodes into the already-reserved 64 KB T3 prefetch
+      ring (exact fit) and is copied to its destination — output
+      disjoint from input, so the in-place margin does not apply, and
+      its full savings seed `slack` for every earlier chunk;
+    - every earlier LZ4 chunk needs
+      `slack ≥ (a_N − c_N) + (c_N>>8) + 32` from the accumulated
+      savings of kept chunks after it, else it is stored.
+    Guarantees `a_i ≤ u_i` for every chunk and the in-place margin for
+    every non-bounced LZ4 chunk.
   - Host round-trip verify (decode + compare + CRC16 via
     `naomi_eeprom_crc`) — the build fails if it fails.
 - Blob layout (equals the RAM tail image byte-for-byte):
@@ -97,14 +114,25 @@ behavior are unchanged.
    `gd_read_fad`'s hardware-proven kick sequence (GDAPRO already
    opened by `gd_hw_init`; engine programmed before the packet, kicked
    after; FEATURES bit0 = DMA).
-3. Chunk loop, i = 0…63: poll `SB_GDLEND ≥ t_i = front_pad +
+3. Chunk loop, i = 0…126: poll `SB_GDLEND ≥ t_i = front_pad +
    Σ_{j≤i} a_j` with the progress-rearmed budget (the existing
    pattern; `GDST` clearing also satisfies it). Then decode chunk i
    through **cached P1**: LZ4 chunk → `LZ4_decompress_safe` into
-   `dst + i·131072`, must return `u_i`; stored chunk → forward copy
-   (skip when src == dst). Then `ocbp` (write-back + invalidate) the
-   output range so the game's uncached reads see it. Optional
-   `SHIM_LZ4CRC`: CRC16 the output chunk against the map.
+   `dst + i·65536`, must return `u_i`; BOUNCE chunk (amended
+   2026-09-23) → `LZ4_decompress_safe` into the 64 KB T3 ring
+   (`PF_RING_BASE`, P1), forward-copy ring → dest, then `ocbi` the
+   used ring span (dirty P1 ring lines would otherwise clobber a
+   later P2 prefetch fill on writeback — the C1 rule); stored chunk →
+   forward copy (skip when src == dst). Then `ocbp` (write-back +
+   invalidate) the output range so the game's uncached reads see it.
+   Optional `SHIM_LZ4CRC`: crc32 the output chunk against the map.
+   Ring preconditions (route disqualifiers, checked before the DMA
+   kick — the same two tripwires as `pf_armed`, gd.c): the heap-base
+   pool word must read back patched (the ring RAM is really reserved)
+   and the boot must be main-mode; otherwise the read falls through
+   to the uncompressed path. Scribbling the ring is safe: the pf miss
+   re-aim empties the window after every mapped read, and prefetch
+   ticks cannot interleave with a read (hooks do not nest).
 4. Epilogue: wait `GDST` clear, verify `GDLEND == R`, ack ISTNRM
    bit 14, ATA end-of-command verdict (BSY|DRQ clear, `GD_STATCMD`
    CHECK) — same shape as `gd_read_fad`'s DMA path.
@@ -130,8 +158,10 @@ With `ulen = Σu_i`, unconsumed input after chunk N starts at
   plus per-chunk `ocbp` is sufficient; no line-level corruption case
   exists.
 - **Within a chunk** (output overtaking its own compressed bytes):
-  LZ4's in-place margin, enforced by the mastering backward pass;
-  stored chunks are forward copies with src ≥ dst, overlap-safe.
+  LZ4's in-place margin, enforced by the mastering backward pass for
+  non-bounced LZ4 chunks; the bounced chunk decodes into the disjoint
+  64 KB ring so no margin applies (amended 2026-09-23); stored chunks
+  are forward copies with src ≥ dst, overlap-safe.
 
 ## Failure policy — never worse than today
 
