@@ -262,6 +262,14 @@ def main():
                     help="T10b: append build/lz4paks.bin past the cart image")
     a = ap.parse_args()
     out = pathlib.Path(a.out); out.mkdir(exist_ok=True)
+    # T10b deploy tripwire (final-review Important 1): a blob in build/ means
+    # the tree was built LZ4=1 and the already-linked shim routes window B to
+    # BLOB_FAD -- mastering WITHOUT --lz4 now would deploy a disc whose big
+    # read DMAs past the image end (mid-game transport death; materialized
+    # once as wasted leg hw-t10b-2). Refuse before writing anything.
+    if not a.lz4 and (out / "lz4paks.bin").exists():
+        sys.exit("make_gdi: build/lz4paks.bin present but --lz4 not passed -- "
+                 "stale LZ4 build? repeat LZ4=1 on this invocation or make clean")
     donor = donor_tracks(out)
 
     rom = pathlib.Path(a.rom).read_bytes()

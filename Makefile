@@ -249,3 +249,4 @@ test-serial:
 clean:
 	$(MAKE) -C shims clean
 	. tools/kos/environ.sh && $(MAKE) -C loader clean
+	rm -f build/lz4paks.bin build/lz4pak_map.h build/lz4pak_map.json build/pack_paks

@@ -67,7 +67,11 @@ int main(void) {
     assert(L.in_off == L.out_off);
 
     /* Case 3: single full chunk, heavy compression, big front pad.
-     * c = 100; a = 128; S = 128; R = 2048; front_pad = 1920 */
+     * c = 100; a = 128; S = 128; R = 2048; front_pad = 1920
+     * NOTE: exercises lay math only -- the packer can no longer emit this
+     * shape (since the 2026-09-23 amendment the innermost kept-LZ4 chunk
+     * always carries LZ4PAK_BOUNCE; a lone un-bounced LZ4 chunk is dead
+     * config, kept here for arithmetic coverage). */
     static const struct lz4pak_chunk c3[1] = { {100u, 0} };
     struct lz4pak_entry e3 = { 0u, 65536u, 574604u, 2048u, 1920u, 1u, c3 };
     check_entry(&e3);

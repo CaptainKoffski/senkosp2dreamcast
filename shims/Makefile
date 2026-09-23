@@ -46,7 +46,7 @@ ifneq (,$(findstring SHIM_LZ4,$(DEFS)))
 LD = /opt/toolchains/dc/sh-elf/bin/sh-elf-ld
 SRCS += src/lz4_lay.c src/lz4_mem.c $(B)/lz4_dec.o
 CFLAGS += -I../build
-$(B)/lz4_dec.o: ../tools/t10b/lz4/lz4.c
+$(B)/lz4_dec.o: ../tools/t10b/lz4/lz4.c ../tools/t10b/lz4/lz4.h
 	mkdir -p $(B)
 	$(CC) $(CFLAGS) -DLZ4_FREESTANDING=1 -DLZ4_FORCE_SW_BITCOUNT \
 	  -DLZ4_SH4_WILDCOPY=1 \

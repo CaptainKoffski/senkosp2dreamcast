@@ -2525,6 +2525,12 @@ committed.
   re-masters track04 and make variables do not persist across
   invocations (gotcha materialized: leg hw-t10b-2 booted a stale
   disc; always verify the md5 ON THE CARD before eject).
+  **Tripwire (final-review fix, 2026-09-24):** `make_gdi.py` refuses
+  to master without `--lz4` while `build/lz4paks.bin` exists — the
+  blob is the footprint of an LZ4-built shim, and a blob-less disc
+  with LZ4 routing dies mid-game. `make clean` now also removes the
+  LZ4 build products (blob, map, pack_paks), so the existing
+  clean-between-knob-flips discipline resets the tripwire too.
 - `LZ4CRC=1` — per-chunk crc32 vs the source-derived map at runtime +
   `LZ4OK`/`LZ4FAIL` serial rows (correctness legs only).
 - `TIME=1` — SHIMTIME rows; LZ4-served reads add a `SHIMLZ4 w= c=`

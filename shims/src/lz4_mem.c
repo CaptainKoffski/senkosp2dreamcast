@@ -59,7 +59,10 @@ void *lz4_memset(void *d, int c, size_t n) {
  * self-healing: the resuming store misses and allocate-reads the
  * written-back words before overwriting the rest; nothing reads decoder
  * output mid-decode. Dest is always P1 copy-back (game buffer or T3
- * ring; CCR_CB set, dc/cache.h:42), the mode movca requires.
+ * ring; CCR_CB set, dc/cache.h:42 -- and the GAME's CCR governs after
+ * handoff: P1 copy-back there is evidenced by this project's C1
+ * dirty-writeback bug class itself, impossible under write-through),
+ * the mode movca requires.
  * Spec: docs/superpowers/specs/...-t10b-lz4-pak-load-design.md Amd. 4. */
 void lz4_sh4_wildcopy(void *dv, const void *sv, void *ev) {
     unsigned char *d = (unsigned char *)dv;
@@ -78,12 +81,22 @@ void lz4_sh4_wildcopy(void *dv, const void *sv, void *ev) {
                 dw[4] = sw[4]; dw[5] = sw[5]; dw[6] = sw[6]; dw[7] = sw[7];
                 d += 32; s += 32;
             }
-        } else {                          /* shift-merge from aligned words;
-                                           * reads up to 3 B outside [s,s+n)
-                                           * -- always inside the served
-                                           * buffer (front_pad >= 3), and
-                                           * those bytes never land in a
-                                           * stored word */
+        } else {                          /* shift-merge from aligned words.
+                                           * The word loads floor s to a
+                                           * 4-byte boundary (read up to 3 B
+                                           * below s, 3 B past the last src
+                                           * byte): floor4(s) can never cross
+                                           * below a source region's base,
+                                           * because every base is 32-aligned
+                                           * -- compressed-input starts
+                                           * (align32 layout, lz4_lay.c),
+                                           * match windows (chunk outputs at
+                                           * 64 K multiples of the 32-aligned
+                                           * dest), the ring (PF_RING_BASE).
+                                           * Tail over-read stays inside the
+                                           * span's own buffer. Out-of-span
+                                           * bytes never land in a stored
+                                           * word. */
             unsigned sa = (unsigned)s & 3u;
             unsigned shr = sa << 3, shl = 32u - shr;
             const unsigned *sw = (const unsigned *)(const void *)(s - sa);

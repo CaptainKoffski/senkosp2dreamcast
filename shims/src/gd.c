@@ -295,6 +295,9 @@ static int gd_wait_drq(void) {
 #define GD_E_RANGE  8   /* gd_read_cart: request runs past CART_SIZE */
 #define GD_E_DMA    9   /* G1 DMA: SB_GDST never cleared, or GDLEND short
                          * (either way gd_diag[6] holds the final GDLEND) */
+/* 10 = GD_E_LZ4 (SHIM_LZ4 builds, defined in gd_lz4.inc.c): decode/CRC
+ * failure on a compressed chunk -- recorded here, then the read is served
+ * by the uncompressed fallback, so 10 in the log is a warning, not a death */
 
 static int gd_fail(unsigned site, unsigned fad) {
     unsigned st = GD_ALTSTAT, er = GD_ERRREG;

@@ -35,6 +35,9 @@ static const struct { unsigned off, len; } PAKS[] = {
     { 0x0935a800u, 0x007e7800u },   /* window B: 2p-stages whole-pak tuple */
 };
 #define NPAK (sizeof PAKS / sizeof PAKS[0])
+/* multi-pak wiring is unfinished (bounce[] not cleared between paks;
+ * entry-table emission is p==0 only) -- finish it before adding a pak */
+_Static_assert(NPAK == 1, "finish multi-pak wiring first");
 #define MAXCHUNK 128
 
 static unsigned a32(unsigned c) { return (c + 31u) & ~31u; }
@@ -224,7 +227,10 @@ int main(int argc, char **argv) {
         }
     }
     fprintf(fj, "]\n");
-    fclose(in); fclose(fb); fclose(fh); fclose(fj);
+    int werr = ferror(fb) | ferror(fh) | ferror(fj);
+    werr |= fclose(fb); werr |= fclose(fh); werr |= fclose(fj);
+    fclose(in);
+    if (werr) { fprintf(stderr, "lz4pak: write/close failure -- outputs invalid\n"); return 1; }
     printf("lz4pak: %u B blob, ROUND-TRIP + INVARIANTS PASS\n", total_blob);
     return 0;
 }

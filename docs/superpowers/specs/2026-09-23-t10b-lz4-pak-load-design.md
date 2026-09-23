@@ -85,7 +85,7 @@ cart image**:
     (the pack tool links gd.c's pure section, the `test_gd_math.c`
     idiom), so a divergence is a link failure rather than a copy.
 - Blob layout (equals the RAM tail image byte-for-byte):
-  `front_pad ‖ chunk_0 ‖ … ‖ chunk_63`, right-justified:
+  `front_pad ‖ chunk_0 ‖ … ‖ chunk_126`, right-justified:
   `S = Σ a_i`, `R = ceil(S/2048)·2048`, `front_pad = R − S` garbage
   bytes at the front. One straight sector read reproduces the RAM
   image.
@@ -93,7 +93,7 @@ cart image**:
   (`build/lz4pak_map.h`) compiled into the shim: per pak
   `{cart_off, ulen, blob_fad, R}`, per chunk
   `{csize (exact, u32), flags (lz4|stored|bounce), crc32}` — ~1 KB per
-  64 chunks. `scripts/make_gdi.py` appends the blob to track04 when the
+  127 chunks. `scripts/make_gdi.py` appends the blob to track04 when the
   knob is on (and asserts blob length == R).
 
 ## Runtime read path
