@@ -28,14 +28,19 @@ branch point, three hardware timing legs). Story: `phase7-polishing.md`
 release` now emits both zips ([GDI] + [CDI]).** Generic GDI→CDI
 conversion is impossible for this port (the shim streams the cart from
 a baked absolute FAD; the cart is raw sectors, not a file), so the
-data/data MIL-CD is mastered fresh: fixed 1792-sector FS region, cart
-at CD FAD 1942, 1ST_READ.BIN scrambled for the CD boot ROM
-(control-tested A/B against the real BIOS in the emulator — the
-unscrambled variant loads fully then dies), FAD-attestation marker in
-gd.c guards the CART_FAD knob-flip trap both ways. **Emulator
-boot-verified only; the first tester CD-R burn is the hardware
-verdict.** `docs/kb/tooling.md` §CDI mastering. Side effect: the 8 B
-marker moves every build md5 from here on.
+MIL-CD is mastered fresh. Round 1 (cdi4dc beta data/data mode) booted
+in Flycast + real BIOS but **failed on real hardware via GDEMU**
+(license screen w/ NAOMI logo, ~5 s black, hard reset to GDmenu —
+operator, no capture); round 2 switched to the mature **audio/data**
+layout (session-2 data track at LBA 11702, fixed 1792-sector FS
+region, cart at CD FAD 13644), 1ST_READ.BIN scrambled — the descramble
+is keyed to CD media, not layout (dreamcast.wiki/Scrambling +
+control-test A/B legs). FAD-attestation marker in gd.c guards the
+CART_FAD knob-flip trap both ways. **Audio/data CDI is
+emulator-verified; outstanding: operator GDEMU retest + first tester
+CD-R burn.** `docs/kb/tooling.md` §CDI mastering. Side effects: the
+8 B marker moves every build md5 from here on; standing lesson —
+Flycast PASS ≠ GDEMU PASS ≠ burned-disc PASS for CDI variants.
 
 ## What this is
 

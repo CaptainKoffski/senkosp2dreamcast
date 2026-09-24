@@ -154,13 +154,15 @@ ifeq ($(MENUDIAG),1)
 DEFS += -DLOADER_MENUDIAG=1
 endif
 # CDI=1 (internal -- the `cdi` target sets it): rebuild shim + loader with
-# the cart at the CD-R data/data FAD instead of the GDI donor FAD. The CDI
-# masters a fixed 1792-sector FS+loader region at the head of the MSINFO-0
-# data track, cart right after: FAD = 150 + 1792. Keep in sync with
-# scripts/make_cdi.py FS_SECTORS (it cross-checks the loader binary).
+# the cart at the CD-R FAD instead of the GDI donor FAD. Audio/data MIL-CD
+# (the mature cdi4dc mode; its beta data/data mode failed on GDEMU --
+# tooling.md §CDI mastering): session-2 data track at LBA 11702, fixed
+# 1792-sector FS+loader region at its head, cart right after:
+# FAD = 150 + 11702 + 1792. Keep in sync with scripts/make_cdi.py
+# FS_SECTORS/SESSION2_LBA (it cross-checks the loader binary).
 # Knob-flip stale-object trap applies (tooling.md) -- only use via `make
 # cdi`, which brackets the build with objclean.
-CD_CART_FAD = 1942
+CD_CART_FAD = 13644
 ifeq ($(CDI),1)
 DEFS += -DCART_FAD=$(CD_CART_FAD)
 endif
