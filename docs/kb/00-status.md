@@ -36,11 +36,21 @@ layout (session-2 data track at LBA 11702, fixed 1792-sector FS
 region, cart at CD FAD 13644), 1ST_READ.BIN scrambled — the descramble
 is keyed to CD media, not layout (dreamcast.wiki/Scrambling +
 control-test A/B legs). FAD-attestation marker in gd.c guards the
-CART_FAD knob-flip trap both ways. **Audio/data CDI is
-emulator-verified; outstanding: operator GDEMU retest + first tester
-CD-R burn.** `docs/kb/tooling.md` §CDI mastering. Side effects: the
-8 B marker moves every build md5 from here on; standing lesson —
-Flycast PASS ≠ GDEMU PASS ≠ burned-disc PASS for CDI variants.
+CART_FAD knob-flip trap both ways. **Round 2 hardware verdict
+(2026-09-25): the audio/data CDI BOOTS AND RUNS on GDEMU — but it took
+the operator three attempts** (reset-at-black, then loader red-screen
+on the first cart read, then clean start): the image is right, the
+boot-time reads are intermittent (prime suspect: cold SD first-read
+latency vs our read budgets). This demotes round 1's "data/data is a
+GDEMU incompat class" to unproven — single attempt against a flaky
+mechanism. Outstanding: operator session report (attempt differences,
+in-game endurance), then a decision on boot-read hardening; first
+tester CD-R burn remains the true target verdict. A five-image bisect
+kit (incl. a full game image mastered by mkdcdisc, emulator-PASS
+in-game) is shelved in `build/cdi-bisect/` against regressions.
+`docs/kb/tooling.md` §CDI mastering. Side effects: the 8 B marker
+moves every build md5 from here on; standing lesson — Flycast PASS ≠
+GDEMU PASS ≠ burned-disc PASS for CDI variants.
 
 ## What this is
 

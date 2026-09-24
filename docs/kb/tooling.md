@@ -2701,6 +2701,92 @@ the lower PID = the wrapper, and the kill -9 shoots the watcher while
 Flycast survives orphaned. Kill by exact process name instead:
 `pkill -9 -x Flycast`.
 
+### Hardware round 2 — GDEMU, audio/data: three attempts, three depths (operator, 2026-09-25, no capture)
+
+Same round-2 `disc.cdi` (audio/data, FAD 13644), three consecutive
+operator attempts, three different outcomes:
+
+1. "the result is the same" — license screen + NAOMI MR logo, ~5 s
+   black, hard reset to GDmenu (identical presentation to round 1).
+2. "I've pressed start game and red screen of death happened" — the
+   loader's menu WAS up (so BIOS descramble + 2.5 MB binary load
+   succeeded on silicon), and the failure moved to the loader's
+   post-start cart-read rehearsal: the red screen is `halt()` in
+   loader/main.c, reached only from the KOS-read / raw-ATA rehearsal
+   block. Message text not captured (operator retried before reading
+   it out).
+3. "I've pressed start game and the game started" — full boot into
+   the game on real hardware via GDEMU.
+
+**The image boots and runs on GDEMU; the failure mode is intermittent
+boot-time reads, not the image.** This also DEMOTES the round-1
+attribution: round 1 was a single attempt of the data/data image
+against what we now know is a flaky per-attempt mechanism, so
+"data/data is a GDEMU incompat class" is unproven on our own evidence
+(the layout switch to audio/data stays — it is the mature scene layout
+regardless). Prime suspect for the flakiness: SD-side first-read
+latency (GDEMU streams from SD; slow/cold first reads of a
+freshly-copied 292 MB file are a documented complaint class —
+dreamcast-talk GDEMU threads; no primary source, closed firmware)
+racing our read paths' patience: attempt 1 died during the BIOS's own
+1ST_READ load, attempt 2 during the loader's first cart read, attempt
+3 (warm) sailed through. Hardening candidates if the operator session
+confirms the pattern: retry-once on the loader's first cart read
+chunks + a more patient first-read budget on CD media. Parked pending
+the operator's answers (what differed between attempts; in-game
+streaming endurance).
+
+### CDI bisect kit (2026-09-25) — built for round 2, now shelved
+
+Prepared while round 2 read as "same failure": five images to split
+GDEMU-side vs mastering-chain vs loader. Superseded mid-build by the
+operator's three-attempt result above; kept (gitignored,
+`build/cdi-bisect/`) against regressions. Payload source:
+`scripts/cdi-bisect/hello.c` (committed) — KOS, draws a
+magenta/green banner, zero disc access.
+
+| image | mastering | emulator verdict (Flycast + real BIOS) |
+|-------|-----------|-----------------------------------------|
+| `A-hello-mkdcdisc.cdi` | mkdcdisc `-e hello.elf` (its own IP; pads track to full disc, 740 MB) | not run — the leg's Flycast instance died at dynarec init (`driver.cpp:349` vmem Verify Failed, sporadic infra, pre-disc) |
+| `A2-hello-mkdcdisc-donorip.cdi` | mkdcdisc `-p build/cdi/ip.bin` (our donor IP in mkdcdisc's container) | not run |
+| `B-hello-cdi4dc.cdi` | our exact chain: scramble → mkisofs `-C 0,11702` `-G` donor IP → cdi4dc default | **PASS** — banner on screen (`captures/cdi-bisect-B.png`) |
+| `C-game-mkdcdisc.cdi` | full game: our ISO (fs+pad+texpatched cart, `C.iso` 124,518 sectors) → mkdcdisc `-t` | **PASS — in-game attract** (`captures/cdi-bisect-C.png`, 6.9 MB GDDMA cartlog) |
+| `D-loader-nocart-cdi4dc.cdi` | real CD-FAD loader, no cart, cdi4dc chain | **INVALID CONTROL** — the loader reads the cart region during the menu (record-CRC path; stdout shows `Sector Read miss FAD: 14376+`), so a no-cart image cannot isolate "loader boots". Dropped. |
+
+Byte-compare finding: `C-game-mkdcdisc.cdi` vs the shipped cdi4dc
+`disc.cdi` — identical through the zeroed audio session and first GAP
+pseudo-track, first divergence at byte 1,238,306 (= 2 bytes into
+cdi4dc's GAP-2 sector table), total size delta 42 bytes. I.e. the two
+tools agree on payload geometry and differ only in pregap/track-header
+sectors and footer — exactly the container-metadata surface a CDI
+parser interprets. mkdcdisc is therefore a drop-in cdi4dc replacement
+for this pipeline (same MSINFO 11702, `-t` takes our ISO verbatim,
+boot-checks our scrambled 1ST_READ) if container bytes are ever
+implicated.
+
+cdi4dc source archaeology (primary source, read 2026-09-25,
+`tools/img4dc/cdi4dc/`): the tool does not model the DiscJuggler
+format — `cdihead.h` is a byte-capture of one ECHELON-kit reference
+image (302-sector audio session, MSINFO 11702, v3.5 footer ID
+0x80000006) replayed with only track-length/LBA fields patched in
+(`cdiaudio.c`, `cdidata.c`). Data sectors are real Mode 2 Form 1
+(2336 B stored, computed EDC/ECC, `common.c write_data_track`).
+Flycast parses the same footer per-track (mode/pregap/LBA/length,
+`core/imgread/cdi.cpp`) — so a Flycast PASS does attest the footer
+parses, but not how stricter firmware treats the replayed fields.
+
+### Installs (round-2 debugging additions, 2026-09-25)
+
+- **mkdcdisc** `2b98b0d` — `git clone --depth 1
+  https://gitlab.com/simulant/mkdcdisc.git tools/mkdcdisc && meson
+  setup build && ninja -C build` → `tools/mkdcdisc/build/mkdcdisc`
+  (v0.0.4). Deps via Homebrew: `meson`, `ninja`, `libisofs`.
+  Key facts: default audio/data MSINFO = 11702 (`-M`) — same
+  geometry as cdi4dc, so CD `CART_FAD` 13644 holds unchanged;
+  `-t/--external-data-track` uses a prebuilt ISO verbatim (IP.BIN
+  from the ISO's system area, no repack); pads the data track to
+  full disc by default (`-N` disables). Gitignored under `tools/`.
+
 ### Status
 
 Md5 discipline note: the CDI is NOT rebuild-deterministic — mkisofs
@@ -2708,9 +2794,12 @@ stamps PVD creation timestamps, so every remaster moves the .cdi md5
 (geometry and payload bytes stay put; the GDI pipeline remains fully
 deterministic). Don't read a moved cdi md5 as a content change.
 
-Round-2 audio/data CDI is emulator-verified (Flycast + real BIOS, DC
-profile); outstanding verdicts: (1) GDEMU retest of the audio/data
-image — operator; (2) first tester CD-R burn on a stock console. The
-CDI README asks for reports. GDEMU/DreamShell testers should still
-prefer the GDI release (tested preset, faster loads); the CDI on GDEMU
-is a convenience path only.
+Round-2 audio/data CDI: emulator-verified AND now hardware-booted on
+GDEMU (round 2 above) — but intermittently, three attempts to get
+in-game. Outstanding: (1) operator session report — what differed
+between the three attempts, in-game streaming endurance on GDEMU;
+(2) decision on boot-read hardening (retry + patient first-read
+budget) once (1) lands; (3) first tester CD-R burn on a stock console
+— still the CDI's true target verdict. GDEMU/DreamShell testers
+should still prefer the GDI release (tested preset, faster loads);
+the CDI on GDEMU is a convenience path only.
