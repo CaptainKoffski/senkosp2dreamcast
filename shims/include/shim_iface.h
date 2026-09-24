@@ -71,8 +71,13 @@
 #define STAGING_ADDR    0x8cd00000  /* 3 MB to RAM top; images are 1.5 MB / 311 KB */
 
 /* GDI geometry — B5 donor-clone layout (make_gdi.py):
- * track04 = [loader zero-padded to the donor 3,538,944 B boot region][.dat] */
-#define CART_FAD        451878      /* = donor CART_LBA 451728 + 150 */
+ * track04 = [loader zero-padded to the donor 3,538,944 B boot region][.dat]
+ * The CDI build (make cdi) overrides via -DCART_FAD: same code, cart at the
+ * CD data/data FAD (scripts/make_cdi.py; Makefile CD_CART_FAD). BLOB_FAD
+ * below derives from CART_FAD, so it tracks automatically. */
+#ifndef CART_FAD
+#define CART_FAD        451878      /* GDI: donor CART_LBA 451728 + 150 */
+#endif
 /* Task 8 finding: was 0x0efb0000 (251,330,560) -- 0x3000 short of the
  * comment's own claimed value. 251,342,848 = 0xefb3000; caught by
  * make_gdi.py's CART_SIZE cross-check against len(senkosp.dat) before any

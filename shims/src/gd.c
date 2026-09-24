@@ -75,6 +75,15 @@ void scif_puts(const char *); void scif_puthex(unsigned int);
  * request yields no head/body/tail at all (no I/O). */
 struct plan { unsigned fad, head_skip, head_len, body_secs, tail_len; };
 
+/* FAD attestation marker. CART_FAD is a compile-line knob (`make cdi` ->
+ * -DCART_FAD), invisible to make's freshness check, and the small CD value
+ * gets synthesized inline (no literal-pool word to scan for) -- so bake an
+ * explicit {magic, CART_FAD} pair. gd.c compiles into BOTH the shim and the
+ * loader (GD_LOADER_BUILD), so one marker attests each artifact;
+ * make_gdi.py/make_cdi.py (check_fad_mark) refuse a cross-FAD loader. */
+const unsigned int __attribute__((used)) gd_cart_fad_mark[2] =
+    { 0x0FADC0DEu, CART_FAD };
+
 struct plan gd_plan(unsigned cart_off, unsigned len) {
     struct plan p;
     p.fad = CART_FAD + cart_off / 2048u;

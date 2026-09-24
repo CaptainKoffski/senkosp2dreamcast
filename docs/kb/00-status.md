@@ -24,6 +24,19 @@ branch point, three hardware timing legs). Story: `phase7-polishing.md`
 §T10b; spec `docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md`
 (4 amendments); merge decision pending with the operator.
 
+**Tester-requested CD-R path (2026-09-24): `make cdi`, and `make
+release` now emits both zips ([GDI] + [CDI]).** Generic GDI→CDI
+conversion is impossible for this port (the shim streams the cart from
+a baked absolute FAD; the cart is raw sectors, not a file), so the
+data/data MIL-CD is mastered fresh: fixed 1792-sector FS region, cart
+at CD FAD 1942, 1ST_READ.BIN scrambled for the CD boot ROM
+(control-tested A/B against the real BIOS in the emulator — the
+unscrambled variant loads fully then dies), FAD-attestation marker in
+gd.c guards the CART_FAD knob-flip trap both ways. **Emulator
+boot-verified only; the first tester CD-R burn is the hardware
+verdict.** `docs/kb/tooling.md` §CDI mastering. Side effect: the 8 B
+marker moves every build md5 from here on.
+
 ## What this is
 
 Static binary conversion of *Senko no Ronde Special* (Sega Naomi GD-ROM,

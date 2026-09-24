@@ -7,12 +7,18 @@
 #                  needs the donor archive at repo root, docs/kb/tooling.md
 #                  §GDI mastering (Task 8)
 #   make disc    = alias for gdi (Cleopatra's name for the same thing)
-#   make release = disc + "build/[GDI] Senko no Ronde Special.zip"
-#                  ("Senko no Ronde Special/" folder with gdi + 4 tracks --
-#                  the Sushi Bar / Dolphin Blue release convention -- plus
-#                  DS/ auto-preset tree + README at archive root).
-#                  CONTAINS THE FULL COMMERCIAL ROM — local use only, never
-#                  upload/commit (build/ is gitignored for this reason).
+#   make cdi     = build/cdi/disc.cdi -- burnable data/data MIL-CD image for
+#                  testers with CD-Rs (make_cdi.py; rebuilds shim+loader with
+#                  the CD cart FAD, then restores clean objects -- see the
+#                  cdi target). docs/kb/tooling.md §CDI mastering.
+#   make release = cdi + disc + two zips: "build/[GDI] Senko no Ronde
+#                  Special.zip" ("Senko no Ronde Special/" folder with gdi +
+#                  4 tracks -- the Sushi Bar / Dolphin Blue release
+#                  convention -- plus DS/ auto-preset tree + README at
+#                  archive root) and "build/[CDI] Senko no Ronde Special.zip"
+#                  (senkosp.cdi + burn README).
+#                  BOTH CONTAIN THE FULL COMMERCIAL ROM — local use only,
+#                  never upload/commit (build/ is gitignored for this reason).
 #   make test    = shims host tests + the maple-literal scan
 #   make deploy  = copy the five disc files to a GDEMU card entry + dot_clean
 #                  (the playbook's AppleDouble boot trap). Override target:
@@ -147,6 +153,17 @@ endif
 ifeq ($(MENUDIAG),1)
 DEFS += -DLOADER_MENUDIAG=1
 endif
+# CDI=1 (internal -- the `cdi` target sets it): rebuild shim + loader with
+# the cart at the CD-R data/data FAD instead of the GDI donor FAD. The CDI
+# masters a fixed 1792-sector FS+loader region at the head of the MSINFO-0
+# data track, cart right after: FAD = 150 + 1792. Keep in sync with
+# scripts/make_cdi.py FS_SECTORS (it cross-checks the loader binary).
+# Knob-flip stale-object trap applies (tooling.md) -- only use via `make
+# cdi`, which brackets the build with objclean.
+CD_CART_FAD = 1942
+ifeq ($(CDI),1)
+DEFS += -DCART_FAD=$(CD_CART_FAD)
+endif
 export DEFS
 
 CARD ?= /Volumes/GDEMU/03
@@ -154,7 +171,7 @@ DISC_FILES = build/disc.gdi build/track01.iso build/track02.raw \
              build/track03.iso build/track04.iso
 ZIP = build/[GDI] Senko no Ronde Special.zip
 
-.PHONY: shims loader gdi disc release test test-vmu test-vmu-play deploy deploy-dcload test-serial clean
+.PHONY: shims loader gdi disc cdi objclean release test test-vmu test-vmu-play deploy deploy-dcload test-serial clean
 
 shims: $(LZ4_DEP)
 	$(MAKE) -C shims
@@ -167,18 +184,45 @@ gdi: loader
 
 disc: gdi
 
+# shim/loader objects only -- NOT the mastered discs. CART_FAD is a
+# compile-line knob (make tracks file mtimes, not CFLAGS), so the cdi
+# target brackets its cross-FAD build with this; without the trailing one
+# a later `make gdi`/`deploy` would splice CD-FAD objects into the GDI
+# ("up to date" to make, wrong FAD on disc -- make_gdi.py's loader-binary
+# FAD scan is the backstop tripwire).
+objclean:
+	$(MAKE) -C shims clean
+	. tools/kos/environ.sh && $(MAKE) -C loader clean
+
+# CDI mastering for testers burning CD-Rs (data/data MIL-CD via mkisofs +
+# cdi4dc -- installs in docs/kb/tooling.md §CDI mastering). Same shim/
+# loader code, rebuilt with the CD cart FAD.
+cdi:
+	$(MAKE) objclean
+	$(MAKE) loader CDI=1
+	python3 scripts/make_cdi.py $(GDI_FLAGS)
+	$(MAKE) objclean
+
 # Zip layout follows the scene convention (Sushi Bar / Dolphin Blue
 # releases): disc files wrapped in a game-named folder, DreamShell DS/
-# tree + README at archive root (phase 7 T1 follow-up).
+# tree + README at archive root (phase 7 T1 follow-up). `release` masters
+# the CDI FIRST so the tree ends GDI-flavored (deploy-ready).
 GAMEDIR = Senko no Ronde Special
-release: disc
+CDI_ZIP = build/[CDI] Senko no Ronde Special.zip
+release: cdi disc
 	rm -f "$(ZIP)"
 	python3 scripts/make_preset.py        # DreamShell auto-preset (phase 7)
 	rm -rf "build/release-extras/$(GAMEDIR)"
 	mkdir -p "build/release-extras/$(GAMEDIR)"
 	ln -f $(DISC_FILES) "build/release-extras/$(GAMEDIR)/"
 	cd build/release-extras && zip -r "../../$(ZIP)" .
-	@echo "NOTE: archive embeds the commercial ROM -- do not upload."
+	rm -f "$(CDI_ZIP)"
+	rm -rf "build/cdi-zip"
+	mkdir -p "build/cdi-zip/$(GAMEDIR)"
+	ln -f build/cdi/disc.cdi "build/cdi-zip/$(GAMEDIR)/senkosp.cdi"
+	cp build/cdi/README.txt build/cdi-zip/
+	cd build/cdi-zip && zip -r "../../$(CDI_ZIP)" .
+	@echo "NOTE: both archives embed the commercial ROM -- do not upload."
 
 test:
 	$(MAKE) -C shims test

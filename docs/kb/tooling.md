@@ -2569,3 +2569,92 @@ same lz4.c stay pristine — the define is target-only).
 `tools/t10b/lz4/lz4.c` carries exactly one senkosp modification: the
 `#if defined(LZ4_SH4_WILDCOPY)` block inside `LZ4_wildCopy8`
 (lz4.c:465). Upgrading the vendored lz4 requires re-applying it.
+
+## CDI mastering — `make cdi` (2026-09-24)
+
+Burnable **data/data MIL-CD** image for testers with CD-Rs (they asked;
+generic GDI→CDI converters can't work on this port: the shim streams the
+cart from a BAKED absolute FAD and the cart is raw sectors past the FS,
+not a file — any file-level conversion drops or relocates it). The CDI is
+mastered fresh by `scripts/make_cdi.py`; `make release` now emits both
+zips (`[GDI] …` and `[CDI] Senko no Ronde Special.zip`).
+
+### Installs
+
+- **img4dc / cdi4dc 0.5b** — `tools/img4dc` (gitignored under `/tools/`),
+  shallow clone of https://github.com/Kazade/img4dc (the Unix-portable
+  fork of SiZiOUS's originals; upstream `sizious/img4dc` hard-requires
+  `windows.h` in common/console), HEAD `d28df15` (2023-04-15). Build:
+  `mkdir tools/img4dc/build && cd tools/img4dc/build && cmake ..
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && make
+  cdi4dc` (Homebrew cmake 4.x refuses the project's
+  `cmake_minimum_required(3.0)` without the policy flag). Binary:
+  `tools/img4dc/build/cdi4dc/cdi4dc`.
+- **mkisofs 3.02a09** — already present (Homebrew `cdrtools 3.02a09`).
+  Plain MSINFO-0 invocation only (`-iso-level 1 -V SENKOSP -G ip.bin`);
+  no `-C` offsets needed for the data/data layout.
+- **scramble** — Marcus Comstedt's 1ST_READ scrambler, already built
+  (arm64) in the KOS checkout: `tools/kos/utils/scramble/scramble`.
+
+### Layout (all in `scripts/make_cdi.py`)
+
+Data track, session 1, MSINFO 0 — **file offset == LBA exactly**:
+sectors 0–15 IP.BIN, 16–1791 ISO9660 FS holding `1ST_READ.BIN`
+(zero-padded fixed region, the CD analogue of the GDI donor's
+3,538,944 B boot region), then the texpatched cart image and the
+optional `--lz4` blob, same append math as `make_gdi.py`. **Cart FAD =
+150 + 1792 = 1942** (Makefile `CD_CART_FAD`, baked via `make cdi` →
+`CDI=1` → `-DCART_FAD=1942`; `BLOB_FAD` derives from `CART_FAD` in
+`shim_iface.h`, so LZ4 tracks automatically). Session 2 is written by
+`cdi4dc -d`: a 300-sector boot track carrying copies of IP.BIN + PVD —
+the DC boots the LAST session and its descriptors resolve into session
+1's 0-based extents (citation: `tools/img4dc/cdi4dc/src/cdidata.c`
+`write_data_header_boot_track` / `write_cdi_header_data_data_sector_2`;
+verified against the built image: PVD at track LBA 16, cart first
+sector byte-equal to `senkosp.dat` at LBA 1792, 150-sector pregap in
+the raw 2336 B sector stream).
+
+IP.BIN = donor track03 head + the exact `make_gdi` branding + iplogo,
+plus the CD device string: `0x25..0x2D` `GD-ROM1/1` → `CD-ROM1/1`
+(citation: makeip `src/field.c:39` — community IP.BIN builder's CD
+template value; the device-info CRC at 0x20 covers 0x40–0x4F only, so
+the string edit needs no re-CRC).
+
+### 1ST_READ.BIN must be scrambled on CD (control-tested)
+
+The FS copy of the loader is scrambled with Marcus's tool; the raw cart
+region at FAD 1942+ is not a BIOS file load and stays plain. Evidence —
+A/B leg pair against the real BIOS in the instrumented Flycast
+(never-delete-a-leg: both kept under `captures/cdi/`):
+
+| leg | build | verdict |
+|-----|-------|---------|
+| `cdi/boot-smoke` | plain (unscrambled) 1ST_READ.BIN | bootstrap reads the WHOLE file (GDDMA tail ends exactly at its last FAD 1385), then dead: no game MMU-enable, no loader cart reads at 1942, no SHIMERR — binary executed as garbage = the descramble applied to a plain file |
+| `cdi/boot-smoke2` | scrambled FS copy (the shipped config) | full boot ladder: loader-era MMUCRWR `pc=8c01083a`, game takeover `MMUCRWR pc=8c02d630`, **5,892 TAEND frames**, 6,359 MDODMA enters (mirror), 0 `System reset`, 0 `SHIMERR`, cart streaming deep into game data (last GDDMA `fad=0000b1ac` ≈ cart +89 MB) — attract reached and streaming off the CD layout (unattended 150 s, one-call pattern, kill by PID; no FLYCAST_SHOT present landed — screenshot slot stays open for the first hardware report) |
+
+Corroboration: dcload-serial's own build splits the same way (§dcload-serial:
+"the SCRAMBLED binary is for burned MIL-CD CD-Rs only; GD-area track04 boot
+takes the UNSCRAMBLED loader.bin").
+
+### FAD attestation marker (knob-flip tripwire)
+
+`CART_FAD` is a compile-line knob, invisible to make's freshness check —
+a `make gdi` after `make cdi` without objclean would splice CD-FAD
+objects into track04 with no error anywhere (the old make_gdi.py
+cross-check reads the HEADER, not the binary; and the small CD FAD is
+synthesized inline by gcc, so there is no literal-pool word to scan
+for). Fix: `shims/src/gd.c` bakes `gd_cart_fad_mark[2] = {0x0FADC0DE,
+CART_FAD}` — gd.c compiles into both the shim and the loader, so one
+marker attests each artifact; `make_gdi.py`/`make_cdi.py`
+(`check_fad_mark`) refuse a cross-FAD loader. The `cdi` target also
+brackets its build with `objclean` on both sides. **Note: the marker
+adds 8 B to shim.bin and the loader — every build md5 moves from this
+change on** (v16 hashes were already unreachable since the 2026-09-21
+KOS decoupling).
+
+### Status
+
+Emulator-verified only (Flycast + real BIOS, DC profile). The first
+tester CD-R burn on real hardware is the outstanding verdict — the CDI
+README says so and asks for reports. GDEMU/DreamShell testers should
+keep using the GDI release (tested preset, faster loads).

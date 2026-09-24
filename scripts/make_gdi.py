@@ -213,6 +213,24 @@ assert _csz == CART_SIZE, f"CART_SIZE mismatch: gdi {CART_SIZE:#x} vs shim {_csz
 def run(cmd): subprocess.run(cmd, check=True)
 
 
+def check_fad_mark(ldr: bytes, fad: int, what: str):
+    """Verify every gd.c FAD attestation marker in the binary carries `fad`.
+    CART_FAD is a compile-line knob (`make cdi` -> -DCART_FAD) that make's
+    freshness check cannot see: a `make gdi` after `make cdi` without
+    objclean would splice CD-FAD objects into the disc with no error
+    anywhere else (the shim_iface.h regex checks the HEADER, not the
+    binary). gd.c bakes {0x0FADC0DE, CART_FAD} into shim and loader both."""
+    magic = (0x0FADC0DE).to_bytes(4, "little")
+    fads, i = [], ldr.find(magic)
+    while i != -1:
+        fads.append(int.from_bytes(ldr[i + 4:i + 8], "little"))
+        i = ldr.find(magic, i + 1)
+    assert fads, "no FAD marker in loader -- gd.c's gd_cart_fad_mark removed?"
+    assert all(f == fad for f in fads), (
+        f"loader baked CART_FAD {sorted(set(fads))} != {what} {fad} -- "
+        "stale cross-FAD objects? make clean (or use `make cdi`)")
+
+
 def donor_tracks(out: pathlib.Path) -> pathlib.Path:
     """Extract the donor image from the AW-port 7z (cached in build/donor/)."""
     dest = out / "donor" / DONOR_SUB
@@ -288,6 +306,7 @@ def main():
     # (this check is what turns that into a loud, diagnosable failure).
     assert len(ldr) <= BOOT_FILE_SIZE, \
         f"1ST_READ.BIN {len(ldr)} B exceeds donor FS size {BOOT_FILE_SIZE}"
+    check_fad_mark(ldr, CART_LBA + 150, "GDI")
 
     for f in ("track01.iso", "track02.raw", "track03.iso", "disc.gdi"):
         shutil.copyfile(donor / f, out / f)
