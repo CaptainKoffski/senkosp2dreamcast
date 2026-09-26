@@ -2851,6 +2851,54 @@ payload size/content. 02 boots but 04/05 fail → our chain vs scene
 chain → scramble/mkisofs/IP suspects return. Either way ask: GDEMU
 original or clone, firmware version, console model/region.
 
+### Hardware round 3 VERDICT — our mastering chain is the killer (operator, 2026-09-26)
+
+Operator: slot 04 (`A-hello-mkdcdisc`) **BOOTED on hardware** —
+"bisect screen, borders flashing, green and purple" (exactly the
+payload's behavior). Slot 05 (`B-hello-cdi4dc`) **FAILED** with the
+game images' exact signature: license → black → reboot. Slot 02
+untested (moot: 04 already proves console+GDEMU boot CD media fine).
+
+Eliminated in one stroke: MIL-CD block, GDEMU CDI support, SD card,
+katana, the hello payload, huge-track geometry (A's data track is
+disc-size-padded). Combined with C's earlier failure (mkdcdisc
+CONTAINER + our ISO = fail) vs A's pass (mkdcdisc container + its
+own ISO = boot), the failing common factor is **our ISO**: donor
+senkosp IP.BIN, the KOS `scramble` output, or our `mkisofs -iso-level
+1 -C 0,11702 -G` invocation — all of which the emulator + dumped BIOS
+accept (so it is a silicon/GDEMU-vs-Flycast divergence, or a
+boot-ROM revision difference between the operator's console and our
+`dc_boot.bin` dump).
+
+### Round-4 kit — split IP from scramble/mkisofs (built 2026-09-26)
+
+Two composites, both emulator-verified, waiting for the GDEMU card:
+
+| image | composition | hardware meaning |
+|-------|-------------|------------------|
+| `A2-hello-mkdcdisc-donorip.cdi` | donor IP (`-p build/cdi/ip.bin`) × mkdcdisc pipeline | FAIL → donor IP is the killer |
+| `B4-hello-ourchain-mkdcip.cdi` | mkdcdisc's IP (extracted via `-I` dump, first 32 KB of its data track) × our chain (KOS scramble + mkisofs `-C 0,11702` + cdi4dc) | PASS → donor IP is the killer (confirms from the other side); FAIL → scramble/mkisofs implicated |
+
+Round-5 splitter already identified if scramble/mkisofs come up: 
+`mkdcdisc -B` accepts a PRE-scrambled binary — feeding it our
+KOS-scrambled `1ST_READ.BIN` isolates the scramble tool inside the
+otherwise-passing pipeline. If the donor IP is confirmed instead,
+the fix is a homebrew CD IP in `make_cdi.py` (mkdcdisc's, or its
+`-p`/`-i` branding options for our MR logo) — the GD donor IP keeps
+its GDI role untouched.
+
+### DreamShell serial-SD deploy (2026-09-26)
+
+The `make deploy` recipe works verbatim for the DreamShell
+serial-port SD card (same five disc files): `make deploy
+CARD="/Volumes/GDEMU/Senko no Ronde Special" NOEJECT=1`, then md5
+compare of all five files against `build/`, then `diskutil eject`.
+Deployed the current release GDI (texpatch 69 records, FAD marker
+451878 verified by make_gdi) over the 20 Sep copy; all five md5s OK;
+ejected. Note both operator cards carry the volume label "GDEMU" —
+tell them apart by size/contents (59 GB GDEMU card with `01..NN`
+slots vs 7.5 GB DreamShell card with `DS/` + game folder).
+
 ### Status
 
 Md5 discipline note: the CDI is NOT rebuild-deterministic — mkisofs
