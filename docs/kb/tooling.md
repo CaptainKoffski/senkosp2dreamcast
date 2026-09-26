@@ -2829,6 +2829,20 @@ also removes the uploader as a variable), sha256-verified after copy:
 | 05 | `B-hello-cdi4dc.cdi` | **PASS** (`captures/cdi-bisect-B.png`) | OUR exact chain (donor IP + scramble + mkisofs `-C` + cdi4dc) boots on this unit |
 | 03 | `C-game-mkdcdisc.cdi` (current occupant) | PASS in-game | — (known hardware FAIL) |
 
+GDmenu list surgery (2026-09-26): GDmenu does NOT scan folders — its
+list is a `LIST.INI` baked into the slot-01 GDI by the card manager
+(Katana here), so `cp`-added folders stay invisible. Fixed in place,
+no remaster: `LIST.INI` lives twice — low-density copy at
+track01.iso sector 21 (dir record in track01's own FS, offset 41076)
+and high-density copy at track05.iso offset 0 = extent 548702 (dir
+record in track03.iso, same offset 41076). Entries appended
+(`NN.name/disc/vga/region/version/date`), content zero-padded within
+its single allocated sector, record size patched both-endian; diffs
+byte-verified confined to the INI sector + size fields, on-card
+files cmp-verified after copy. Caveat: a future Katana sync rebuilds
+slot 01 and will overwrite this. Originals + patch script preserved
+in the session scratchpad (`gdmenu-backup/`, `patch_gdmenu_list.py`).
+
 Round-3 reading: all of 02/04/05 fail → (a), stop blaming the
 pipeline (note the license screen rendering complicates a pure
 MIL-CD block — record exactly what each slot shows). 04+05 boot,
