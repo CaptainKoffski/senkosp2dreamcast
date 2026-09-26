@@ -36,21 +36,23 @@ layout (session-2 data track at LBA 11702, fixed 1792-sector FS
 region, cart at CD FAD 13644), 1ST_READ.BIN scrambled — the descramble
 is keyed to CD media, not layout (dreamcast.wiki/Scrambling +
 control-test A/B legs). FAD-attestation marker in gd.c guards the
-CART_FAD knob-flip trap both ways. **Round 2 hardware verdict
-(2026-09-25): the audio/data CDI BOOTS AND RUNS on GDEMU — but it took
-the operator three attempts** (reset-at-black, then loader red-screen
-on the first cart read, then clean start): the image is right, the
-boot-time reads are intermittent (prime suspect: cold SD first-read
-latency vs our read budgets). This demotes round 1's "data/data is a
-GDEMU incompat class" to unproven — single attempt against a flaky
-mechanism. Outstanding: operator session report (attempt differences,
-in-game endurance), then a decision on boot-read hardening; first
-tester CD-R burn remains the true target verdict. A five-image bisect
-kit (incl. a full game image mastered by mkdcdisc, emulator-PASS
-in-game) is shelved in `build/cdi-bisect/` against regressions.
-`docs/kb/tooling.md` §CDI mastering. Side effects: the 8 B marker
-moves every build md5 from here on; standing lesson — Flycast PASS ≠
-GDEMU PASS ≠ burned-disc PASS for CDI variants.
+CART_FAD knob-flip trap both ways. **ROOT CAUSE FOUND AND FIXED
+(2026-09-26, hardware bisect rounds 3–4): the donor GD-ROM IP.BIN
+kills every real CD-media boot** (100% deterministic license→black→
+reboot on GDEMU; Flycast's drive model masks it — the definitive
+emulator≠hardware case for this port). Convicted bilaterally with a
+hello-payload A/B kit on the operator's GDEMU: donor IP inside
+mkdcdisc's passing pipeline FAILED, mkdcdisc's IP inside our
+otherwise-failing chain BOOTED. Scramble, mkisofs, cdi4dc, GDEMU,
+katana upload, SD card, console all exonerated along the way (bytes
+on card sha-verified identical to emulator-passing images).
+`make_cdi.py` now generates a CD-native IP per master via mkdcdisc
+(GDI-matching branding + MR logo); fixed CDI is emulator-verified
+in-game (`cdi/boot-smoke4`) and both release zips rebuilt.
+Outstanding: operator GDEMU boot of the fixed CDI, then the first
+tester CD-R burn. `docs/kb/tooling.md` §CDI mastering. Standing
+lesson — Flycast PASS ≠ GDEMU PASS ≠ burned-disc PASS for CDI
+variants.
 
 ## What this is
 

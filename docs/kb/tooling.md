@@ -2894,6 +2894,36 @@ the fix is a homebrew CD IP in `make_cdi.py` (mkdcdisc's, or its
 `-p`/`-i` branding options for our MR logo) — the GD donor IP keeps
 its GDI role untouched.
 
+### Hardware round 4 VERDICT — donor GD IP.BIN convicted, fix shipped (operator, 2026-09-26)
+
+Operator: slot 06 (donor IP × mkdcdisc pipeline) **FAILED**; slot 07
+(mkdcdisc IP × our full chain) **BOOTED the banner**. Bilateral
+conviction: **the retail GD-ROM donor IP.BIN does not survive a real
+CD-media boot** (license screen → ~6 s → reboot), while Flycast's
+drive model lets the same IP through — the emulator/hardware
+divergence that made every CDI look emulator-good. Primary evidence
+is this A/B pair itself; the mechanism inside the SEGA bootstrap /
+GDEMU firmware is not further introspectable (both closed), and the
+result matches two decades of scene practice: CD self-boots always
+carried replaced/hacked IPs, never retail GD ones. Simultaneously
+exonerated by 07: KOS `scramble`, our `mkisofs -iso-level 1 -C
+0,11702 -G`, and the cdi4dc container.
+
+**Fix (committed with this entry):** `scripts/make_cdi.py` no longer
+touches the donor for the CDI — it generates a CD-native IP.BIN per
+master via mkdcdisc (`-b <loader> -I`, first 16 sectors of the
+dumped data track), branded with the same `make_gdi` constants
+(title/serial/version/date/company), the same `iplogo.mr` MR logo
+(`-i`), and the donor's peripherals string (`-H 0619810`); region
+symbols stay mkdcdisc's JUE (superset of the donor's J). The donor
+IP keeps its GDI role untouched. mkdcdisc is now a build-required
+tool for `make cdi` (asserted with a pointer here).
+
+| leg | build | verdict |
+|-----|-------|---------|
+| *(hw-cdi-round4 — no capture)* | slots 06/07, see round-4 kit | donor IP FAIL / mkdc IP BOOT — operator verbatim: "06 failed, 07 booted the bisect screen" |
+| `cdi/boot-smoke4` | IP-fixed audio/data CDI (mkdcdisc IP, our chain, FAD 13644) | full ladder: loader `MMUCRWR pc=8c01083a`, game takeover `pc=8c02d630`, 302 GDDMA transfers, cart streaming to `fad=0001ba4e` = +204 MB, 0 `System reset`, 0 `SHIMERR`; PNG = in-game attract demonstration (~7 min free soak — the one-call kill misfired again; killed by name per the standing lesson) |
+
 ### DreamShell serial-SD deploy (2026-09-26)
 
 The `make deploy` recipe works verbatim for the DreamShell
@@ -2913,12 +2943,14 @@ stamps PVD creation timestamps, so every remaster moves the .cdi md5
 (geometry and payload bytes stay put; the GDI pipeline remains fully
 deterministic). Don't read a moved cdi md5 as a content change.
 
-Round-2 audio/data CDI: emulator-verified AND now hardware-booted on
-GDEMU (round 2 above) — but intermittently, three attempts to get
-in-game. Outstanding: (1) operator session report — what differed
-between the three attempts, in-game streaming endurance on GDEMU;
-(2) decision on boot-read hardening (retry + patient first-read
-budget) once (1) lands; (3) first tester CD-R burn on a stock console
-— still the CDI's true target verdict. GDEMU/DreamShell testers
-should still prefer the GDI release (tested preset, faster loads);
-the CDI on GDEMU is a convenience path only.
+Root cause found and fixed (rounds 3–4 above): the donor GD IP.BIN
+killed every real-CD boot; `make_cdi.py` now generates a CD-native
+branded IP via mkdcdisc. The fixed CDI is emulator-verified
+(`cdi/boot-smoke4`, in-game attract, cart +204 MB, 0 resets) and
+both release zips are rebuilt with it. Outstanding: (1) operator
+GDEMU boot of the FIXED game CDI (replace card slot 03); (2) first
+tester CD-R burn on a stock console — still the CDI's true target
+verdict. GDEMU/DreamShell testers should still prefer the GDI
+release (tested preset, faster loads); the CDI on GDEMU is a
+convenience path only. The card's bisect slots 04–07 can be deleted
+once the fixed CDI passes.
