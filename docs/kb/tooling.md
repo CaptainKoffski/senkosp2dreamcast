@@ -2879,6 +2879,13 @@ Two composites, both emulator-verified, waiting for the GDEMU card:
 | `A2-hello-mkdcdisc-donorip.cdi` | donor IP (`-p build/cdi/ip.bin`) × mkdcdisc pipeline | FAIL → donor IP is the killer |
 | `B4-hello-ourchain-mkdcip.cdi` | mkdcdisc's IP (extracted via `-I` dump, first 32 KB of its data track) × our chain (KOS scramble + mkisofs `-C 0,11702` + cdi4dc) | PASS → donor IP is the killer (confirms from the other side); FAIL → scramble/mkisofs implicated |
 
+Deployed 2026-09-26: A2 → GDEMU card slot 06 ("BISECT A2
+DONOR-IP"), B4 → slot 07 ("BISECT B4 MKDC-IP"), both sha256-verified
+on card; LIST.INI surgery round 2 (468 → 661 B, same offsets,
+diffs byte-confined, cmp-verified) so GDmenu lists all seven
+entries; card ejected. Operator instruction: boot 06, then 07, note
+banner vs license→black→reboot for each.
+
 Round-5 splitter already identified if scramble/mkisofs come up: 
 `mkdcdisc -B` accepts a PRE-scrambled binary — feeding it our
 KOS-scrambled `1ST_READ.BIN` isolates the scramble tool inside the
