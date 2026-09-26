@@ -2718,6 +2718,12 @@ operator attempts, three different outcomes:
 3. "I've pressed start game and the game started" — full boot into
    the game on real hardware via GDEMU.
 
+**DISPUTED (2026-09-26, see round 3):** the operator has since
+clarified the CDI fails 100% deterministically at the license screen
+— reports 2 and 3 above almost certainly came from a GDI slot, not
+the CDI (operator confirmation pending). Read the rest of this
+section as superseded analysis.
+
 **The image boots and runs on GDEMU; the failure mode is intermittent
 boot-time reads, not the image.** This also DEMOTES the round-1
 attribution: round 1 was a single attempt of the data/data image
@@ -2786,6 +2792,50 @@ parses, but not how stricter firmware treats the replayed fields.
   `-t/--external-data-track` uses a prebuilt ISO verbatim (IP.BIN
   from the ISO's system area, no repack); pads the data track to
   full disc by default (`-N` disables). Gitignored under `tools/`.
+
+### Hardware round 3 prep — deterministic failure, delivery exonerated, controls staged (2026-09-26)
+
+Operator reframe: the CDI fails **100% of attempts, identically** —
+license screen + our MR logo, ~6 s black, console reboots to GDmenu
+(GDEMU.INI `reset_goto = 1` explains the GDmenu return). Same verdict
+for the cdi4dc image and for `C-game-mkdcdisc.cdi` — the container
+swap changed nothing, so cdi4dc's replayed footer is exonerated as
+the sole cause. Delivery is exonerated too, by direct measurement:
+the operator's SD card (FAT32, `/Volumes/GDEMU`, uploaded with their
+new "katana" card tool) holds slot 03 `disc.cdi` **byte-identical to
+the local emulator-passing image** (sha256 `5b6514…93c` on card and
+local; katana's own `disc.cdi.sha` sidecar agrees — its `katana.sha`
+manifest records a different sha256/fingerprint that matches nothing
+on disk, a metadata quirk worth knowing about but not our bug).
+
+So: bytes proven right end-to-end, failure lands in the boot ROM's
+1ST_READ.BIN load (or its first instants) on the real console, on CD
+media, every time — while the same bytes + real dumped BIOS boot in
+Flycast. Remaining suspect space: (a) this console/GDEMU refusing
+CD-media boots generally (late boot-ROM MIL-CD block, or clone-GDEMU
+CDI firmware quirks — unverifiable directly, closed firmware); (b)
+something about our 2.5 MB scrambled loader specifically on silicon;
+(c) console boot-ROM revision differing from our dumped
+`dc_boot.bin` (the descramble control-test used the dump, not their
+chip).
+
+Controls staged ON the operator's card (direct `cp`, no katana —
+also removes the uploader as a variable), sha256-verified after copy:
+
+| slot | image | emulator status | what a hardware PASS proves |
+|------|-------|-----------------|------------------------------|
+| 02 | DreamShell 4.0.4 CDI (operator's own, scene known-good) | not run | console+GDEMU boot CD-media images at all |
+| 04 | `A-hello-mkdcdisc.cdi` (740 MB padded track) | **PASS** (`captures/cdi-bisect-A2run.png`) | modern-standard mastering + huge-track geometry boot on this unit |
+| 05 | `B-hello-cdi4dc.cdi` | **PASS** (`captures/cdi-bisect-B.png`) | OUR exact chain (donor IP + scramble + mkisofs `-C` + cdi4dc) boots on this unit |
+| 03 | `C-game-mkdcdisc.cdi` (current occupant) | PASS in-game | — (known hardware FAIL) |
+
+Round-3 reading: all of 02/04/05 fail → (a), stop blaming the
+pipeline (note the license screen rendering complicates a pure
+MIL-CD block — record exactly what each slot shows). 04+05 boot,
+03 fails → the loader binary/size on real CD boot → next bisect is
+payload size/content. 02 boots but 04/05 fail → our chain vs scene
+chain → scramble/mkisofs/IP suspects return. Either way ask: GDEMU
+original or clone, firmware version, console model/region.
 
 ### Status
 
