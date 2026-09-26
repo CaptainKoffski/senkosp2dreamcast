@@ -48,9 +48,10 @@ katana upload, SD card, console all exonerated along the way (bytes
 on card sha-verified identical to emulator-passing images).
 `make_cdi.py` now generates a CD-native IP per master via mkdcdisc
 (GDI-matching branding + MR logo); fixed CDI is emulator-verified
-in-game (`cdi/boot-smoke4`) and both release zips rebuilt.
-Outstanding: operator GDEMU boot of the fixed CDI, then the first
-tester CD-R burn. `docs/kb/tooling.md` §CDI mastering. Standing
+in-game (`cdi/boot-smoke4`) **and HARDWARE-VERIFIED on GDEMU
+(2026-09-26: boots and runs from the operator's card)**; both
+release zips rebuilt. Outstanding: the first tester CD-R burn on a
+stock console. `docs/kb/tooling.md` §CDI mastering. Standing
 lesson — Flycast PASS ≠ GDEMU PASS ≠ burned-disc PASS for CDI
 variants.
 

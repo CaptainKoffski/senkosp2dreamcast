@@ -2923,6 +2923,7 @@ tool for `make cdi` (asserted with a pointer here).
 |-----|-------|---------|
 | *(hw-cdi-round4 — no capture)* | slots 06/07, see round-4 kit | donor IP FAIL / mkdc IP BOOT — operator verbatim: "06 failed, 07 booted the bisect screen" |
 | `cdi/boot-smoke4` | IP-fixed audio/data CDI (mkdcdisc IP, our chain, FAD 13644) | full ladder: loader `MMUCRWR pc=8c01083a`, game takeover `pc=8c02d630`, 302 GDDMA transfers, cart streaming to `fad=0001ba4e` = +204 MB, 0 `System reset`, 0 `SHIMERR`; PNG = in-game attract demonstration (~7 min free soak — the one-call kill misfired again; killed by name per the standing lesson) |
+| *(hw-cdi-round5 — no capture)* | IP-fixed CDI, GDEMU card slot 03 (sha256 `6b223a…4394` verified on card) | **HARDWARE PASS** — operator (2026-09-26): "th cdi in the 3rd slot works!" — the game boots and runs on the console via GDEMU. GDEMU leg of the CDI path CLOSED. |
 
 ### DreamShell serial-SD deploy (2026-09-26)
 
@@ -2943,14 +2944,15 @@ stamps PVD creation timestamps, so every remaster moves the .cdi md5
 (geometry and payload bytes stay put; the GDI pipeline remains fully
 deterministic). Don't read a moved cdi md5 as a content change.
 
-Root cause found and fixed (rounds 3–4 above): the donor GD IP.BIN
+Root cause found and fixed (rounds 3–5 above): the donor GD IP.BIN
 killed every real-CD boot; `make_cdi.py` now generates a CD-native
 branded IP via mkdcdisc. The fixed CDI is emulator-verified
-(`cdi/boot-smoke4`, in-game attract, cart +204 MB, 0 resets) and
-both release zips are rebuilt with it. Outstanding: (1) operator
-GDEMU boot of the FIXED game CDI (replace card slot 03); (2) first
-tester CD-R burn on a stock console — still the CDI's true target
-verdict. GDEMU/DreamShell testers should still prefer the GDI
-release (tested preset, faster loads); the CDI on GDEMU is a
-convenience path only. The card's bisect slots 04–07 can be deleted
-once the fixed CDI passes.
+(`cdi/boot-smoke4`) **and hardware-verified on GDEMU** (round 5:
+boots and runs from card slot 03). Outstanding: (1) first tester
+CD-R burn on a stock console — the CDI's true target verdict (the
+`[CDI]` zip is rebuilt with the fix and ready to hand out); (2)
+housekeeping next card session — delete bisect slots 04–07 and
+trim LIST.INI (or just let Katana rebuild the menu on its next
+sync). GDEMU/DreamShell testers should still prefer the GDI release
+(tested preset, faster loads); the CDI on GDEMU is a convenience
+path only.
