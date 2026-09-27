@@ -55,6 +55,20 @@ stock console. `docs/kb/tooling.md` §CDI mastering. Standing
 lesson — Flycast PASS ≠ GDEMU PASS ≠ burned-disc PASS for CDI
 variants.
 
+**Tester bug fixed (2026-09-26): Arcade Stick = shield+OverDrive stuck
+held.** Any pad that doesn't declare an axis fills that GetCondition
+byte with a filler value; Flycast's Ascii Stick fills `0x80`, which the
+shim's threshold-128 trigger digitizer read as both triggers
+half-pressed forever. Fix: `probe_devinfo()` now latches each port's
+DEVINFO capability word and `dc_cond_to_pressed()` only trusts declared
+axes (KOS `CONT_CAPABILITY_*` bits). Host-tested + emulator
+A/B-verified (`dcstick-prefix-repro3` reproduces `p1=00000060` held,
+`dcstick-fix-verify` reads idle, `dcstick-pad-regress` standard pad
+unchanged) — full story `input-map.md` §Non-standard controllers, legs
+`tooling.md` §Legs: Arcade-Stick trigger bug. Real-hardware arcade
+stick still untested (no HKT-7300 on the rig; tester hardware pass
+outstanding).
+
 ## What this is
 
 Static binary conversion of *Senko no Ronde Special* (Sega Naomi GD-ROM,

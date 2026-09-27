@@ -128,19 +128,40 @@ unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned *test_bit) {
  * 2026-08-30 after hardware play -- barrier-shots need block held while the
  * face buttons fire. Same threshold-128 digital scheme as R/OverDrive.
  * (input-map.md §DC pad layout row updated; the old "unbound, may duplicate
- * Barrage" reservation is superseded.) */
+ * Barrage" reservation is superseded.)
+ *
+ * caps (tester bug 2026-09-26, Arcade Stick = shield+OverDrive stuck held):
+ * the device's DEVINFO function-data word. The GetCondition reply always
+ * carries all six axis bytes, but a device without an axis fills its byte
+ * with a NEUTRAL FILLER the sender chooses -- flycast's Ascii Stick returns
+ * 0x80 for every axis (maple_devs.cpp:313 getAnalogAxis) and declares zero
+ * axes in its caps word (0xff070000, :292), so threshold-128 read the filler
+ * as both triggers half-pressed, forever. Gate each axis on its declared
+ * capability bit instead of trusting the byte value (real-hardware filler
+ * bytes are undocumented; the declaration is the contract). Bit positions:
+ * KOS dc/maple/controller.h:258-263 CONT_CAPABILITY_* -- rtrig 8, ltrig 9,
+ * analog X 10, analog Y 11; standard pad = 0xfe060f00 has all four
+ * (maple_devs.cpp:85). */
+#define CONT_CAP_RTRIG    (1u << 8)   /* KOS CONT_CAPABILITY_RTRIG */
+#define CONT_CAP_LTRIG    (1u << 9)
+#define CONT_CAP_ANALOG_X (1u << 10)
+#define CONT_CAP_ANALOG_Y (1u << 11)
 #define DC_TRIG_ON  128     /* R trigger digital threshold, 0-255 */
 #define DC_AXIS_LO  0x40    /* analog neutral band (maple_devs.cpp:1494-1512) */
 #define DC_AXIS_HI  0xc0
-unsigned dc_cond_to_pressed(unsigned w2, unsigned w3) {
+unsigned dc_cond_to_pressed(unsigned w2, unsigned w3, unsigned caps) {
     unsigned p = (~w2) & 0xffffu;                       /* active-low -> pressed */
     unsigned x = w3 & 0xffu, y = (w3 >> 8) & 0xffu;
-    if (((w2 >> 16) & 0xffu) >= DC_TRIG_ON) p |= CONT_RTRIG;
-    if (((w2 >> 24) & 0xffu) >= DC_TRIG_ON) p |= CONT_LTRIG;
-    if (y < DC_AXIS_LO) p |= CONT_DPAD_UP;
-    if (y > DC_AXIS_HI) p |= CONT_DPAD_DOWN;
-    if (x < DC_AXIS_LO) p |= CONT_DPAD_LEFT;
-    if (x > DC_AXIS_HI) p |= CONT_DPAD_RIGHT;
+    if ((caps & CONT_CAP_RTRIG) && ((w2 >> 16) & 0xffu) >= DC_TRIG_ON) p |= CONT_RTRIG;
+    if ((caps & CONT_CAP_LTRIG) && ((w2 >> 24) & 0xffu) >= DC_TRIG_ON) p |= CONT_LTRIG;
+    if (caps & CONT_CAP_ANALOG_Y) {
+        if (y < DC_AXIS_LO) p |= CONT_DPAD_UP;
+        if (y > DC_AXIS_HI) p |= CONT_DPAD_DOWN;
+    }
+    if (caps & CONT_CAP_ANALOG_X) {
+        if (x < DC_AXIS_LO) p |= CONT_DPAD_LEFT;
+        if (x > DC_AXIS_HI) p |= CONT_DPAD_RIGHT;
+    }
     /* opposed pair both pressed -> report neither (see the header comment) */
     if ((p & (CONT_DPAD_UP | CONT_DPAD_DOWN)) == (CONT_DPAD_UP | CONT_DPAD_DOWN))
         p &= ~(CONT_DPAD_UP | CONT_DPAD_DOWN);

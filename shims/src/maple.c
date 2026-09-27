@@ -40,6 +40,20 @@ static u32 bus_init_done = 0x10000;
  * silent until probed. Send one DEVINFO per port at init; reply headers kept
  * for the on-screen diagnostics (healthy low byte = 5). */
 u32 devinfo_hdr[2] = { 0xbbbb0000, 0xbbbb0001 };
+
+/* Per-port DEVINFO function-data word (= controller capability bits), fed to
+ * dc_cond_to_pressed() so undeclared axes are ignored (tester bug 2026-09-26:
+ * Arcade Stick fills its absent trigger bytes with 0x80 = "held"). Reply
+ * layout: rx[0] header, rx[1] function codes, rx[2] = function_data[0] --
+ * KOS dc/maple.h maple_devinfo_t {functions; function_data[3];} mapped
+ * straight onto the reply payload (flycast maple_devs.cpp:265-273 writes
+ * MFID_0_Input then get_capabilities() in that order). Default = standard-pad
+ * word 0xfe060f00 (all four axes), so a pad whose DEVINFO never answered
+ * behaves exactly as before this fix.
+ * ponytail: caps refresh only via probe_devinfo (init + T11 fail-scan), so a
+ * hot-swap pad->stick that answers GETCOND before any re-probe keeps stale
+ * caps; wire a probe on first success-after-fail if that ever bites. */
+u32 devinfo_caps[2] = { 0xfe060f00u, 0xfe060f00u };
 static void probe_devinfo(unsigned int port) {
     volatile u32 *tx = P2(MAPLE_TX);
     volatile u32 *rx = P2(MAPLE_RX);
@@ -55,6 +69,10 @@ static void probe_devinfo(unsigned int port) {
     SB_MDST = 1;
     while (SB_MDST & 1) ;
     devinfo_hdr[port] = rx[0];
+    /* healthy DEVINFO (resp 5) from a controller-function device: latch its
+     * capability word; anything else keeps the last known / default caps */
+    if ((rx[0] & 0xff) == 5 && (rx[1] & 0x01000000u))
+        devinfo_caps[port] = rx[2];
 }
 
 /* Returns the PRESSED mask (src/jvs.c dc_cond_to_pressed: buttons inverted,
@@ -73,7 +91,7 @@ static void probe_devinfo(unsigned int port) {
  * maple_addr(port,main)=(port<<6)|0x20 (A=0x20, B=0x60); Flycast getPort()
  * (maple_if.cpp:131-137) resolves either to unit 5 = main controller. src port
  * field = (port<<6)<<16. */
-unsigned dc_cond_to_pressed(unsigned w2, unsigned w3);     /* src/jvs.c */
+unsigned dc_cond_to_pressed(unsigned w2, unsigned w3, unsigned caps); /* src/jvs.c */
 
 /* T11 (2P dead when hot-plugged after boot): the DEVINFO wake above fires
  * exactly once, at the first-ever poll -- a pad plugged in later never gets
@@ -117,7 +135,8 @@ unsigned int maple_getcond(unsigned int port) {
         while (SB_MDST & 1) ;   /* ponytail: bare poll like gd.c; maple DMA always self-clears (HW timeout) */
         maple_hdr[port] = rx[0];                           /* diagnostics: raw reply header */
         if ((rx[0] & 0xff) == 8)
-            return dc_cond_to_pressed(rx[2], rx[3]);       /* cont_cond_t, words 2-3 */
+            return dc_cond_to_pressed(rx[2], rx[3],        /* cont_cond_t, words 2-3 */
+                                      devinfo_caps[port]);
     }
     if ((++fail_cnt[port] & 63u) == 0)                     /* T11: wake hot-plugged pads */
         probe_devinfo(port);

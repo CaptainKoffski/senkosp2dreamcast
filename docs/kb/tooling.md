@@ -1582,8 +1582,16 @@ is byte-for-byte unaffected.
   top of a like-sized line). Same `make clean` gotcha as every knob
   (below). Emulator control leg needs Flycast stdout serial:
   `scripts/capture_dc_leg.sh <leg> build/disc.gdi -config
-  Debug:SerialConsoleEnabled=yes` (do not rely on the app's persisted
+  config:Debug.SerialConsoleEnabled=yes` (do not rely on the app's persisted
   pref, which is how `phase7/t2-emuctl1` happened to capture).
+  **Flag spelling matters:** the option is
+  `Option<bool>("Debug.SerialConsoleEnabled")` with the DEFAULT section
+  `"config"` (fork `core/cfg/option.cpp:132`, `option.h:107`), so the CLI
+  form is `config:Debug.SerialConsoleEnabled=yes`; the earlier
+  `Debug:SerialConsoleEnabled=yes` spelling written here set an unread
+  `[Debug]` section key and captured nothing (cost the 2026-09-26
+  `dcstick-prefix-repro` leg; it "worked" before only because the persisted
+  pref was already `yes`).
 - **`FRAMEGAP=1` (T2b, 2026-09-06; serial-silent by design)** →
   `-DSHIM_FRAMEGAP=1`. The dwell-hitch instrument (`phase7-polishing.md`
   §T2 (c)): `shim_maple_service` — the live maple-kick hook, once per
@@ -2936,6 +2944,28 @@ Deployed the current release GDI (texpatch 69 records, FAD marker
 ejected. Note both operator cards carry the volume label "GDEMU" —
 tell them apart by size/contents (59 GB GDEMU card with `01..NN`
 slots vs 7.5 GB DreamShell card with `DS/` + game folder).
+
+### Legs: Arcade-Stick trigger bug A/B (2026-09-26, tester report)
+
+Tester (Flycast, DC "Arcade Stick" device): shield + OverDrive held from
+boot. Fix + full story: `input-map.md` §Non-standard controllers. Three
+unattended ~110 s legs, all `capture_dc_leg.sh` + `-config
+config:Debug.SerialConsoleEnabled=yes`, discs built `make gdi
+DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1 -DLOADER_MENU=0'` (MENU=0 because the
+v16 pre-game menu waits for input forever — the first two attempts,
+`dcstick-prefix-repro{,2}`, sat at the menu and are kept only as the
+wrong-flag / menu-wait lessons):
+
+| leg | shim | `input:device1` | first `IN` line |
+|---|---|---|---|
+| `dcstick-prefix-repro3` | pre-fix (stash) | 4 = Ascii Stick | `p1=00000060` — OD+Action held, THE bug |
+| `dcstick-fix-verify` | fixed | 4 = Ascii Stick | `p1=00000000` idle, crc `22` = phase-4 idle baseline |
+| `dcstick-pad-regress` | fixed | 0 = controller | `p1=00000000` idle — standard pad unchanged |
+
+Both trigger-era reply headers healthy in all three (`hdrA=03210008`
+DATATRF). Flycast device map: `MDT_AsciiStick = 4`
+(fork `core/hw/maple/maple_cfg.h:12`), CLI key `input:device1`
+(`core/cfg/option.cpp:201`).
 
 ### Status
 

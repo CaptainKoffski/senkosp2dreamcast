@@ -33,53 +33,80 @@ int main(void) {
 
     /* dc_cond_to_pressed: raw GetCondition words 2/3 -> the pressed mask above.
        w2 = buttons | rtrig<<16 | ltrig<<24 (buttons ACTIVE-LOW), w3 = joyx |
-       joyy<<8 | ... (0-255, 128 centred, low = up/left). */
+       joyy<<8 | ... (0-255, 128 centred, low = up/left). caps = the DEVINFO
+       function-data word: an axis byte is only trusted if the device declares
+       that axis (tester bug 2026-09-26: the Arcade Stick declares none and
+       fills all six bytes with 0x80 -- threshold 128 read that as both
+       triggers held). PAD = standard controller 0xfe060f00, STICK = Ascii
+       Stick 0xff070000 (flycast maple_devs.cpp:85/:292; bit meanings KOS
+       dc/maple/controller.h:258-263). */
     {
         const unsigned NEUTRAL3 = 0x80808080u;      /* all four axes centred */
-        assert(dc_cond_to_pressed(0xffff, NEUTRAL3) == 0);          /* idle pad */
+        const unsigned PAD   = 0xfe060f00u;         /* rtrig|ltrig|X|Y axes */
+        const unsigned STICK = 0xff070000u;         /* no analog axes at all */
+        assert(dc_cond_to_pressed(0xffff, NEUTRAL3, PAD) == 0);     /* idle pad */
         /* one button held: its wire bit goes to 0 */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_START, NEUTRAL3))
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_START, NEUTRAL3, PAD))
                == JVS_START);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_Y, NEUTRAL3))
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_Y, NEUTRAL3, PAD))
                == JVS_BARRAGE);
         /* R trigger is analog: below 128 idle, at/above 128 -> OverDrive */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (127u << 16), NEUTRAL3)) == 0);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (128u << 16), NEUTRAL3))
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (127u << 16), NEUTRAL3, PAD)) == 0);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (128u << 16), NEUTRAL3, PAD))
                == JVS_OD);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (255u << 16), NEUTRAL3))
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (255u << 16), NEUTRAL3, PAD))
                == JVS_OD);
         /* L trigger (bits 24-31) duplicates B/Action: same 128 threshold as R */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (127u << 24), NEUTRAL3)) == 0);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (128u << 24), NEUTRAL3))
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (127u << 24), NEUTRAL3, PAD)) == 0);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (128u << 24), NEUTRAL3, PAD))
                == JVS_A);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (255u << 24), NEUTRAL3))
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (255u << 24), NEUTRAL3, PAD))
                == JVS_A);
         /* analog stick drives the same 8-way as the D-pad; neutral band
            0x40..0xc0 inclusive stays idle */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x8080803fu)) == JVS_LEFT);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x808080c1u)) == JVS_RIGHT);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x80803f80u)) == JVS_UP);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x8080c180u)) == JVS_DOWN);
-        assert(dc_cond_to_pressed(0xffff, 0x80804080u) == 0);        /* band edge */
-        assert(dc_cond_to_pressed(0xffff, 0x8080c080u) == 0);        /* band edge */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x80803f3fu))
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x8080803fu, PAD)) == JVS_LEFT);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x808080c1u, PAD)) == JVS_RIGHT);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x80803f80u, PAD)) == JVS_UP);
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x8080c180u, PAD)) == JVS_DOWN);
+        assert(dc_cond_to_pressed(0xffff, 0x80804080u, PAD) == 0);   /* band edge */
+        assert(dc_cond_to_pressed(0xffff, 0x8080c080u, PAD) == 0);   /* band edge */
+        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x80803f3fu, PAD))
                == (JVS_UP | JVS_LEFT));                              /* diagonal */
         /* D-pad and analog OR together, and coexist with buttons */
         assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~(CONT_DPAD_UP | CONT_A),
-                                            0x808080c1u))
+                                            0x808080c1u, PAD))
                == (JVS_UP | JVS_M | JVS_RIGHT));
         /* ... but an opposed pair reports NEITHER, the same mutual exclusion
            the emulator applies (maple_devs.cpp:67-71/:91-92 on the active-low
            kcode, maple_jvs.cpp:2224-2228 on the JVS word). Reachable here
            because stick and D-pad are OR'd and can disagree. */
         assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_DPAD_RIGHT,
-                                            0x8080803fu)) == 0);   /* dpad R + stick L */
+                                            0x8080803fu, PAD)) == 0);   /* dpad R + stick L */
         assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_DPAD_UP,
-                                            0x8080c180u)) == 0);   /* dpad U + stick D */
+                                            0x8080c180u, PAD)) == 0);   /* dpad U + stick D */
         /* the exclusion is per axis and takes nothing else with it */
         assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~(CONT_DPAD_RIGHT | CONT_A),
-                                            0x80803f3fu))
+                                            0x80803f3fu, PAD))
                == (JVS_UP | JVS_M));                               /* L/R cancel, UP lives */
+
+        /* Arcade Stick regression (tester report 2026-09-26): the exact idle
+           frame flycast's maple_ascii_stick sends -- buttons all released,
+           every axis byte 0x80 (getAnalogAxis returns 0x80 unconditionally,
+           maple_devs.cpp:313) -- must read as NOTHING pressed, not
+           shield+OverDrive held. */
+        assert(dc_cond_to_pressed(0xffffu | (0x80u << 16) | (0x80u << 24),
+                                  NEUTRAL3, STICK) == 0);
+        /* undeclared axes are ignored whatever the filler value (real HKT-7300
+           filler bytes unverified -- gate on the declaration, not the value) */
+        assert(dc_cond_to_pressed(0xffffu | (0xffu << 16) | (0xffu << 24),
+                                  0x00000000u, STICK) == 0);
+        /* buttons still live on a stick, including the ones only it has */
+        assert(dc_to_jvs(dc_cond_to_pressed((0xffffu & ~CONT_START)
+                                            | (0x80u << 16) | (0x80u << 24),
+                                            NEUTRAL3, STICK)) == JVS_START);
+        assert(dc_to_jvs(dc_cond_to_pressed((0xffffu & ~CONT_DPAD_LEFT)
+                                            | (0x80u << 16) | (0x80u << 24),
+                                            NEUTRAL3, STICK)) == JVS_LEFT);
     }
 
     /* dc_to_jvs_test (Task 13): P1-only test-mode remap -- Start->Test

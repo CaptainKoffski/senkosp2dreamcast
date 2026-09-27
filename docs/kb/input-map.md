@@ -70,6 +70,32 @@ M+S combo, despite its "MAIN+SUB" cabinet label); and OverDrive's final wire
 bit is `0x0020` (`NAOMI_BTN4_KEY`) after senkosp's own descriptor remap — see
 §OverDrive wire.
 
+### Non-standard controllers: axis bytes are capability-gated (2026-09-26)
+
+Tester report (Flycast, "Arcade Stick" driver): shield + OverDrive stuck
+held from boot. Root cause: the GetCondition reply always carries all six
+analog bytes, but a device without an axis fills its byte with a **neutral
+filler of the sender's choosing** — Flycast's Ascii Stick returns `0x80`
+for every axis (`maple_devs.cpp:313 getAnalogAxis`) while declaring **zero
+analog axes** in its DEVINFO word (`0xff070000`, `maple_devs.cpp:292`), and
+the shim's threshold-128 trigger digitizer read that filler as both
+triggers half-pressed, forever (`IN p1=00000060` at first poll, leg
+`dcstick-prefix-repro3`). Fix: `maple.c probe_devinfo()` latches each
+port's DEVINFO function-data word (`devinfo_caps[]`; reply word 2 =
+`function_data[0]`, KOS `dc/maple.h maple_devinfo_t`), and
+`jvs.c dc_cond_to_pressed()` only trusts an axis byte whose capability bit
+is declared — rtrig bit 8, ltrig bit 9, analog X/Y bits 10/11 (KOS
+`dc/maple/controller.h:258-263 CONT_CAPABILITY_*`; standard pad
+`0xfe060f00` has all four). Undeclared axis ⇒ bit never synthesized,
+whatever the filler value — real HKT-7300 filler bytes are undocumented,
+so the gate is on the declaration, not the value. Buttons (incl. the
+stick-only C/Z, unmapped) are unaffected. Verified: host tests
+(`test_host.c` Arcade Stick block) + emulator A/B legs
+`dcstick-prefix-repro3` (pre-fix, `p1=00000060` held) /
+`dcstick-fix-verify` (fixed, `p1=00000000` idle, crc `0x22` = the
+phase-4 idle baseline) / `dcstick-pad-regress` (standard pad, idle
+unchanged), all `input:device1=4|0`, tooling.md §Leg records.
+
 ## OverDrive wire
 
 Capture-time binding: D → `DC_BTN_Z` ("Button 6" per Flycast's own
