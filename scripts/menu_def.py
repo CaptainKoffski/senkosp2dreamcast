@@ -49,10 +49,10 @@ SETTINGS = [
 # and the controls page's label chips/anchors (menu_layout.h). Button names
 # match jvs.c's CONT_* constants (KOS controller.h bit numbering); function
 # names index FUNC_WORDS / FUNC_JVS.
-FUNC_WORDS = ["MAIN", "SUB", "BARRAGE", "ACTION", "OVERDRIVE", "-"]
-FUNC_JVS = {            # function -> jvs.c constant ("-" = unmapped)
+FUNC_WORDS = ["MAIN", "SUB", "BARRAGE", "ACTION", "OVERDRIVE", "NONE"]
+FUNC_JVS = {            # function -> jvs.c constant (NONE = unmapped)
     "MAIN": "JVS_M", "SUB": "JVS_S", "BARRAGE": "JVS_BARRAGE",
-    "ACTION": "JVS_A", "OVERDRIVE": "JVS_OD", "-": "0",
+    "ACTION": "JVS_A", "OVERDRIVE": "JVS_OD", "NONE": "0",
 }
 PAD_BUTTONS   = ["A", "B", "X", "Y", "LTRIG", "RTRIG"]  # runtime-labeled, fixed order
 STICK_BUTTONS = ["A", "B", "X", "Y", "Z", "C"]
@@ -67,9 +67,11 @@ PAD_LAYOUTS = [
                     "LTRIG": "ACTION", "RTRIG": "OVERDRIVE"}),
 ]
 # Arcade stick: the Naomi cabinet layout, fixed (layout id 2). B deliberately
-# unmapped -- the tester's spec says "B = none"; it renders as the "-" chip.
+# unmapped -- the tester's spec says "B = none". It renders as the NONE chip:
+# a bare "-" was a ~10px glyph on a BG plate over BG page, so B's leader line
+# read as pointing at nothing (task-5 review).
 STICK_LAYOUT = {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
-                "B": "-", "C": "OVERDRIVE"}
+                "B": "NONE", "C": "OVERDRIVE"}
 
 # ---- Controls page (controls spec 2026-09-27) ---------------------------
 CTL_ROW_ITEMS = ["P1 PAD LAYOUT", "P2 PAD LAYOUT", "STICK LAYOUT"]

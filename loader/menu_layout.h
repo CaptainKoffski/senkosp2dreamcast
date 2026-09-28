@@ -95,7 +95,7 @@ static const mrect_t MENU_SET_FOOTER = {0,696,640,24};
  * chip's top-left on the page. The footer is baked into both
  * pages -- nothing to blit. */
 #define CTL_N_BUTTONS 6
-static const mrect_t CTL_WORD[6] = {{0,720,160,24}, {160,720,160,24}, {320,720,160,24}, {480,720,160,24}, {0,744,160,24}, {160,744,160,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, - */
+static const mrect_t CTL_WORD[6] = {{0,720,160,24}, {160,720,160,24}, {320,720,160,24}, {480,720,160,24}, {0,744,160,24}, {160,744,160,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, NONE */
 
 static const unsigned char CTL_PAD_FUNC[2][6] = {
   {0, 1, 2, 3, 4, 3},   /* TOURNAMENT */

@@ -124,7 +124,8 @@ def box_of(rect):
 #          are interior cluster buttons -> elbows out to their chips, routed
 #          between the art's own letters (never across one).
 PAD_PAGE = dict(art_x="center",
-                tags=[(118, 186, "MOVE"), (92, 20, "L TRIGGER"),
+                tags=[(118, 186, "MOVE"), (320, 274, "START"),
+                      (92, 20, "L TRIGGER"),
                       (546, 20, "R TRIGGER")],
                 leads=[])
 STICK_PAGE = dict(art_x=4,
