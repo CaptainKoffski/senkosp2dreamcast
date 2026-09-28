@@ -91,7 +91,7 @@ $(CAPTURE):
 	$(error $(CAPTURE) missing -- recapture a Naomi-profile leg with \
 	  scripts/capture_leg.sh, docs/kb/tooling.md §Phase 2 capture harness)
 
-$(B)/shim.elf: $(SRCS) shim.ld include/shim_iface.h
+$(B)/shim.elf: $(SRCS) shim.ld include/shim_iface.h src/layouts.h
 	mkdir -p $(B)
 	$(CC) $(CFLAGS) -Wl,-T,shim.ld -Wl,-Map,$(B)/shim.map.tmp -o $@ $(SRCS)
 $(B)/shim.bin: $(B)/shim.elf

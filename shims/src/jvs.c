@@ -20,6 +20,7 @@
 #define CONT_DPAD_RIGHT (1u << 7)
 #define CONT_Y          (1u << 9)
 #define CONT_X          (1u << 10)
+#define CONT_Z          (1u << 8)   /* KOS controller.h:111 CONT_Z BIT(8); stick top row */
 #define CONT_RTRIG      (1u << 16)  /* synthetic: rtrig>=128, not a real KOS button bit */
 #define CONT_LTRIG      (1u << 17)  /* synthetic: ltrig>=128, same scheme as CONT_RTRIG */
 
@@ -39,23 +40,26 @@
 #define JVS_TEST   (1u << 18)
 #define JVS_COIN   (1u << 19)
 
-unsigned dc_to_jvs(unsigned dc_buttons) {
+/* GENERATED layout tables (Task-1 header; single source scripts/menu_def.py):
+ * LAYOUT_* ids, jvs_map_t, JVS_LAYOUT_PAD[2][], JVS_LAYOUT_STICK[]. Included
+ * here, after the CONT_/JVS_ defines the tables reference. */
+#include "layouts.h"
+
+/* Start + the 8-way are identical in every layout; the per-layout table maps
+ * the face/trigger buttons (controls spec 2026-09-27: TOURNAMENT default /
+ * CLASSIC per-port pad presets, STICK fixed arcade layout). Callers pick the
+ * layout with jvs_pick_layout() below. */
+unsigned dc_to_jvs(unsigned dc_buttons, unsigned layout) {
+    const jvs_map_t *m = (layout == LAYOUT_STICK) ? JVS_LAYOUT_STICK
+        : JVS_LAYOUT_PAD[layout == LAYOUT_PAD_CLASSIC ? 1 : 0];
     unsigned w = 0;
-    /* Fill from the live GetCondition struct in maple.c; this fn takes the
-     * already-normalized pressed-mask. */
     if (dc_buttons & CONT_START)         w |= JVS_START;
     if (dc_buttons & CONT_DPAD_UP)       w |= JVS_UP;
     if (dc_buttons & CONT_DPAD_DOWN)     w |= JVS_DOWN;
     if (dc_buttons & CONT_DPAD_LEFT)     w |= JVS_LEFT;
     if (dc_buttons & CONT_DPAD_RIGHT)    w |= JVS_RIGHT;
-    if (dc_buttons & CONT_A)             w |= JVS_M;
-    if (dc_buttons & CONT_X)             w |= JVS_S;
-    if (dc_buttons & CONT_B)             w |= JVS_A;
-    if (dc_buttons & CONT_Y)             w |= JVS_BARRAGE;
-    if (dc_buttons & CONT_RTRIG)         w |= JVS_OD;   /* R as digital: see dc_cond_to_pressed */
-    if (dc_buttons & CONT_LTRIG)         w |= JVS_A;    /* L duplicates B (Action/block) --
-                                                         * operator request 2026-08-30, barrier-shot
-                                                         * ease; input-map.md §DC pad layout */
+    for (unsigned i = 0; i < JVS_LAYOUT_N; i++)
+        if (dc_buttons & m[i].dc) w |= m[i].jvs;
     return w;
 }
 
@@ -80,9 +84,9 @@ unsigned dc_to_jvs(unsigned dc_buttons) {
  * the button word -- the same byte Start's 0x8000 lives in (input-map.md's
  * measured bit, §TESTBIT-INJECT: "Service *is* a bit") -- so it is folded
  * into the returned word like any other control. */
-unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned *test_bit) {
+unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned layout, unsigned *test_bit) {
     *test_bit = (dc_buttons & CONT_START) ? 1u : 0u;
-    return dc_to_jvs(dc_buttons & ~(CONT_START | CONT_A))
+    return dc_to_jvs(dc_buttons & ~(CONT_START | CONT_A), layout)
          | ((dc_buttons & CONT_A) ? JVS_SERVICE : 0u);
 }
 
@@ -146,6 +150,22 @@ unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned *test_bit) {
 #define CONT_CAP_LTRIG    (1u << 9)
 #define CONT_CAP_ANALOG_X (1u << 10)
 #define CONT_CAP_ANALOG_Y (1u << 11)
+
+/* Which layout drives a port right now. A device declaring NO analog axes
+ * (triggers or stick) is an arcade stick -- flycast's Ascii Stick declares
+ * 0xff070000 (maple_devs.cpp:292) vs standard pad 0xfe060f00 (:85); bit
+ * meanings KOS dc/maple/controller.h:258-263 -- and always gets the fixed
+ * arcade layout. Anything else is a pad and takes its port's preset byte
+ * (SHIM_STATE_PAD_LAYOUT word, shim_iface.h): 1 = Classic, anything else
+ * (0 = default, junk) = Tournament. Pure: host-tested. */
+unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel) {
+    if (!(caps & (CONT_CAP_RTRIG | CONT_CAP_LTRIG |
+                  CONT_CAP_ANALOG_X | CONT_CAP_ANALOG_Y)))
+        return LAYOUT_STICK;
+    return (pad_sel == LAYOUT_PAD_CLASSIC) ? LAYOUT_PAD_CLASSIC
+                                           : LAYOUT_PAD_TOURNAMENT;
+}
+
 #define DC_TRIG_ON  128     /* R trigger digital threshold, 0-255 */
 #define DC_AXIS_LO  0x40    /* analog neutral band (maple_devs.cpp:1494-1512) */
 #define DC_AXIS_HI  0xc0

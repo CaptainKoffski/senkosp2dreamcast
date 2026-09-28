@@ -128,10 +128,12 @@ extern const unsigned char mie_jvsdflt[]; extern const unsigned int mie_jvsdflt_
  * returns the normalized pressed mask; src/jvs.c maps it to the JVS word and
  * owns the frame checksum. */
 unsigned int  maple_getcond(unsigned int port);         /* src/maple.c */
-unsigned      dc_to_jvs(unsigned dc_buttons);           /* src/jvs.c */
-unsigned      dc_to_jvs_test(unsigned dc_buttons, unsigned *test_bit); /* src/jvs.c, Task 13 */
+unsigned      dc_to_jvs(unsigned dc_buttons, unsigned layout);           /* src/jvs.c */
+unsigned      dc_to_jvs_test(unsigned dc_buttons, unsigned layout, unsigned *test_bit); /* src/jvs.c, Task 13 */
 unsigned char jvs_checksum(const unsigned char *f);     /* src/jvs.c */
 void *xmemcpy(void *, const void *, u32);               /* src/util.c */
+extern u32 devinfo_caps[2];                              /* src/maple.c */
+unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel); /* src/jvs.c, controls spec 2026-09-27 */
 
 #define MMIR(o) (*(volatile u32 *)P2ADDR(MAPLE_MIRROR + (o)))   /* mirror cell */
 #define UW(a)   (*(volatile u32 *)P2ADDR(a))    /* DMA-source view: uncached */
@@ -184,14 +186,21 @@ static void mie_poll(u32 rcv) {
     u32 n = mie_sub33_len, j1, j2;
     if (n > sizeof f) n = sizeof f;     /* bounded: never read past the blob */
     xmemcpy(f, mie_sub33, n);
+    /* getcond FIRST (a success-after-dead poll refreshes devinfo_caps, Task 3),
+     * then classify: stick -> fixed arcade layout, pad -> this port's preset
+     * byte from the loader-staged word (0 Tournament / 1 Classic). */
+    u32 p1 = maple_getcond(0), p2 = maple_getcond(1);
+    u32 sel = UW(SHIM_STATE + 4 * SHIM_STATE_PAD_LAYOUT);
+    u32 l1 = jvs_pick_layout(devinfo_caps[0], sel & 0xffu);
+    u32 l2 = jvs_pick_layout(devinfo_caps[1], (sel >> 8) & 0xffu);
     if (UW(SHIM_STATE) == 1u) {         /* test boot: P1 Start->Test, A->Service */
         unsigned test_bit;
-        j1 = dc_to_jvs_test(maple_getcond(0), &test_bit);
+        j1 = dc_to_jvs_test(p1, l1, &test_bit);
         f[0x1f] = (u8)(test_bit ? 0x80 : 0x00);
     } else {
-        j1 = dc_to_jvs(maple_getcond(0));   /* DC port A -> P1 */
+        j1 = dc_to_jvs(p1, l1);         /* DC port A -> P1 */
     }
-    j2 = dc_to_jvs(maple_getcond(1));   /* DC port B -> P2 (no pad -> 0 = idle) */
+    j2 = dc_to_jvs(p2, l2);             /* DC port B -> P2 (no pad -> 0 = idle) */
     f[0x20] = (u8)(j1 >> 8); f[0x21] = (u8)j1;
     f[0x22] = (u8)(j2 >> 8); f[0x23] = (u8)j2;
     f[0x3a] = jvs_checksum(f);

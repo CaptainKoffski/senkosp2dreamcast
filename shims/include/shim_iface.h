@@ -24,6 +24,12 @@
  * = 0 raw ATA (real-BIOS boots, GDEMU/optical) / 1 BIOS-syscall (DreamShell
  * isoldr). Seeded by the loader after the rehearsal probe (main.c). */
 #define SHIM_STATE_GD_BACKEND 1
+/* Controls layouts (spec 2026-09-27): per-port PAD preset word. byte0 =
+ * port A, byte1 = port B; 0 = Tournament (the staged window zero-fill IS
+ * the default), 1 = Classic. Sticks never read it -- the shim classifies
+ * per poll from DEVINFO caps (src/jvs.c jvs_pick_layout). Loader writes it
+ * at staging (loader/main.c, Task 4). */
+#define SHIM_STATE_PAD_LAYOUT 2
 /* Canary at the bottom of the private syscall stack (gdstack.S swaps r15 to
  * GD_STACK_TOP; isoldr's FatFs+SPI runs on it -- Cleopatra measured >2 KB,
  * we reserve 8 KB and VERIFY instead of hoping; spec decision 5). Seeded by
