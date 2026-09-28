@@ -13,6 +13,11 @@ extern uint8 menu_sheet_bin[];
 extern uint8 controls_bin[];
 
 unsigned char menu_game_record[16] = MENU_DEFAULT_RECORD;
+/* Controls-page selector state (spec 2026-09-27): per-port pad preset,
+ * 0 = Tournament (default), 1 = Classic. Session-only like the record above
+ * (VMU save-all-settings will serialize it later); consumed by main.c's
+ * SHIM_STATE staging write. Sticks ignore it (shim classifies from DEVINFO). */
+unsigned char menu_pad_layout[2] = { 0, 0 };
 int menu_dirty = 0;
 
 static void blit(mrect_t src, int dx, int dy) {
