@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """T9 offline asset generator (Pillow -- NOT a build dependency; outputs are
-committed). Renders loader/menu_sheet.png (640x768 sprite sheet) and
-loader/controls.png (640x480), and emits loader/menu_layout.h with every
-sheet rect + dest coordinate + the settings byte tables from menu_def.py.
+committed). Renders loader/menu_sheet.png (640x1024 sprite sheet) and the two
+controls pages, loader/controls_pad.png / controls_stick.png (640x480), and
+emits loader/menu_layout.h (sheet rects + dest coordinates + the settings byte
+tables) and shims/src/layouts.h (button->JVS tables), both from menu_def.py.
 
-All art is drawn here (text + flat shapes) -- never pixels from the game
-(copyright rule, CLAUDE.md). Rerun after any menu_def.py change:
+All art is drawn here (text + flat shapes) or derived from the operator's own
+controller diagrams -- never pixels from the game (copyright rule, CLAUDE.md).
+Rerun after any menu_def.py change, then VIEW build/preview_*.png: those
+composite the label chips onto the pages exactly as the C code blits them, and
+are the only check that an anchor actually lands beside its button.
     python3 scripts/gen_menu_assets.py
 """
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import menu_def as M
@@ -93,6 +97,123 @@ def fill_rect(draw, rect, color):
 
 def R(rect):
     return "{%d,%d,%d,%d}" % rect
+
+
+CHIP_W, CHIP_H = 160, 24        # CTL_WORD label-chip cell
+CTL_ROW_LABEL_X = 48
+CTL_ROW_VALUE_X = 344
+
+
+def CTL_ROW_Y(i):
+    return 352 + i * 34
+
+
+def box_of(rect):
+    x, y, w, h = rect
+    return (x, y, x + w, y + h)
+
+
+# Controls pages. Per page: the paste x of the scaled art ("center" or a
+# literal), the baked identity tags the art itself does not carry, and the
+# leader polylines for chips the art leaves no adjacent room for. Tag/lead
+# coordinates are page space, like menu_def's anchors, and are art-only --
+# the C code never sees them, so they live here and not in menu_def.
+#   pad:   face view, no triggers visible -> L/R TRIGGER tags in the shoulder
+#          corners, with the LTRIG/RTRIG chips directly under them.
+#   stick: Start is an unlabeled yellow circle -> START tag left of it; X/Y/B
+#          are interior cluster buttons -> elbows out to their chips, routed
+#          between the art's own letters (never across one).
+PAD_PAGE = dict(art_x="center",
+                tags=[(118, 186, "MOVE"), (92, 20, "L TRIGGER"),
+                      (546, 20, "R TRIGGER")],
+                leads=[])
+STICK_PAGE = dict(art_x=4,
+                  tags=[(98, 88, "MOVE"), (240, 33, "START")],
+                  leads=[[(331, 74), (331, 42), (440, 42)],      # Y
+                         [(331, 157), (331, 190), (440, 190)],   # B
+                         [(261, 118), (170, 118), (170, 205)]])  # X
+
+
+def clean_art(im):
+    """Flatten the operator art to schematic colors: a 3x median kills the
+    JPEG ringing the stick art came over-compressed with, then an octree
+    palette (32, no dither) snaps the result to flat fills. Octree, not
+    MEDIANCUT: median-cut allocates the palette by pixel population, and the
+    pad's buttons are small enough that it merged red A / blue B into the
+    body gray (viewed; that is what killed the first pass)."""
+    return (im.filter(ImageFilter.MedianFilter(3))
+              .quantize(colors=32, method=Image.FASTOCTREE,
+                        dither=Image.Dither.NONE)
+              .convert("RGB"))
+
+
+def tag(draw, x, y, text):
+    """Baked identity label: FG text on its own BG plate. The plate is what
+    makes it readable on the stick's dark panel (bare FG text on that gray
+    is ~2:1 contrast)."""
+    check_fits(draw, 640, 24, text, F_ROW)
+    b = draw.textbbox((x, y), text, font=F_ROW, anchor="mm")
+    draw.rectangle([b[0] - 6, y - 12, b[2] + 6, y + 12], fill=BG)
+    draw.text((x, y), text, font=F_ROW, fill=FG, anchor="mm")
+
+
+def build_page(name, spec):
+    """640x480 controls page: operator art cleaned, autocropped, scaled into
+    the art region (y 8..338, above the selector rows), tinted + flood-filled
+    onto the page BG, then the baked tags / leader lines / footer."""
+    art = os.path.join(LOADER_DIR, f"{name}_diagram.png")
+    assert os.path.exists(art), f"missing {art} (operator-provided art)"
+    src = clean_art(Image.open(art).convert("RGB"))
+    # autocrop the art's own margin. The threshold is relative to the corner
+    # level, not a fixed near-white: the stick art's background is light grey
+    # (232), so a fixed "darker than 245" test crops nothing.
+    g = src.convert("L")
+    lvl = sorted(g.getpixel(p) for p in [(2, 2), (src.width - 3, 2),
+                                         (2, src.height - 3),
+                                         (src.width - 3, src.height - 3)])[2]
+    bbox = g.point(lambda p: 255 if abs(p - lvl) > 14 else 0).getbbox()
+    assert bbox, f"{name}: autocrop found no content"
+    pad = 12
+    src = src.crop((max(bbox[0] - pad, 0), max(bbox[1] - pad, 0),
+                    min(bbox[2] + pad, src.width),
+                    min(bbox[3] + pad, src.height)))
+    scale = min(620 / src.width, 330 / src.height)
+    dw, dh = round(src.width * scale), round(src.height * scale)
+    img = src.resize((dw, dh), Image.LANCZOS)
+    # tint so the art's own background lands exactly on the page BG: sample
+    # the bg level from the corners (inside the autocrop pad, pure bg by
+    # construction) and scale all pixels by BG/bg_level
+    g = img.convert("L")
+    bg_level = sorted(g.getpixel(p) for p in
+                      [(2, 2), (dw - 3, 2), (2, dh - 3), (dw - 3, dh - 3)])[2]
+    img = img.point(lambda p: min(255, p * BG[0] // bg_level))
+    # flatten the outer bg region to exactly BG (the tint gets it close; the
+    # art bg's soft gradient would still show as a faint block edge on the
+    # page without this). Interior lights (VMU window, pad body) are enclosed
+    # by darker outlines, so the fill cannot reach them. thresh is PIL's
+    # summed-channel difference: 60 = ~20/channel, enough for the bg's +-8
+    # gradient, far below the outlines. Two-pass sentinel fill: floodfill()
+    # no-ops when the seed already sits within thresh of the target value
+    # (our corners == BG by the tint above), so fill to a sentinel first,
+    # then sentinel -> BG.
+    SENTINEL = (255, 0, 255)
+    for corner in [(2, 2), (dw - 3, 2), (2, dh - 3), (dw - 3, dh - 3)]:
+        ImageDraw.floodfill(img, corner, SENTINEL, thresh=60)
+        ImageDraw.floodfill(img, corner, BG, thresh=60)
+    page = Image.new("RGB", (640, 480), BG)
+    ox = (640 - dw) // 2 if spec["art_x"] == "center" else spec["art_x"]
+    assert 0 <= ox and ox + dw <= 640 and dh <= 330, \
+        f"{name}: art {dw}x{dh} at x{ox} leaves the art region"
+    page.paste(img, (ox, 8))
+    d = ImageDraw.Draw(page)
+    for poly in spec["leads"]:
+        d.line(poly, fill=FG, width=2, joint="curve")
+    for x, y, text in spec["tags"]:
+        tag(d, x, y, text)
+    check_fits(d, 640, 24, M.CTL_FOOTER, F_ROW)
+    d.text((320, 464), M.CTL_FOOTER, font=F_ROW, fill=GREY, anchor="mm")
+    print(f"gen_menu_assets: controls_{name}.png art {dw}x{dh} at x{ox}")
+    return page
 
 
 def emit_layouts_h():
@@ -214,59 +335,83 @@ def main():
     check_fits(draw, 640, 24, M.SET_FOOTER, F_ROW)
     put_centered(draw, set_footer_rect, M.SET_FOOTER, F_ROW, GREY)
 
+    # ---- CONTROLS sheet cells (same shelf) -------------------------------
+    ctl_word_rects = []
+    for word in M.FUNC_WORDS:
+        r = shelf.place(160, 24)
+        check_fits(draw, 160, 24, word, F_ROW)
+        put_centered(draw, r, word, F_ROW, FG)
+        ctl_word_rects.append(r)
+
+    ctl_row_rects = []
+    for item in M.CTL_ROW_ITEMS:
+        r_norm = shelf.place(288, 28)
+        check_fits(draw, 288, 28, item, F_ROW)
+        put_left(draw, r_norm, item, F_ROW, FG)
+        r_hi = shelf.place(288, 28)
+        fill_rect(draw, r_hi, AMBER)
+        check_fits(draw, 288, 28, item, F_ROW)
+        put_left(draw, r_hi, item, F_ROW, BLACK)
+        ctl_row_rects.append((r_norm, r_hi))
+
+    ctl_pad_value_rects = [get_chip(v) for v in M.CTL_PAD_VALUES]
+    ctl_stick_value_rect = get_chip(M.CTL_STICK_VALUE)
+
     assert shelf.bottom <= M.SHEET_H, \
         f"sheet content {shelf.bottom}px exceeds {M.SHEET_H}px budget"
-    # Canvas was allocated at the full 640x768 up front and pre-filled with
+    # Canvas was allocated at the full sheet size up front and pre-filled with
     # BG, so the untouched tail below shelf.bottom is already the required
-    # splash-white padding -- no separate crop+pad step needed.
+    # padding -- no separate crop+pad step needed.
     sheet.save(os.path.join(LOADER_DIR, "menu_sheet.png"))
 
-    # ---- controls.png ---------------------------------------------------
-    # T16: the page is the operator-provided pad diagram, downscaled to fit
-    # above the footer. CONTROLS_ROWS in menu_def.py stays as the textual
-    # ground truth (docs/kb/input-map.md) the diagram's labels were verified
-    # against -- update both together if the mapping ever changes.
-    diagram_path = os.path.join(LOADER_DIR, "controls_diagram.png")
-    assert os.path.exists(diagram_path), \
-        f"missing {diagram_path} (T16 operator-provided pad diagram)"
-    src = Image.open(diagram_path).convert("RGB")
-    # autocrop the diagram's white margins (content = anything darker than
-    # near-white) so the pad renders as large as the page allows
-    bbox = src.convert("L").point(lambda p: 255 if p < 245 else 0).getbbox()
-    if bbox:
-        pad = 12
-        src = src.crop((max(bbox[0] - pad, 0), max(bbox[1] - pad, 0),
-                        min(bbox[2] + pad, src.width), min(bbox[3] + pad, src.height)))
-    scale = 0.85 * min(620 / src.width, 416 / src.height)  # T16 round 2:
-    # operator asked for a slightly smaller pad after seeing it on hardware
-    dw, dh = round(src.width * scale), round(src.height * scale)
-    img = src.resize((dw, dh), Image.LANCZOS)
-    # tint the diagram so its own background lands exactly on the page BG:
-    # sample the bg level from the corners (inside the autocrop pad, pure
-    # bg by construction) and scale all pixels by BG/bg_level
-    g = img.convert("L")
-    bg_level = sorted(g.getpixel(p) for p in
-                      [(2, 2), (dw - 3, 2), (2, dh - 3), (dw - 3, dh - 3)])[2]
-    img = img.point(lambda p: min(255, p * BG[0] // bg_level))
-    # flatten the outer bg region to exactly BG (the tint gets it close;
-    # the diagram bg's soft gradient would still show as a faint block
-    # edge on the page without this). Interior whites (label boxes, pad
-    # body) are enclosed by dark outlines, so the fill can't reach them.
-    # thresh is PIL's summed-channel difference: 60 = ~20/channel, enough
-    # for the bg's +-8 gradient, far below the black outlines (~670).
-    # Two-pass sentinel fill: floodfill() no-ops when the seed already
-    # sits within thresh of the target value (our corners == BG by the
-    # tint above), so fill to a sentinel first, then sentinel -> BG.
-    SENTINEL = (255, 0, 255)
-    for corner in [(2, 2), (dw - 3, 2), (2, dh - 3), (dw - 3, dh - 3)]:
-        ImageDraw.floodfill(img, corner, SENTINEL, thresh=60)
-        ImageDraw.floodfill(img, corner, BG, thresh=60)
-    ctrl = Image.new("RGB", (640, 480), BG)
-    ctrl.paste(img, ((640 - dw) // 2, max((430 - dh) // 2, 0)))
-    cd = ImageDraw.Draw(ctrl)
-    check_fits(cd, 640, 480, "B: BACK", F_ROW)
-    cd.text((320, 440), "B: BACK", font=F_ROW, fill=GREY, anchor="mm")
-    ctrl.save(os.path.join(LOADER_DIR, "controls.png"))
+    # ---- controls_pad.png / controls_stick.png ---------------------------
+    pad_page = build_page("pad", PAD_PAGE)
+    stick_page = build_page("stick", STICK_PAGE)
+    pad_page.save(os.path.join(LOADER_DIR, "controls_pad.png"))
+    stick_page.save(os.path.join(LOADER_DIR, "controls_stick.png"))
+
+    # anchor sanity: the chip must stay inside the art region, and two chips
+    # on one page must never collide (they are blitted, not blended)
+    for page_name, anchors, buttons in [("pad", M.PAD_ANCHORS, M.PAD_BUTTONS),
+                                        ("stick", M.STICK_ANCHORS, M.STICK_BUTTONS)]:
+        assert set(anchors) == set(buttons), f"{page_name}: anchor/button drift"
+        for b in buttons:
+            x, y = anchors[b]
+            assert 0 <= x <= 640 - CHIP_W, f"{page_name} {b}: anchor x {x} off-page"
+            assert 8 <= y <= 340 - CHIP_H, f"{page_name} {b}: anchor y {y} off-art"
+            assert (x, y) != (0, 0), f"{page_name} {b}: anchor unmeasured"
+        for i, a in enumerate(buttons):
+            for b in buttons[i + 1:]:
+                ax, ay = anchors[a]
+                bx, by = anchors[b]
+                assert ax + CHIP_W <= bx or bx + CHIP_W <= ax \
+                    or ay + CHIP_H <= by or by + CHIP_H <= ay, \
+                    f"{page_name}: {a} and {b} chips overlap"
+
+    # ---- previews (verification discipline: chips composited exactly as
+    # the C code blits them, so the anchors are checked against the truth)
+    build_dir = os.path.join(REPO, "build")
+    os.makedirs(build_dir, exist_ok=True)
+
+    def preview(name, page, anchors, buttons, layout, row_hi, values):
+        pv = page.copy()
+        for b in buttons:
+            pv.paste(sheet.crop(box_of(ctl_word_rects[M.FUNC_WORDS.index(layout[b])])),
+                     anchors[b])
+        for i, (r_norm, r_hi) in enumerate(ctl_row_rects):
+            pv.paste(sheet.crop(box_of(r_hi if i == row_hi else r_norm)),
+                     (CTL_ROW_LABEL_X, CTL_ROW_Y(i)))
+            pv.paste(sheet.crop(box_of(values[i])), (CTL_ROW_VALUE_X, CTL_ROW_Y(i)))
+        pv.save(os.path.join(build_dir, f"preview_{name}.png"))
+
+    for lid, (lname, lay) in enumerate(M.PAD_LAYOUTS):
+        # row values as the menu shows them: P1 = this preview's layout,
+        # P2 = the other one (so both chips are eyeballed), stick fixed
+        preview(f"pad_{lname.lower()}", pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS,
+                lay, 0, [ctl_pad_value_rects[lid], ctl_pad_value_rects[1 - lid],
+                         ctl_stick_value_rect])
+    preview("stick", stick_page, M.STICK_ANCHORS, M.STICK_BUTTONS,
+            M.STICK_LAYOUT, 2, ctl_pad_value_rects + [ctl_stick_value_rect])
 
     # ---- loader/menu_layout.h -------------------------------------------
     top_dest_y = [178, 222, 266]    # block 178..302, centered on the 480 screen
@@ -344,6 +489,45 @@ def main():
     lines.append("")
     lines.append("#define MENU_DEFAULT_RECORD {" + ", ".join(f"0x{b:02x}" for b in rec_bytes) + "}")
     lines.append("")
+    lines.append("/* ---- CONTROLS pages (controls_pad.png / controls_stick.png) ----"
+                 "\n * CTL_*_FUNC index FUNC_WORDS/CTL_WORD; button order is"
+                 "\n * menu_def.py's PAD_BUTTONS / STICK_BUTTONS, same order as"
+                 "\n * shims/src/layouts.h's JVS_LAYOUT_* rows. CTL_*_ANCHOR is the"
+                 "\n * chip's top-left on the page. The footer is baked into both"
+                 "\n * pages -- nothing to blit. */")
+    lines.append(f"#define CTL_N_BUTTONS {len(M.PAD_BUTTONS)}")
+    lines.append(f"static const mrect_t CTL_WORD[{len(M.FUNC_WORDS)}] = {{"
+                 + ", ".join(R(r) for r in ctl_word_rects) + "};   /* "
+                 + ", ".join(M.FUNC_WORDS) + " */")
+    lines.append("")
+    lines.append(f"static const unsigned char CTL_PAD_FUNC[2][{len(M.PAD_BUTTONS)}] = {{")
+    for name, lay in M.PAD_LAYOUTS:
+        lines.append("  {" + ", ".join(str(M.FUNC_WORDS.index(lay[b]))
+                                       for b in M.PAD_BUTTONS) + f"}},   /* {name} */")
+    lines.append("};")
+    lines.append(f"static const unsigned char CTL_STICK_FUNC[{len(M.STICK_BUTTONS)}] = {{"
+                 + ", ".join(str(M.FUNC_WORDS.index(M.STICK_LAYOUT[b]))
+                             for b in M.STICK_BUTTONS) + "};")
+    lines.append("")
+    for tname, buttons, anchors in [("PAD", M.PAD_BUTTONS, M.PAD_ANCHORS),
+                                    ("STICK", M.STICK_BUTTONS, M.STICK_ANCHORS)]:
+        lines.append(f"static const unsigned short CTL_{tname}_ANCHOR[{len(buttons)}][2] = {{")
+        for b in buttons:
+            lines.append("  {%d, %d},   /* %s */" % (anchors[b][0], anchors[b][1], b))
+        lines.append("};")
+    lines.append("")
+    lines.append(f"static const mrect_t CTL_ROW_LABEL[{len(M.CTL_ROW_ITEMS)}][2] = {{")
+    for norm, hi in ctl_row_rects:
+        lines.append(f"  {{{R(norm)}, {R(hi)}}},")
+    lines.append("};")
+    lines.append(f"static const mrect_t CTL_PAD_VALUE[{len(M.CTL_PAD_VALUES)}] = {{"
+                 + ", ".join(R(r) for r in ctl_pad_value_rects) + "};")
+    lines.append(f"static const mrect_t CTL_STICK_VALUE = {R(ctl_stick_value_rect)};")
+    lines.append("")
+    lines.append(f"#define CTL_ROW_LABEL_X {CTL_ROW_LABEL_X}")
+    lines.append(f"#define CTL_ROW_VALUE_X {CTL_ROW_VALUE_X}")
+    lines.append(f"#define CTL_ROW_Y(i) ({CTL_ROW_Y(0)} + (i) * 34)")
+    lines.append("")
     lines.append("#endif /* MENU_LAYOUT_H */")
 
     with open(os.path.join(LOADER_DIR, "menu_layout.h"), "w") as f:
@@ -352,7 +536,7 @@ def main():
     print(f"gen_menu_assets: sheet {shelf.bottom}/{M.SHEET_H}px used "
           f"({100 * shelf.bottom / M.SHEET_H:.1f}% vertical), "
           f"{n_settings} settings rows, {len(value_cache)} unique value chips, "
-          f"controls.png diagram {dw}x{dh}")
+          f"{len(ctl_word_rects)} control-word chips")
 
 
 if __name__ == "__main__":

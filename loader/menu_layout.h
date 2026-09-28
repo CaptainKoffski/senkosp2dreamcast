@@ -88,4 +88,48 @@ static const mrect_t MENU_SET_FOOTER = {0,696,640,24};
 
 #define MENU_DEFAULT_RECORD {0x23, 0x51, 0x17, 0x03, 0x00, 0x01, 0x01, 0x02, 0x02, 0x00, 0x46, 0x00, 0x96, 0x00, 0x46, 0x00}
 
+/* ---- CONTROLS pages (controls_pad.png / controls_stick.png) ----
+ * CTL_*_FUNC index FUNC_WORDS/CTL_WORD; button order is
+ * menu_def.py's PAD_BUTTONS / STICK_BUTTONS, same order as
+ * shims/src/layouts.h's JVS_LAYOUT_* rows. CTL_*_ANCHOR is the
+ * chip's top-left on the page. The footer is baked into both
+ * pages -- nothing to blit. */
+#define CTL_N_BUTTONS 6
+static const mrect_t CTL_WORD[6] = {{0,720,160,24}, {160,720,160,24}, {320,720,160,24}, {480,720,160,24}, {0,744,160,24}, {160,744,160,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, - */
+
+static const unsigned char CTL_PAD_FUNC[2][6] = {
+  {0, 1, 2, 3, 4, 3},   /* TOURNAMENT */
+  {0, 3, 1, 2, 3, 4},   /* CLASSIC */
+};
+static const unsigned char CTL_STICK_FUNC[6] = {3, 5, 0, 1, 2, 4};
+
+static const unsigned short CTL_PAD_ANCHOR[6][2] = {
+  {343, 187},   /* A */
+  {478, 131},   /* B */
+  {218, 136},   /* X */
+  {350, 76},   /* Y */
+  {12, 44},   /* LTRIG */
+  {466, 44},   /* RTRIG */
+};
+static const unsigned short CTL_STICK_ANCHOR[6][2] = {
+  {200, 206},   /* A */
+  {440, 178},   /* B */
+  {10, 193},   /* X */
+  {440, 30},   /* Y */
+  {400, 79},   /* Z */
+  {400, 128},   /* C */
+};
+
+static const mrect_t CTL_ROW_LABEL[3][2] = {
+  {{320,744,288,28}, {0,772,288,28}},
+  {{288,772,288,28}, {0,800,288,28}},
+  {{288,800,288,28}, {0,828,288,28}},
+};
+static const mrect_t CTL_PAD_VALUE[2] = {{288,828,288,28}, {0,856,288,28}};
+static const mrect_t CTL_STICK_VALUE = {288,856,288,28};
+
+#define CTL_ROW_LABEL_X 48
+#define CTL_ROW_VALUE_X 344
+#define CTL_ROW_Y(i) (352 + (i) * 34)
+
 #endif /* MENU_LAYOUT_H */

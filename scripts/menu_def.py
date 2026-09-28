@@ -1,7 +1,7 @@
 """T9 menu single source: settings rows, labels, layout constants.
 
-Read by gen_menu_assets.py (renders loader/menu_sheet.png + loader/controls.png
-and emits loader/menu_layout.h). SETTINGS rows transcribed verbatim from the
+Read by gen_menu_assets.py (renders loader/menu_sheet.png + the two controls
+pages and emits loader/menu_layout.h). SETTINGS rows transcribed verbatim from the
 T9 recon table (docs/kb/phase7-polishing.md "### T9 RECON -- GAME ASSIGNMENTS
 byte map (2026-09-12, operator emulator leg)") -- byte index into the 16-byte
 game record, (label, byte) per value. No recon row changes two bytes together
@@ -44,19 +44,6 @@ SETTINGS = [
     ("NOVICE MODE", 5, [("OFF", 0x00), ("ON", 0x01)], None, None),
 ]
 
-CONTROLS_ROWS = [   # verbatim from docs/kb/input-map.md §DC pad map.
-                    # T16: no longer rendered -- the controls page shows
-                    # loader/controls_diagram.png; kept as the textual ground
-                    # truth the diagram's labels are verified against.
-    ("D-PAD / STICK", "MOVE (8-WAY)"),
-    ("A",             "M - MAIN"),
-    ("X",             "S - SUB"),
-    ("B / L TRIGGER", "ACTION"),
-    ("Y",             "BARRAGE"),
-    ("R TRIGGER",     "OVERDRIVE"),
-    ("START",         "START"),
-]
-
 # ---- Control layouts (controls spec 2026-09-27) -------------------------
 # Single source for BOTH the shim's button->JVS tables (shims/src/layouts.h)
 # and the controls page's label chips/anchors (menu_layout.h). Button names
@@ -84,4 +71,29 @@ PAD_LAYOUTS = [
 STICK_LAYOUT = {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
                 "B": "-", "C": "OVERDRIVE"}
 
-SHEET_W, SHEET_H = 640, 768     # fixed; generator asserts everything fits
+# ---- Controls page (controls spec 2026-09-27) ---------------------------
+CTL_ROW_ITEMS = ["P1 PAD LAYOUT", "P2 PAD LAYOUT", "STICK LAYOUT"]
+CTL_PAD_VALUES = ["TOURNAMENT", "CLASSIC"]          # index = layout id
+CTL_STICK_VALUE = "ARCADE (FIXED)"
+CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
+
+# Label-chip anchors: top-left of the 160x24 chip per button, in PAGE space
+# (measured off build/preview_*.png -- the art is scaled + pasted first, so
+# these are NOT source-art coordinates). Art region is y 8..340; the selector
+# rows start at y 352 (CTL_ROW_Y). Placement rules, in order:
+#   - never cover a button-identity letter (A/B/X/Y, X/Y/Z/A/B/C) or the
+#     Dreamcast swirl/wordmark -- those are the art's own labels;
+#   - sit adjacent to the button where the art leaves room (pad: a compass
+#     ring around the face diamond; stick: Z/C/A);
+#   - where the art leaves no adjacent room (stick X/Y/B are interior buttons
+#     of a 3x2 cluster, hemmed in by the lever, the VMU and each other), the
+#     chip moves out to free panel space and the page bakes a leader line to
+#     it (CTL_LEADS in gen_menu_assets.py).
+# The pad art is a face view with no visible triggers, so LTRIG/RTRIG sit in
+# the shoulder corners beside baked "L TRIGGER"/"R TRIGGER" tags.
+PAD_ANCHORS   = {"A": (343, 187), "B": (478, 131), "X": (218, 136),
+                 "Y": (350, 76), "LTRIG": (12, 44), "RTRIG": (466, 44)}
+STICK_ANCHORS = {"A": (200, 206), "B": (440, 178), "X": (10, 193),
+                 "Y": (440, 30), "Z": (400, 79), "C": (400, 128)}
+
+SHEET_W, SHEET_H = 640, 1024    # fixed; generator asserts everything fits

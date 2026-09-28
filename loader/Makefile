@@ -2,7 +2,7 @@
 # checkout -- setup in docs/kb/tooling.md).
 TARGET = loader.elf
 OBJS = main.o handoff.o gd.o gd_sys.o shim_blob.o bios_data.o splash_blob.o naomi_crc.o \
-       menu.o menu_sheet_blob.o controls_blob.o
+       menu.o menu_sheet_blob.o ctl_pad_blob.o ctl_stick_blob.o
 CFLAGS += -I../shims/include -I../build
 CFLAGS += $(DEFS)   # debug toggles from the top Makefile (e.g. SERIAL=1)
 # T10b spike (THROWAWAY, branch t10b-spike): LZ4BENCH=1 adds the SH4
@@ -136,27 +136,39 @@ splash_blob.o: ../build/splash.bin
 	  --redefine-sym _binary____build_splash_bin_start=_splash_bin \
 	  --redefine-sym _binary____build_splash_bin_end=_splash_bin_end \
 	  $< $@
-# T9 pre-game menu: sprite sheet (settings screen) + controls page, both our
+# T9 pre-game menu: sprite sheet (settings screen) + the two controls
+# pages, all our
 # own generated art (scripts/gen_menu_assets.py from scripts/menu_def.py --
 # copyright rule, CLAUDE.md). Same sips+bmp2rgb565 pattern as the splash rule
 # above.
 ../build/menu_sheet.bin: menu_sheet.png ../scripts/bmp2rgb565.py
 	mkdir -p ../build
 	sips -s format bmp menu_sheet.png --out ../build/menu_sheet.bmp > /dev/null
-	python3 ../scripts/bmp2rgb565.py ../build/menu_sheet.bmp $@ 640 768
+	python3 ../scripts/bmp2rgb565.py ../build/menu_sheet.bmp $@ 640 1024
 menu_sheet_blob.o: ../build/menu_sheet.bin
 	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
 	  --redefine-sym _binary____build_menu_sheet_bin_start=_menu_sheet_bin \
 	  --redefine-sym _binary____build_menu_sheet_bin_end=_menu_sheet_bin_end \
 	  $< $@
-../build/controls.bin: controls.png ../scripts/bmp2rgb565.py
+# Two controls pages (HKT-7700 pad / HKT-7300 stick); the menu blits the
+# label chips from menu_sheet on top of whichever page is showing.
+../build/ctl_pad.bin: controls_pad.png ../scripts/bmp2rgb565.py
 	mkdir -p ../build
-	sips -s format bmp controls.png --out ../build/controls.bmp > /dev/null
-	python3 ../scripts/bmp2rgb565.py ../build/controls.bmp $@ 640 480
-controls_blob.o: ../build/controls.bin
+	sips -s format bmp controls_pad.png --out ../build/ctl_pad.bmp > /dev/null
+	python3 ../scripts/bmp2rgb565.py ../build/ctl_pad.bmp $@ 640 480
+ctl_pad_blob.o: ../build/ctl_pad.bin
 	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
-	  --redefine-sym _binary____build_controls_bin_start=_controls_bin \
-	  --redefine-sym _binary____build_controls_bin_end=_controls_bin_end \
+	  --redefine-sym _binary____build_ctl_pad_bin_start=_ctl_pad_bin \
+	  --redefine-sym _binary____build_ctl_pad_bin_end=_ctl_pad_bin_end \
+	  $< $@
+../build/ctl_stick.bin: controls_stick.png ../scripts/bmp2rgb565.py
+	mkdir -p ../build
+	sips -s format bmp controls_stick.png --out ../build/ctl_stick.bmp > /dev/null
+	python3 ../scripts/bmp2rgb565.py ../build/ctl_stick.bmp $@ 640 480
+ctl_stick_blob.o: ../build/ctl_stick.bin
+	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
+	  --redefine-sym _binary____build_ctl_stick_bin_start=_ctl_stick_bin \
+	  --redefine-sym _binary____build_ctl_stick_bin_end=_ctl_stick_bin_end \
 	  $< $@
 ../build/1ST_READ.BIN: $(TARGET)
 	mkdir -p ../build
@@ -164,7 +176,8 @@ controls_blob.o: ../build/controls.bin
 clean:
 	rm -f $(TARGET) $(OBJS) ../build/1ST_READ.BIN ../build/bios_data.bin ../build/patch_table.h \
 	  ../build/splash.bin ../build/splash.bmp \
-	  ../build/menu_sheet.bin ../build/menu_sheet.bmp ../build/controls.bin ../build/controls.bmp
+	  ../build/menu_sheet.bin ../build/menu_sheet.bmp \
+	  ../build/ctl_pad.bin ../build/ctl_pad.bmp ../build/ctl_stick.bin ../build/ctl_stick.bmp
 # splash.bin MUST die on clean: the T7 round-2 text bake edited it in place,
 # and a surviving copy is "up to date" to make -- round 3 shipped the stale
 # baked splash that way (operator caught it on hardware). Same reason the two
