@@ -57,4 +57,31 @@ CONTROLS_ROWS = [   # verbatim from docs/kb/input-map.md §DC pad map.
     ("START",         "START"),
 ]
 
+# ---- Control layouts (controls spec 2026-09-27) -------------------------
+# Single source for BOTH the shim's button->JVS tables (shims/src/layouts.h)
+# and the controls page's label chips/anchors (menu_layout.h). Button names
+# match jvs.c's CONT_* constants (KOS controller.h bit numbering); function
+# names index FUNC_WORDS / FUNC_JVS.
+FUNC_WORDS = ["MAIN", "SUB", "BARRAGE", "ACTION", "OVERDRIVE", "-"]
+FUNC_JVS = {            # function -> jvs.c constant ("-" = unmapped)
+    "MAIN": "JVS_M", "SUB": "JVS_S", "BARRAGE": "JVS_BARRAGE",
+    "ACTION": "JVS_A", "OVERDRIVE": "JVS_OD", "-": "0",
+}
+PAD_BUTTONS   = ["A", "B", "X", "Y", "LTRIG", "RTRIG"]  # runtime-labeled, fixed order
+STICK_BUTTONS = ["A", "B", "X", "Y", "Z", "C"]
+
+# List order = shim layout id: 0 TOURNAMENT (default), 1 CLASSIC.
+# TOURNAMENT is the tester's EVO layout (CONTROLS_TASK.MD); CLASSIC is the
+# pre-2026-09-27 shipped mapping (docs/kb/input-map.md §DC pad layout).
+PAD_LAYOUTS = [
+    ("TOURNAMENT", {"A": "MAIN", "B": "SUB", "X": "BARRAGE", "Y": "ACTION",
+                    "LTRIG": "OVERDRIVE", "RTRIG": "ACTION"}),
+    ("CLASSIC",    {"A": "MAIN", "B": "ACTION", "X": "SUB", "Y": "BARRAGE",
+                    "LTRIG": "ACTION", "RTRIG": "OVERDRIVE"}),
+]
+# Arcade stick: the Naomi cabinet layout, fixed (layout id 2). B deliberately
+# unmapped -- the tester's spec says "B = none"; it renders as the "-" chip.
+STICK_LAYOUT = {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
+                "B": "-", "C": "OVERDRIVE"}
+
 SHEET_W, SHEET_H = 640, 768     # fixed; generator asserts everything fits
