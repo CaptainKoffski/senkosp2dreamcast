@@ -5,7 +5,7 @@
  * controller.h, KOS tools/kos -- primary source, not copied from any
  * Cleopatra file: Cleopatra's own dc_to_jvs used raw (1u<<N) shifts inline,
  * no named CONT_* constants). cont_state_t.buttons is ACTIVE-LOW (0=pressed);
- * dc_to_jvs below takes the already-inverted PRESSED mask (see its comment).
+ * dc_to_jvs below takes the already-inverted PRESSED mask.
  * CONT_RTRIG has no bit here -- ltrig/rtrig are separate 0-255 analog bytes
  * in cont_state_t, not part of .buttons -- so bit 16 (just past the real
  * 0-15 button field) is a shim-synthesized "digital rtrig" flag, set by

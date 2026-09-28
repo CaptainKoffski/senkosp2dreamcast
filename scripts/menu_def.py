@@ -90,7 +90,7 @@ CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 #   - where the art leaves no adjacent room (stick X/Y/B are interior buttons
 #     of a 3x2 cluster, hemmed in by the lever, the VMU and each other), the
 #     chip moves out to free panel space and the page bakes a leader line to
-#     it (CTL_LEADS in gen_menu_assets.py).
+#     it (PAD_PAGE/STICK_PAGE["leads"] in gen_menu_assets.py).
 # The pad art is a face view with no visible triggers, so LTRIG/RTRIG sit in
 # the shoulder corners beside baked "L TRIGGER"/"R TRIGGER" tags.
 PAD_ANCHORS   = {"A": (343, 187), "B": (478, 131), "X": (218, 136),

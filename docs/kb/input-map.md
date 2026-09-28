@@ -105,7 +105,7 @@ and verification state: `docs/kb/phase7-polishing.md` §T17.
 0x8000); only which DC control drives which bit changes, and D-pad/analog
 handling is identical in all three. Single source of truth:
 `scripts/menu_def.py`, generating `shims/src/layouts.h` (the shim's
-`JVS_LAYOUT_PAD[2]`/`JVS_LAYOUT_STICK` tables, `shims/src/jvs.c:15-27`) and
+`JVS_LAYOUT_PAD[2]`/`JVS_LAYOUT_STICK` tables, `shims/src/layouts.h:15-27`) and
 `loader/menu_layout.h` (the controls-page chips/anchors) from one place.
 
 | DC control | Classic (id 1) | Tournament (id 0, default) | Stick (id 2, fixed) |

@@ -229,6 +229,12 @@ def emit_layouts_h():
     assert len(M.PAD_BUTTONS) == len(M.STICK_BUTTONS), "tables share JVS_LAYOUT_N"
     for f in list(M.FUNC_JVS) + M.FUNC_WORDS:
         assert f in M.FUNC_WORDS and f in M.FUNC_JVS, f"function list drift: {f}"
+    # layout-id order is load-bearing in four places (LAYOUT_* defines below,
+    # jvs_pick_layout, CTL_PAD_VALUES, preview labels) -- pin PAD_LAYOUTS and
+    # CTL_PAD_VALUES to the same order so a reorder in one can't silently
+    # desync from the others.
+    assert [n for n, _ in M.PAD_LAYOUTS] == M.CTL_PAD_VALUES, \
+        "PAD_LAYOUTS order must match CTL_PAD_VALUES (layout id is positional)"
 
     n = len(M.PAD_BUTTONS)
     L = [

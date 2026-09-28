@@ -180,5 +180,5 @@ clean:
 	  ../build/ctl_pad.bin ../build/ctl_pad.bmp ../build/ctl_stick.bin ../build/ctl_stick.bmp
 # splash.bin MUST die on clean: the T7 round-2 text bake edited it in place,
 # and a surviving copy is "up to date" to make -- round 3 shipped the stale
-# baked splash that way (operator caught it on hardware). Same reason the two
-# T9 .bins are listed here too.
+# baked splash that way (operator caught it on hardware). Same reason the
+# three T9 .bins are listed here too.

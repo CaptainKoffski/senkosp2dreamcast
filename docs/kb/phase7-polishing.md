@@ -3299,9 +3299,10 @@ T-numbers), all merged to `main`.
   (`loader/menu.c stick_on_menu_pad()`, same caps rule via KOS
   `function_data[0]`).
 
-**Review process outcome:** all seven tasks review-clean; one fix round
-(T5, cosmetic chip issues, both closed same task) is the only round
-that found anything. No Important/Critical findings on any task.
+**Review process outcome:** no blocking findings in any task review;
+minors deferred to the whole-branch review's ledger; one fix round on
+T5 (cosmetic chip issues, both closed same task). No Important/Critical
+findings on any task.
 
 **Verification state:** host tests (`shims/test/test_host.c`) cover all
 three layout tables, the `jvs_pick_layout` classifier, per-port

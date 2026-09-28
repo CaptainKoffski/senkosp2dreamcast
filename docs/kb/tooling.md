@@ -3008,12 +3008,16 @@ writes into `vram_s` (KOS `dc/video.h`, `PVR_RAM_BASE` = Area 4,
 ever reads the offscreen FBO texture that `rend_vblank()` refreshes
 (`core/hw/pvr/Renderer_if.cpp:611-627`); for a no-TA-render frame that
 refresh is gated on `!render_called && fb_dirty && FB_R_CTRL.fb_enable`.
-`fb_dirty` is set only by `pvr_write_area4`'s **32-bit-access branch**
-(`core/hw/pvr/pvr_mem.cpp:320-330`, `SB_LMMODE0`/`SB_LMMODE1` == 1); the
-default/64-bit branch (`SB_LMMODE*` == 0, the reset default, never
-touched by this loader) writes straight to `vram[]` with **no**
-`fb_dirty` side effect — so a pure-`vram_s` screen may never trip the
-direct-framebuffer refresh at all, independent of wait length. (This
+`fb_dirty = true` itself lives inside `pvr_write32p`
+(`core/hw/pvr/pvr_mem.cpp:230-231`), gated on the write landing in
+`[fb_watch_addr_start, fb_watch_addr_end)`; `pvr_write_area4`
+(`pvr_mem.cpp:322-329`) only dispatches — its **32-bit-access branch**
+(`SB_LMMODE0`/`SB_LMMODE1` == 1, line 326-327) reaches `pvr_write32p`
+transitively, while the default/64-bit branch (`SB_LMMODE*` == 0, the
+reset default, never touched by this loader) writes straight to
+`vram[]` with **no** `fb_dirty` side effect. (`pvr_write32p` has other
+callers too, e.g. `ta.cpp:508`.) So a pure-`vram_s` screen may never
+trip the direct-framebuffer refresh at all, independent of wait length. (This
 also reframes the old `phase4-loader-alive.png` "budget several
 minutes, sometimes only a torn frame" note — that capture was likely a
 rare fluke of BIOS's own render activity bleeding into the same FBO,

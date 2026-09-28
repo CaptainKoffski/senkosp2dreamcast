@@ -31,6 +31,7 @@ int main(void) {
     assert(GD_STACK_TOP == SHIM_END);                                /* shim home ends exactly at SHIM_END */
     assert(GD_STACK_TOP == BIOS60000_DST);                           /* ... where the BIOS blob home starts */
     assert(SHIM_STATE_GD_BACKEND < 8);              /* inside SHIM_STATE u32[8] */
+    assert(SHIM_STATE_PAD_LAYOUT < 8);               /* inside SHIM_STATE u32[8] */
     assert(GD_STACK_TOP - GD_STACK_BOTTOM == 0x2000);
     assert(GD_STACK_CANARY != 0);                   /* staging memset is zero */
 
