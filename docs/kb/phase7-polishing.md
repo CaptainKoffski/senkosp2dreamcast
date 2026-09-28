@@ -3249,3 +3249,86 @@ floor4-vs-32-aligned-bases invariant), minors swept in the same
 commit (`2645b2c`), re-review CLEAN with no new defects. Battery
 after fixes: knob-off `750879c8…`, LZ4 build green, tripwire fires
 only on true mismatch.
+
+---
+
+## T17 — controls: per-port pad presets + arcade-stick layout (spec 2026-09-27)
+
+**Origin:** a tester request (EVO Japan competitor for this game),
+message archived verbatim in `CONTROLS_TASK.MD` — a gamepad remap
+("Tournament") plus a layout usable with a permanently-attached arcade
+stick. Fixes a real defect, not just a preference: the old single
+mapping put OverDrive only on the DC triggers, which don't exist on a
+stick — OverDrive was unreachable for stick players. Spec
+`docs/superpowers/specs/2026-09-27-controls-layouts-design.md`, plan
+`docs/superpowers/plans/2026-09-27-controls-layouts.md`, seven tasks
+(T1–T7 in the plan's own numbering, distinct from this phase-7 ledger's
+T-numbers), all merged to `main`.
+
+**What shipped, per task:**
+
+- **T1** (`a61bc85`) — single source `scripts/menu_def.py` generating
+  `shims/src/layouts.h` (shim JVS tables) and `loader/menu_layout.h`
+  (menu chips/anchors); layout ids 0 Tournament (new default), 1
+  Classic (byte-identical to the pre-2026-09-27 mapping), 2 Stick.
+- **T2** (`5eeb846`) — table-driven `dc_to_jvs()` in `shims/src/jvs.c`;
+  `jvs_pick_layout(caps, pad_sel)` classifies a port from its DEVINFO
+  capability word: none of the four analog capability bits (R/L
+  trigger, analog X/Y — KOS `dc/maple/controller.h:258-263`) declared
+  ⇒ Stick, always; otherwise the port's preset byte (1 Classic, else
+  Tournament).
+- **T3** (`9b34b3a`) — closed a hot-swap staleness gap: `was_dead[]`
+  flag in `shims/src/maple.c` forces one DEVINFO re-probe on the first
+  successful poll after any failed poll, so a pad↔stick swap on one
+  port picks up the new device's layout promptly (on top of the
+  pre-existing T11 64-fail hotplug re-probe).
+- **T4** (`ae2430a`) — `loader/main.c` stages per-port presets into
+  `SHIM_STATE[2]` (byte0 port A, byte1 port B; zero-fill = Tournament
+  both ports), session-only like every other `SHIM_STATE` word.
+- **T5** (`c1df89d`, review fixes `6ba775a`) — HKT-7700 (pad) /
+  HKT-7300 (stick) art pages: operator-provided photos, generator-
+  processed (flat-color quantize, baked invariant tags MOVE/START/
+  L TRIGGER/R TRIGGER), function-label chips blitted at generated
+  anchors. Review round found two issues (a baked pad START chip that
+  should have been fixed-art, and a "-" chip that should read NONE);
+  both fixed same task.
+- **T6** (`5cb88d1`, boot-leg screenshot `c6fd6b5`) — controls page as
+  a three-row selector (P1 PAD LAYOUT / P2 PAD LAYOUT / STICK LAYOUT
+  fixed); diagram previews the highlighted row; page opens on the
+  Stick row iff a stick is detected on the menu's own pad
+  (`loader/menu.c stick_on_menu_pad()`, same caps rule via KOS
+  `function_data[0]`).
+
+**Review process outcome:** all seven tasks review-clean; one fix round
+(T5, cosmetic chip issues, both closed same task) is the only round
+that found anything. No Important/Critical findings on any task.
+
+**Verification state:** host tests (`shims/test/test_host.c`) cover all
+three layout tables, the `jvs_pick_layout` classifier, per-port
+independence, and out-of-range preset fallback; one emulator boot-leg
+screenshot (`docs/kb/img/controls-t6-menu-top.png`) confirms the
+controls page renders. **PENDING:** an interactive emulator walkthrough
+of the menu, and the full hardware matrix (task-7 brief, Step 3):
+
+1. Pad port A defaults to Tournament (A Main, B Sub, X Barrage, Y
+   Action, L OverDrive, R Action).
+2. Menu → CONTROLS → P1 = Classic reproduces the old mapping (B
+   Action, R OverDrive).
+3. Stick port A opens the page on the Stick row; in-game X Main, Y
+   Sub, Z Barrage, A Action, C OverDrive (the fixed defect —
+   OverDrive reachable), B inert.
+4. Mixed ports (stick A + pad B, then swapped) — each side correct
+   simultaneously, P2 preset follows whichever port holds a pad.
+5. Mid-session pad→stick swap on port A during gameplay — arcade
+   layout takes over within ~1 s (the `was_dead` re-probe); swap back
+   restores the pad preset.
+6. Port B boots empty; a pad plugged in mid-game gets P2's preset, a
+   stick plugged in gets the arcade layout.
+7. Menu regression: SETTINGS rows still work, START still boots,
+   controls page legible on a real TV.
+
+Full report: `.superpowers/sdd/2026-09-27-controls-layouts/task-7-report.md`.
+KB doc updates (this entry, `docs/kb/input-map.md` §Three-layout
+controls, `docs/kb/00-status.md`) are task 7a, code-complete on `main`;
+the hardware leg above is task 7's Steps 2–5, operator-gated and not
+yet run.

@@ -39,13 +39,23 @@ Neutral JVS word baseline: `0000` (P1 digital word, all controls released).
 ¹ `MIERESP sub=15` never fires during any button hold in either leg — see
 "Why no MIE sub=15 byte.bit" below for the line-range evidence.
 
-## DC pad layout (Phase 3, user-approved 2026-08-19)
+## DC pad layout (Phase 3, user-approved 2026-08-19) — SUPERSEDED 2026-09-29
 
-The port's controller binding, decided in the Phase 3 design spec
+**Superseded 2026-09-29 by the three-layout controls system** (§Three-layout
+controls, below): a tester request (EVO Japan player, archived in
+`CONTROLS_TASK.MD`) plus the shipped-defect finding that OverDrive lived only
+on triggers — unreachable on an arcade stick — replaced this single binding
+with three selectable layouts. The table below is kept as the historical
+Phase-3/4 record; it is byte-identical to what is now called the **Classic**
+layout (one of the three), not the live default. See §Three-layout controls
+for the current binding, the per-port selection rule, and verification
+status.
+
+The port's original controller binding, decided in the Phase 3 design spec
 (`docs/superpowers/specs/2026-08-19-phase3-reverse-engineering-design.md`
 §9 "Control layout (decided in this design)") and recorded here verbatim.
-Phase 4's loader/shim implements it; the wire bit each row targets is the
-measured one from the table above.
+Phase 4's loader/shim implemented it as the sole layout through 2026-09-27;
+the wire bit each row targets is the measured one from the table above.
 
 | DC pad | Game control |
 |---|---|
@@ -69,6 +79,136 @@ a **plain single button** on the wire (`0x0080`, one bit flip — not a runtime
 M+S combo, despite its "MAIN+SUB" cabinet label); and OverDrive's final wire
 bit is `0x0020` (`NAOMI_BTN4_KEY`) after senkosp's own descriptor remap — see
 §OverDrive wire.
+
+## Three-layout controls (decided + shipped 2026-09-27) — current binding
+
+**HARDWARE VERIFICATION STATUS: PENDING.** Every claim below is proven by
+host unit tests and one emulator boot-leg screenshot only. No item has run
+on real Dreamcast hardware yet — the operator leg (task-7 brief, Step 3: pad
+defaults, Classic preset, Stick row, mixed ports, mid-session hot-swap,
+empty-port hot-plug, menu regression on a real TV) is owed and outstanding.
+Nothing in this section may be cited as "works on hardware" until that leg
+records a PASS.
+
+**Origin.** A tester (EVO Japan competitor for this game) requested a
+gamepad remap and, separately, a layout usable with a permanently-attached
+arcade stick, in a message archived verbatim in `CONTROLS_TASK.MD`. The old
+single mapping (§DC pad layout above) put OverDrive only on the R trigger —
+a real defect on a stick, which has no triggers. Design decided in-session
+2026-09-27 by the operator and approved against the tester's own wording;
+spec `docs/superpowers/specs/2026-09-27-controls-layouts-design.md`, plan
+`docs/superpowers/plans/2026-09-27-controls-layouts.md`. Full task ledger
+and verification state: `docs/kb/phase7-polishing.md` §T17.
+
+**The three layouts.** JVS bits are unchanged from the measured table above
+(M 0x0200, S 0x0100, A 0x0040, Barrage 0x0080, OverDrive 0x0020, Start
+0x8000); only which DC control drives which bit changes, and D-pad/analog
+handling is identical in all three. Single source of truth:
+`scripts/menu_def.py`, generating `shims/src/layouts.h` (the shim's
+`JVS_LAYOUT_PAD[2]`/`JVS_LAYOUT_STICK` tables, `shims/src/jvs.c:15-27`) and
+`loader/menu_layout.h` (the controls-page chips/anchors) from one place.
+
+| DC control | Classic (id 1) | Tournament (id 0, default) | Stick (id 2, fixed) |
+|---|---|---|---|
+| A | Main | Main | Action |
+| B | Action | Sub | unmapped |
+| X | Sub | Barrage | Main |
+| Y | Barrage | Action | Sub |
+| Z | — | — | Barrage |
+| C | — | — | OverDrive |
+| L trigger | Action (dup) | OverDrive | n/a |
+| R trigger | OverDrive | Action | n/a |
+| Start | Start | Start | Start |
+
+Classic is byte-for-byte the old single mapping (§DC pad layout above).
+Tournament and Stick are the tester's own layouts verbatim from
+`CONTROLS_TASK.MD`; Stick's B is deliberately unmapped, matching the
+tester's "B = none". Tables: `shims/src/layouts.h:15-27` (generated,
+committed).
+
+**Per-poll layout selection — `jvs_pick_layout()`.** Each port's layout is
+chosen fresh every poll from that port's DEVINFO capability word (`caps`)
+and its preset byte (`pad_sel`), `shims/src/jvs.c:161-167`:
+
+```c
+unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel) {
+    if (!(caps & (CONT_CAP_RTRIG | CONT_CAP_LTRIG |
+                  CONT_CAP_ANALOG_X | CONT_CAP_ANALOG_Y)))
+        return LAYOUT_STICK;
+    return (pad_sel == LAYOUT_PAD_CLASSIC) ? LAYOUT_PAD_CLASSIC
+                                           : LAYOUT_PAD_TOURNAMENT;
+}
+```
+
+A device that declares **none** of the four analog capability bits (R
+trigger, L trigger, analog X, analog Y — `CONT_CAPABILITY_RTRIG/LTRIG` at
+bits 8/9, analog X/Y at bits 10/11, KOS `dc/maple/controller.h:258-263`) is
+classified as an arcade stick and always gets the fixed Stick layout,
+regardless of any preset. Measured caps words: standard DC pad `0xfe060f00`
+(all four bits set, flycast `maple_devs.cpp:85`) vs Flycast's Ascii Stick
+`0xff070000` (none set, `maple_devs.cpp:292`) — the same DEVINFO word and
+the same capability-gating mechanism the 2026-09-26 Arcade-Stick fix
+introduced (§Non-standard controllers, below); `jvs_pick_layout` is a second
+consumer of that same `caps`/`devinfo_caps[]` latch, not a new probe. Any
+device that *does* declare an axis is treated as a pad and takes its port's
+preset byte: 1 selects Classic, anything else (0 = default, or an
+out-of-range/junk byte) selects Tournament.
+
+**Per-port presets — `SHIM_STATE[2]`.** The menu selection is staged into
+shared state, one byte per port, by `loader/main.c:478-482`:
+
+```c
+/* SHIM_STATE[2] = per-port pad layout (controls spec 2026-09-27): byte0
+ * port A, byte1 port B; 0 Tournament (default), 1 Classic. Unconditional:
+ * with the menu off (MENU=0) the defaults {0,0} restate the zero-fill. */
+*(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4 * SHIM_STATE_PAD_LAYOUT) =
+    (uint32)menu_pad_layout[0] | ((uint32)menu_pad_layout[1] << 8);
+```
+
+read back per-port by the shim (`shims/src/main.c:193`,
+`sel = UW(SHIM_STATE + 4 * SHIM_STATE_PAD_LAYOUT)`) and fed to
+`jvs_pick_layout()` alongside that port's `devinfo_caps[]`. A zero-fill
+`SHIM_STATE` word (menu compiled out, or menu never visited) reproduces
+`{0,0}` — both ports default to Tournament — so the default-Tournament
+decision holds even with `LOADER_MENU=0`. This state is session-only, same
+as every other `SHIM_STATE` word (loader-staged, not EEPROM-backed).
+
+**Menu selector.** The pre-game controls page (`loader/menu.c`) is a
+three-row selector: P1 PAD LAYOUT, P2 PAD LAYOUT, STICK LAYOUT (fixed,
+display-only). Left/right on a pad row flips that port's preset
+(`loader/menu.c:155-158`, `menu_pad_layout[cur] ^= 1`); the diagram
+underneath previews whichever row is highlighted, on the operator-provided
+HKT-7700 (pad) or HKT-7300 (stick) art page. The page opens on the Stick row
+iff a stick is detected on the menu's own input pad, via the same caps rule
+(`loader/menu.c:132-140 stick_on_menu_pad()`, masking
+`function_data[0] & 0x00000f00` — the same four capability bits
+`jvs_pick_layout` tests, read through KOS's own `maple_device_t` rather than
+the shim's latched `devinfo_caps[]`, since the menu runs before the shim is
+resident).
+
+**Hot-swap gap closed — `was_dead[]` re-probe.** DEVINFO is latched once by
+`probe_devinfo()` and cached in `devinfo_caps[]` (`shims/src/maple.c:54-73`);
+a poll failure (unplug) sets `was_dead[port] = 1`
+(`shims/src/maple.c:112,153`), and the **first successful poll after any
+failure** re-probes DEVINFO before trusting the reply
+(`shims/src/maple.c:146-150`), on top of the pre-existing T11 64-fail
+hotplug re-probe. This is what makes a pad↔stick swap on one port pick up
+the new device's caps — and therefore its layout — promptly instead of
+running stale.
+
+**Default change.** Decided 2026-09-27 (operator + tester, in-session):
+**Tournament is the new default** (was Classic/the old single mapping).
+Classic is preserved, one menu press away, for players who prefer the
+original binding. Rationale: Tournament matches the tester's stated EVO
+layout, and — unlike the old default — reaches OverDrive without a
+trigger-bearing device, which the fixed Stick layout also achieves.
+
+Verification so far (host-only, see the PENDING notice above): host tests
+`shims/test/test_host.c` cover all three tables, the `jvs_pick_layout`
+classifier, per-port independence, and out-of-range preset fallback; one
+emulator boot-leg screenshot (`docs/kb/img/controls-t6-menu-top.png`) shows
+the controls page rendering. No interactive emulator walkthrough and no
+hardware leg have run.
 
 ### Non-standard controllers: axis bytes are capability-gated (2026-09-26)
 
