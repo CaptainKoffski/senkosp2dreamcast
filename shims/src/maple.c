@@ -50,9 +50,7 @@ u32 devinfo_hdr[2] = { 0xbbbb0000, 0xbbbb0001 };
  * MFID_0_Input then get_capabilities() in that order). Default = standard-pad
  * word 0xfe060f00 (all four axes), so a pad whose DEVINFO never answered
  * behaves exactly as before this fix.
- * ponytail: caps refresh only via probe_devinfo (init + T11 fail-scan), so a
- * hot-swap pad->stick that answers GETCOND before any re-probe keeps stale
- * caps; wire a probe on first success-after-fail if that ever bites. */
+ * Hot-swap staleness: closed by was_dead below (re-probe on first success after a failure). */
 u32 devinfo_caps[2] = { 0xfe060f00u, 0xfe060f00u };
 static void probe_devinfo(unsigned int port) {
     volatile u32 *tx = P2(MAPLE_TX);
@@ -104,6 +102,15 @@ unsigned dc_cond_to_pressed(unsigned w2, unsigned w3, unsigned caps); /* src/jvs
  * timed-out transaction per scan interval. Nonzero init = .data, house style. */
 static u32 fail_cnt[2] = { 1, 1 };
 
+/* Controls spec 2026-09-27: a port that failed and then answers again is a
+ * candidate hot-swap (pad<->stick) or late plug-in, so its latched caps may
+ * describe the PREVIOUS device -- and the layout now follows the caps. One
+ * DEVINFO on the first success after any failure; steady state sends nothing
+ * extra. Closes the stale-caps note that used to sit on devinfo_caps.
+ * Nonzero init = .data (house style); starting "dead" costs one probe on the
+ * first-ever successful poll, right after init's own probe -- harmless. */
+static u32 was_dead[2] = { 1, 1 };
+
 unsigned int maple_getcond(unsigned int port) {
     volatile u32 *tx = P2(MAPLE_TX);
     volatile u32 *rx = P2(MAPLE_RX);
@@ -134,11 +141,17 @@ unsigned int maple_getcond(unsigned int port) {
         SB_MDST = 1;
         while (SB_MDST & 1) ;   /* ponytail: bare poll like gd.c; maple DMA always self-clears (HW timeout) */
         maple_hdr[port] = rx[0];                           /* diagnostics: raw reply header */
-        if ((rx[0] & 0xff) == 8)
-            return dc_cond_to_pressed(rx[2], rx[3],        /* cont_cond_t, words 2-3 */
-                                      devinfo_caps[port]);
+        if ((rx[0] & 0xff) == 8) {
+            u32 w2 = rx[2], w3 = rx[3];    /* latch: probe below reuses RX */
+            if (was_dead[port]) {          /* swap/late-plug: refresh caps */
+                was_dead[port] = 0;
+                probe_devinfo(port);
+            }
+            return dc_cond_to_pressed(w2, w3, devinfo_caps[port]);
+        }
     }
-    if ((++fail_cnt[port] & 63u) == 0)                     /* T11: wake hot-plugged pads */
+    was_dead[port] = 1;                    /* next success re-probes DEVINFO */
+    if ((++fail_cnt[port] & 63u) == 0)     /* T11: wake hot-plugged pads */
         probe_devinfo(port);
     return 0;                                              /* not DATATRF -> no/failed reply */
 }
