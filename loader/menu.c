@@ -10,7 +10,8 @@
 
 extern uint8 splash_bin[];
 extern uint8 menu_sheet_bin[];
-extern uint8 controls_bin[];
+extern uint8 ctl_pad_bin[];
+extern uint8 ctl_stick_bin[];
 
 unsigned char menu_game_record[16] = MENU_DEFAULT_RECORD;
 /* Controls-page selector state (spec 2026-09-27): per-port pad preset,
@@ -97,10 +98,66 @@ static void settings_screen(void) {
     }
 }
 
+/* Controls page = layout selector (spec 2026-09-27). Three rows under the
+ * diagram; the diagram previews the HIGHLIGHTED row (pad rows: that port's
+ * preset on the HKT-7700 art; stick row: the fixed arcade layout on the
+ * HKT-7300 art). Chips carry the page BG, so they sit seamlessly on the
+ * art's cleared margins. Art memcpy only on entry / device-view change --
+ * T9 flicker rule; row/label changes re-blit fixed cells. */
+static void ctl_draw_labels(int cur) {
+    for (int i = 0; i < 6; i++) {
+        if (cur == 2)
+            blit(CTL_WORD[CTL_STICK_FUNC[i]],
+                 CTL_STICK_ANCHOR[i][0], CTL_STICK_ANCHOR[i][1]);
+        else
+            blit(CTL_WORD[CTL_PAD_FUNC[menu_pad_layout[cur]][i]],
+                 CTL_PAD_ANCHOR[i][0], CTL_PAD_ANCHOR[i][1]);
+    }
+}
+
+static void ctl_draw_rows(int cur) {
+    for (int i = 0; i < 3; i++)
+        blit(CTL_ROW_LABEL[i][i == cur], CTL_ROW_LABEL_X, CTL_ROW_Y(i));
+    blit(CTL_PAD_VALUE[menu_pad_layout[0]], CTL_ROW_VALUE_X, CTL_ROW_Y(0));
+    blit(CTL_PAD_VALUE[menu_pad_layout[1]], CTL_ROW_VALUE_X, CTL_ROW_Y(1));
+    blit(CTL_STICK_VALUE, CTL_ROW_VALUE_X, CTL_ROW_Y(2));
+}
+
+static void ctl_draw_all(int cur) {
+    memcpy(vram_s, cur == 2 ? ctl_stick_bin : ctl_pad_bin, 640 * 480 * 2);
+    ctl_draw_labels(cur);
+    ctl_draw_rows(cur);
+}
+
+/* Same caps rule the shim applies (jvs.c jvs_pick_layout): no analog axes
+ * declared = arcade stick. function_data[0] is the controller function's raw
+ * DEVINFO data word (KOS dc/maple.h:252 maple_devinfo_t; same word the shim
+ * latches as devinfo_caps). First enumerated controller = the one driving
+ * this menu (edge() uses the same lookup). */
+static int stick_on_menu_pad(void) {
+    maple_device_t *c = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
+    return c && !(c->info.function_data[0] & 0x00000f00u);
+}
+
 static void controls_screen(void) {
-    memcpy(vram_s, controls_bin, 640 * 480 * 2);
-    for (;;)
-        if (edge() & CONT_B) return;
+    int cur = stick_on_menu_pad() ? 2 : 0;   /* open on the device in hand */
+    ctl_draw_all(cur);
+    for (;;) {
+        uint32 e = edge();
+        if (e & CONT_B) return;
+        if (e & (CONT_DPAD_UP | CONT_DPAD_DOWN)) {
+            int nxt = (cur + ((e & CONT_DPAD_DOWN) ? 1 : 2)) % 3;
+            int devchg = (nxt == 2) != (cur == 2);
+            cur = nxt;
+            if (devchg) ctl_draw_all(cur);
+            else { ctl_draw_labels(cur); ctl_draw_rows(cur); }
+        }
+        if ((e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) && cur < 2) {
+            menu_pad_layout[cur] ^= 1;       /* 0 Tournament <-> 1 Classic */
+            ctl_draw_labels(cur);
+            ctl_draw_rows(cur);
+        }
+    }
 }
 
 void menu_run(void) {
