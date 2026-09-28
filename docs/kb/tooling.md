@@ -2986,3 +2986,50 @@ trim LIST.INI (or just let Katana rebuild the menu on its next
 sync). GDEMU/DreamShell testers should still prefer the GDI release
 (tested preset, faster loads); the CDI on GDEMU is a convenience
 path only.
+
+## T9 menu screenshot capture: `rend.EmulateFramebuffer=yes` needed (Controls T6, 2026-09-29)
+
+`FLYCAST_SHOT`/`kill -USR1` (§Instrumented Flycast) returned a
+byte-identical flat mid-grey 9,632-byte PNG on every attempt against
+the T9 menu (2 independent launches, 7 grabs spread over 3.5 min,
+`md5` identical every time) — the same known no-content placeholder
+described in the 2026-08 `phase4-loader-alive.png` entries above. A
+same-session **control test** (CLAUDE.md control-test rule) against
+`../cleopatra/build/disc.gdi` with the identical command produced a
+real 277 KB title-screen PNG in one 40 s shot — ruling out session-wide
+window-occlusion/TCC throttling as the cause and pointing at something
+disc-specific.
+
+**Root cause (code read, fork `core/hw/pvr/`):** the T9 menu is drawn
+by `loader/menu.c`'s `blit()`/`clear_bg()` — plain CPU `memcpy`/store
+writes into `vram_s` (KOS `dc/video.h`, `PVR_RAM_BASE` = Area 4,
+`0xa5xxxxxx`), never a TA/`STARTRENDER` draw. Flycast's screenshot path
+(`OpenGLRenderer::GetLastFrame`, `core/rend/gles/gldraw.cpp:814`) only
+ever reads the offscreen FBO texture that `rend_vblank()` refreshes
+(`core/hw/pvr/Renderer_if.cpp:611-627`); for a no-TA-render frame that
+refresh is gated on `!render_called && fb_dirty && FB_R_CTRL.fb_enable`.
+`fb_dirty` is set only by `pvr_write_area4`'s **32-bit-access branch**
+(`core/hw/pvr/pvr_mem.cpp:320-330`, `SB_LMMODE0`/`SB_LMMODE1` == 1); the
+default/64-bit branch (`SB_LMMODE*` == 0, the reset default, never
+touched by this loader) writes straight to `vram[]` with **no**
+`fb_dirty` side effect — so a pure-`vram_s` screen may never trip the
+direct-framebuffer refresh at all, independent of wait length. (This
+also reframes the old `phase4-loader-alive.png` "budget several
+minutes, sometimes only a torn frame" note — that capture was likely a
+rare fluke of BIOS's own render activity bleeding into the same FBO,
+not a reliable mechanism for a menu that never calls `STARTRENDER`.)
+
+**Fix — force the emulator's existing direct-framebuffer path**:
+`-config config:rend.EmulateFramebuffer=yes` (same `-config` CLI
+mechanism `capture_dc_leg.sh` already uses for `rend.vsync=no`;
+`rend.EmulateFramebuffer` normally defaults `no`, `core/cfg/option.cpp:120`,
+and is the same knob the fork already force-enables per-title for other
+direct-framebuffer-only games, `core/emulator.cpp:316`). With it set,
+`rend_vblank()`'s `config::EmulateFramebuffer` OR-branch runs
+unconditionally every vblank, independent of `fb_dirty`/LMMODE. Result:
+a correct, real T9 menu screenshot (START GAME/SETTINGS/CONTROLS,
+footer `UP/DOWN: MOVE   A: SELECT`) in a single 25 s wait, first try —
+`docs/kb/img/controls-t6-menu-top.png`. Recommended for any future
+unattended screenshot leg of this menu or any other direct-vram-only
+loader screen (splash, halt(), settings/controls pages); not needed for
+screens the game itself renders via the TA (attract, gameplay).
