@@ -172,30 +172,29 @@ STICK_PAGE = dict(
            "Y": [(428, 105), (428, 75), (342, 75), (342, 81)],
            "Z": [(416, 139), (416, 93), (384, 93)],
            "C": [(408, 173), (408, 125), (384, 125)],
-           "B": [(342, 207), (342, 138)],
-           "A": [(317, 241), (317, 155)]},
+           "B": [(342, 207), (342, 135)],    # -3: round-2 autocrop moved the
+           "A": [(317, 241), (317, 152)]},   # art 3px, these two fell short
     tags=[(COL_L, 125, "MOVE", [(174, 125)]),       # lever, left edge
           (COL_R, 37, "START", [(420, 37), (420, 54), (329, 54)])])
 
 
-def clean_art(im):
-    """Flatten the operator art to schematic colors: a 3x median kills the
-    JPEG ringing the stick art came over-compressed with, then an octree
-    palette (no dither) snaps the result to flat fills. Octree, not MEDIANCUT:
-    median-cut allocates the palette by pixel population, and the pad's
-    buttons are small enough that it merged red A / blue B into the body gray
-    (viewed; that is what killed the first pass).
-    64 colors, not 32: at 32 the palette had nothing left for the pad's thin
-    light-grey outline strokes and quantized them into the body fill -- the
-    analog ring came out dashed and the baked START glyphs turned to mush
-    (viewed side by side at final scale, 2026-09-30 leg). At 64 the strokes
-    are indistinguishable from the raw art while the stick panel's JPEG
-    mottling is still flattened; 128 gains nothing and starts letting the
-    mottling back in."""
-    return (im.filter(ImageFilter.MedianFilter(3))
-              .quantize(colors=64, method=Image.FASTOCTREE,
-                        dither=Image.Dither.NONE)
-              .convert("RGB"))
+def smooth_art(im):
+    """De-noise the operator's JPEG art BEFORE it is scaled, split luma from
+    chroma so each gets the kernel it needs (round 2, 2026-09-30: operator
+    saw "different colors, like spots, like gray leopard" on the pad shell).
+    Luma keeps a 3x median -- enough for the JPEG ringing, small enough to
+    leave the thin outline strokes and the baked glyphs ("Dreamcast", the
+    stick's X/Y/Z/A/B/C) intact; 5x and up mush them (viewed).
+    Chroma gets a 7x median, which is the actual leopard fix's other half:
+    JPEG's colour noise leaves near-neutral greys with a few units of chroma,
+    and the post-scale octree then splits them into SATURATED leaves -- red
+    and green confetti pixels along the pad's analog ring (viewed at 3x).
+    7x kills that; 15x also drains the orange out of the Dreamcast swirl."""
+    y, cb, cr = im.convert("YCbCr").split()
+    return Image.merge("YCbCr",
+                       [y.filter(ImageFilter.MedianFilter(3)),
+                        cb.filter(ImageFilter.MedianFilter(7)),
+                        cr.filter(ImageFilter.MedianFilter(7))]).convert("RGB")
 
 
 def label(draw, x, cy, text, anchor="lm"):
@@ -211,15 +210,21 @@ def build_page(name, spec, anchors):
     button prefixes, invariant labels and footer -- all outside the art."""
     art = os.path.join(LOADER_DIR, f"{name}_diagram.png")
     assert os.path.exists(art), f"missing {art} (operator-provided art)"
-    src = clean_art(Image.open(art).convert("RGB"))
+    src = smooth_art(Image.open(art).convert("RGB"))
     # autocrop the art's own margin. The threshold is relative to the corner
     # level, not a fixed near-white: the stick art's background is light grey
-    # (232), so a fixed "darker than 245" test crops nothing.
+    # (232), so a fixed "darker than 245" test crops nothing. DARKER than the
+    # corner level, not |difference|: both devices are darker than the paper
+    # they were shot on, while the photos' brighter-than-paper glare is
+    # background. The old |diff| form only worked because the pre-scale
+    # quantize happened to snap the glare back down; once that moved after the
+    # downscale (see below) a 239 speck 10px above the stick cabinet started
+    # dragging the crop box up with it.
     g = src.convert("L")
     lvl = sorted(g.getpixel(p) for p in [(2, 2), (src.width - 3, 2),
                                          (2, src.height - 3),
                                          (src.width - 3, src.height - 3)])[2]
-    bbox = g.point(lambda p: 255 if abs(p - lvl) > 14 else 0).getbbox()
+    bbox = g.point(lambda p: 255 if lvl - p > 14 else 0).getbbox()
     assert bbox, f"{name}: autocrop found no content"
     pad = 12
     cx0, cy0 = max(bbox[0] - pad, 0), max(bbox[1] - pad, 0)
@@ -227,7 +232,20 @@ def build_page(name, spec, anchors):
                     min(bbox[3] + pad, src.height)))
     scale = spec["art_h"] / src.height
     dw, dh = round(src.width * scale), spec["art_h"]
-    img = src.resize((dw, dh), Image.LANCZOS)
+    # Quantize AFTER the Lanczos downscale, not before it (round 2 fix). The
+    # source photos carry low-frequency shading a median cannot touch; at full
+    # res 64 octree leaves spread over it and froze it into distinct greys --
+    # the "gray leopard" blotches the operator reported, which the downscale
+    # then faithfully carried to the page. On the 240px-tall art the same 64
+    # leaves cover a far smaller colour volume, so each large fill collapses
+    # to ONE tone (viewed at 3x through an RGB565 round-trip: the stick's dark
+    # panel is now uniform). Still octree, still 64, still no dither, for the
+    # reasons the earlier legs found: MEDIANCUT allocates by pixel population
+    # and greyed out the red A / blue B buttons, and 32 leaves nothing for the
+    # thin light-grey strokes (dashed analog ring, mush START).
+    img = src.resize((dw, dh), Image.LANCZOS).quantize(
+        colors=64, method=Image.FASTOCTREE,
+        dither=Image.Dither.NONE).convert("RGB")
     # tint so the art's own background lands exactly on the page BG: sample
     # the bg level from the corners (inside the autocrop pad, pure bg by
     # construction) and scale all pixels by BG/bg_level
@@ -454,7 +472,13 @@ def main():
         put_left(draw, r_hi, item, F_ROW, BLACK)
         ctl_row_rects.append((r_norm, r_hi))
 
-    ctl_pad_value_rects = [get_chip(v) for v in M.CTL_PAD_VALUES]
+    # "< X >", not bare "X": the angle brackets are baked into BOTH pad chips
+    # and mark the row as changeable with LEFT/RIGHT (operator request, round
+    # 2). Not a selection cursor -- they show on P1 and P2 at all times. The
+    # stick row is fixed, so its chip stays arrow-less; that contrast is the
+    # whole point. Same 288-wide centred cell as every other value chip, so
+    # the value column's alignment is unchanged.
+    ctl_pad_value_rects = [get_chip(f"< {v} >") for v in M.CTL_PAD_VALUES]
     ctl_stick_value_rect = get_chip(M.CTL_STICK_VALUE)
 
     assert shelf.bottom <= M.SHEET_H, \
