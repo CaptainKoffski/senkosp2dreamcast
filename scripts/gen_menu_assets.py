@@ -5,8 +5,8 @@ controls pages, loader/controls_pad.png / controls_stick.png (640x480), and
 emits loader/menu_layout.h (sheet rects + dest coordinates + the settings byte
 tables) and shims/src/layouts.h (button->JVS tables), both from menu_def.py.
 
-All art is drawn here (text + flat shapes) or derived from the operator's own
-controller diagrams -- never pixels from the game (copyright rule, CLAUDE.md).
+All art is drawn here (text + flat shapes, including the two controller
+schematics) -- never pixels from the game (copyright rule, CLAUDE.md).
 Rerun after any menu_def.py change, then VIEW build/preview_*.png: those
 composite the label chips onto the pages exactly as the C code blits them, and
 are the only check that an anchor actually lands beside its button.
@@ -15,7 +15,7 @@ are the only check that an anchor actually lands beside its button.
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import menu_def as M
@@ -128,14 +128,15 @@ def box_of(rect):
     return (x, y, x + w, y + h)
 
 
-# Controls pages, redesigned 2026-09-30 (operator leg: "labels outside the
-# gamepad image, gamepad image smaller"). Per page:
-#   art_h/art_x/art_y  the scaled art's paste box -- height drives the scale,
-#                      x/y are chosen so the art clears both label columns.
-#   buttons            button -> (src_x, src_y, src_r) in ORIGINAL art pixels
-#                      (1024x1024), used to assert each leader lands on its
-#                      button and to keep the hand-routed page-space leads
-#                      honest if the art or the scale ever moves.
+# Controls pages. Round 3 (2026-09-30): the operator dropped the AI-generated
+# photos ("the gamepad image still looks like shit") for schematics drawn in
+# code -- exact flat colors, no smooth/autocrop/quantize/tint pipeline, and
+# button centres that are geometry constants instead of measured pixels.
+# Per page:
+#   render             () -> (art image, paste origin); everything inside is
+#                      drawn in PAGE coordinates at 4x and downscaled once.
+#   buttons            button -> (page_x, page_y, r), the same constants the
+#                      render used; asserts each leader lands on its button.
 #   prefix             override for the baked "<button> --" tag (the DC pad's
 #                      triggers are CONT_LTRIG/RTRIG but read as "L"/"R").
 #   leads              button -> leader polyline in PAGE space, WITHOUT its
@@ -144,57 +145,127 @@ def box_of(rect):
 #   tags               invariant labels: (column, row centre y, text, polyline
 #                      tail). Same deal, but the leader starts just past the
 #                      baked text since there is no chip cell to leave from.
-# Routing rules the hand-picked polylines follow: orthogonal only, one elbow
-# where the art allows it, no two leaders crossing, and no leader crossing a
-# button it does not belong to. The stick's 3x2 cluster is the hard case --
-# Y sits behind Z from the right, so it is reached over the top of the
-# cluster, and X likewise over the top (a vertical at X's own centre, which
-# threads between the VMU and the START button).
+# Routing rules the hand-picked polylines follow: orthogonal only, elbows only
+# where the art forces them, no two leaders crossing, and no leader crossing
+# a button it does not belong to. The stick's staggered 3x2 cluster leaves a
+# clean lane per button (Y overflies Z's top edge; X drops over the top);
+# the pad's START rides up the grip gap and doubles as the cable.
+SS = 4                          # supersample factor for the drawn art
+SHELL = (204, 204, 204)         # device body (vs page BG 224)
+SHELL_DK = (176, 176, 176)      # wells, d-pad, triggers, stick base
+BTN_FACE = (246, 246, 246)      # button caps, VMU window
+LCD = (196, 208, 196)           # VMU screen
+BALL = (200, 44, 44)            # stick ball top
+PAD_LETTER = {"A": (200, 40, 40), "B": (40, 90, 200),
+              "X": (196, 150, 0), "Y": (30, 150, 60)}   # HKT-7700 colors
+
+
+def art_canvas(ox, oy, w, h):
+    """4x canvas + helpers that take PAGE coordinates. union() outlines the
+    union of several filled shapes (mask edge = mask minus its erosion), so
+    the pad shell and the d-pad cross get one clean silhouette outline."""
+    img = Image.new("RGB", (w * SS, h * SS), BG)
+
+    def box(x0, y0, x1, y1):
+        return [(x0 - ox) * SS, (y0 - oy) * SS, (x1 - ox) * SS, (y1 - oy) * SS]
+
+    def union(shapes, fill, width=2):
+        mask = Image.new("L", img.size, 0)
+        md = ImageDraw.Draw(mask)
+        for meth, b, kw in shapes:
+            getattr(md, meth)(b, fill=255, **kw)
+        edge = ImageChops.subtract(
+            mask, mask.filter(ImageFilter.MinFilter(2 * width * SS + 1)))
+        img.paste(fill, (0, 0), mask)
+        img.paste(FG, (0, 0), edge)
+
+    return img, ImageDraw.Draw(img), box, union
+
+
+def draw_pad():
+    """HKT-7700 schematic, front view: shoulder triggers, analog stick over
+    the d-pad, VMU window, START under it on the cable boss, A/B/X/Y diamond
+    with the pad's letter colors."""
+    ox, oy, w, h = 208, 70, 244, 168
+    img, d, B, union = art_canvas(ox, oy, w, h)
+    W = 2 * SS
+    for x0, x1 in [(240, 290), (370, 420)]:     # trigger nubs, shell overlaps
+        d.rounded_rectangle(B(x0, 76, x1, 96), radius=6 * SS,
+                            fill=SHELL_DK, outline=FG, width=W)
+    union([("rounded_rectangle", B(215, 90, 445, 175), dict(radius=42 * SS)),
+           ("ellipse", B(220, 110, 288, 230), {}),      # grip lobes
+           ("ellipse", B(372, 110, 440, 230), {}),
+           ("ellipse", B(307, 145, 353, 200), {})], SHELL)  # cable boss
+    d.ellipse(B(248, 94, 296, 142), fill=SHELL_DK, outline=FG, width=W)
+    d.ellipse(B(259, 105, 285, 131), fill=SHELL, outline=FG, width=W)
+    union([("rounded_rectangle", B(233, 161, 277, 175), dict(radius=3 * SS)),
+           ("rounded_rectangle", B(248, 146, 262, 190), dict(radius=3 * SS))],
+          SHELL_DK)                                     # d-pad cross
+    d.rounded_rectangle(B(306, 98, 354, 142), radius=8 * SS,
+                        fill=BTN_FACE, outline=FG, width=W)
+    d.rounded_rectangle(B(315, 106, 345, 134), radius=3 * SS,
+                        fill=LCD, outline=FG, width=SS)
+    d.ellipse(B(321, 173, 339, 191), fill=BTN_FACE, outline=FG, width=W)
+    f = ImageFont.truetype(FONT_PATH, 15 * SS)
+    for b, (bx, by, br) in PAD_PAGE["buttons"].items():
+        if b in ("LTRIG", "RTRIG"):
+            continue                                    # the nubs above
+        d.ellipse(B(bx - br, by - br, bx + br, by + br),
+                  fill=BTN_FACE, outline=FG, width=W)
+        d.text(((bx - ox) * SS, (by - oy) * SS), b, font=f,
+               fill=PAD_LETTER[b], anchor="mm")
+    return img.resize((w, h), Image.LANCZOS), (ox, oy)
+
+
+def draw_stick():
+    """HKT-7300 schematic, top-down: panel on its base, ball-top lever,
+    START top-centre, the staggered X/Y/Z + A/B/C rows."""
+    ox, oy, w, h = 192, 72, 258, 174
+    img, d, B, _ = art_canvas(ox, oy, w, h)
+    W = 2 * SS
+    d.rounded_rectangle(B(206, 215, 436, 238), radius=6 * SS,
+                        fill=SHELL_DK, outline=FG, width=W)   # base side
+    d.rounded_rectangle(B(200, 80, 442, 225), radius=16 * SS,
+                        fill=SHELL, outline=FG, width=W)      # panel
+    d.ellipse(B(221, 116, 269, 164), fill=SHELL_DK, outline=FG, width=W)
+    d.ellipse(B(231, 126, 259, 154), fill=BALL, outline=FG, width=W)
+    d.ellipse(B(278, 84, 294, 100), fill=BTN_FACE, outline=FG, width=W)
+    f = ImageFont.truetype(FONT_PATH, 17 * SS)
+    for b, (bx, by, br) in STICK_PAGE["buttons"].items():
+        d.ellipse(B(bx - br, by - br, bx + br, by + br),
+                  fill=BTN_FACE, outline=FG, width=W)
+        d.text(((bx - ox) * SS, (by - oy) * SS), b, font=f, fill=FG,
+               anchor="mm")
+    return img.resize((w, h), Image.LANCZOS), (ox, oy)
+
+
 PAD_PAGE = dict(
-    art_h=240, art_x=203, art_y=34,
-    buttons={"Y": (806, 363, 34), "X": (728, 437, 34),
-             "B": (884, 437, 34), "A": (806, 510, 34)},
+    render=draw_pad,
+    buttons={"Y": (400, 106, 13), "X": (375, 131, 13), "B": (425, 131, 13),
+             "A": (400, 156, 13),
+             "LTRIG": (265, 86, 14), "RTRIG": (395, 86, 14)},
     prefix={"LTRIG": "L", "RTRIG": "R"},
-    leads={"LTRIG": [(250, 72)],                    # upper-left shoulder
-           "RTRIG": [(390, 72)],                    # upper-right shoulder
-           "Y": [(404, 113)],
-           "B": [(415, 145), (415, 141)],
-           "A": [(395, 177), (395, 160)],
-           "X": [(375, 209), (375, 141)]},
-    tags=[(COL_L, 163, "MOVE", [(229, 163)]),       # d-pad, left edge
-          (COL_L, 205, "START", [(307, 205)])])     # start triangle, left edge
+    leads={"LTRIG": [(265, 72), (265, 80)],
+           "RTRIG": [(395, 72), (395, 80)],
+           "Y": [(411, 113)],
+           "B": [(426, 145), (426, 141)],
+           "A": [(400, 177), (400, 169)],
+           "X": [(365, 209), (365, 141)]},     # up the grip/body gap
+    tags=[(COL_L, 163, "MOVE", [(233, 163)]),  # d-pad left arm tip
+          (COL_L, 241, "START", [(330, 241), (330, 192)])])  # "the cable"
 STICK_PAGE = dict(
-    art_h=224, art_x=131, art_y=34,
-    buttons={"X": (666, 407, 42), "Y": (750, 349, 41), "Z": (849, 350, 41),
-             "A": (665, 516, 41), "B": (750, 456, 43), "C": (849, 456, 41)},
+    render=draw_stick,
+    buttons={"X": (316, 121, 16), "Y": (366, 108, 16), "Z": (416, 126, 16),
+             "A": (316, 173, 16), "B": (366, 160, 16), "C": (416, 178, 16)},
     prefix={},
-    leads={"X": [(317, 71), (317, 97)],
-           "Y": [(428, 105), (428, 75), (342, 75), (342, 81)],
-           "Z": [(416, 139), (416, 93), (384, 93)],
-           "C": [(408, 173), (408, 125), (384, 125)],
-           "B": [(342, 207), (342, 135)],    # -3: round-2 autocrop moved the
-           "A": [(317, 241), (317, 152)]},   # art 3px, these two fell short
-    tags=[(COL_L, 125, "MOVE", [(174, 125)]),       # lever, left edge
-          (COL_R, 37, "START", [(420, 37), (420, 54), (329, 54)])])
-
-
-def smooth_art(im):
-    """De-noise the operator's JPEG art BEFORE it is scaled, split luma from
-    chroma so each gets the kernel it needs (round 2, 2026-09-30: operator
-    saw "different colors, like spots, like gray leopard" on the pad shell).
-    Luma keeps a 3x median -- enough for the JPEG ringing, small enough to
-    leave the thin outline strokes and the baked glyphs ("Dreamcast", the
-    stick's X/Y/Z/A/B/C) intact; 5x and up mush them (viewed).
-    Chroma gets a 7x median, which is the actual leopard fix's other half:
-    JPEG's colour noise leaves near-neutral greys with a few units of chroma,
-    and the post-scale octree then splits them into SATURATED leaves -- red
-    and green confetti pixels along the pad's analog ring (viewed at 3x).
-    7x kills that; 15x also drains the orange out of the Dreamcast swirl."""
-    y, cb, cr = im.convert("YCbCr").split()
-    return Image.merge("YCbCr",
-                       [y.filter(ImageFilter.MedianFilter(3)),
-                        cb.filter(ImageFilter.MedianFilter(7)),
-                        cr.filter(ImageFilter.MedianFilter(7))]).convert("RGB")
+    leads={"X": [(316, 71), (316, 104)],       # over the top, down X's lane
+           "Y": [(386, 105)],                  # overflies Z's top edge
+           "Z": [(432, 139)],
+           "C": [(433, 173)],
+           "B": [(370, 207), (370, 178)],      # under C, up to B
+           "A": [(316, 241), (316, 192)]},     # under everything, up X's lane
+    tags=[(COL_L, 125, "MOVE", [(223, 125)]),
+          (COL_L, 37, "START", [(286, 37), (286, 85)])])
 
 
 def label(draw, x, cy, text, anchor="lm"):
@@ -205,76 +276,16 @@ def label(draw, x, cy, text, anchor="lm"):
 
 
 def build_page(name, spec, anchors):
-    """640x480 controls page: operator art cleaned, autocropped, scaled to
-    spec["art_h"] and pasted at (art_x, art_y), then the baked leader lines,
-    button prefixes, invariant labels and footer -- all outside the art."""
-    art = os.path.join(LOADER_DIR, f"{name}_diagram.png")
-    assert os.path.exists(art), f"missing {art} (operator-provided art)"
-    src = smooth_art(Image.open(art).convert("RGB"))
-    # autocrop the art's own margin. The threshold is relative to the corner
-    # level, not a fixed near-white: the stick art's background is light grey
-    # (232), so a fixed "darker than 245" test crops nothing. DARKER than the
-    # corner level, not |difference|: both devices are darker than the paper
-    # they were shot on, while the photos' brighter-than-paper glare is
-    # background. The old |diff| form only worked because the pre-scale
-    # quantize happened to snap the glare back down; once that moved after the
-    # downscale (see below) a 239 speck 10px above the stick cabinet started
-    # dragging the crop box up with it.
-    g = src.convert("L")
-    lvl = sorted(g.getpixel(p) for p in [(2, 2), (src.width - 3, 2),
-                                         (2, src.height - 3),
-                                         (src.width - 3, src.height - 3)])[2]
-    bbox = g.point(lambda p: 255 if lvl - p > 14 else 0).getbbox()
-    assert bbox, f"{name}: autocrop found no content"
-    pad = 12
-    cx0, cy0 = max(bbox[0] - pad, 0), max(bbox[1] - pad, 0)
-    src = src.crop((cx0, cy0, min(bbox[2] + pad, src.width),
-                    min(bbox[3] + pad, src.height)))
-    scale = spec["art_h"] / src.height
-    dw, dh = round(src.width * scale), spec["art_h"]
-    # Quantize AFTER the Lanczos downscale, not before it (round 2 fix). The
-    # source photos carry low-frequency shading a median cannot touch; at full
-    # res 64 octree leaves spread over it and froze it into distinct greys --
-    # the "gray leopard" blotches the operator reported, which the downscale
-    # then faithfully carried to the page. On the 240px-tall art the same 64
-    # leaves cover a far smaller colour volume, so each large fill collapses
-    # to ONE tone (viewed at 3x through an RGB565 round-trip: the stick's dark
-    # panel is now uniform). Still octree, still 64, still no dither, for the
-    # reasons the earlier legs found: MEDIANCUT allocates by pixel population
-    # and greyed out the red A / blue B buttons, and 32 leaves nothing for the
-    # thin light-grey strokes (dashed analog ring, mush START).
-    img = src.resize((dw, dh), Image.LANCZOS).quantize(
-        colors=64, method=Image.FASTOCTREE,
-        dither=Image.Dither.NONE).convert("RGB")
-    # tint so the art's own background lands exactly on the page BG: sample
-    # the bg level from the corners (inside the autocrop pad, pure bg by
-    # construction) and scale all pixels by BG/bg_level
-    g = img.convert("L")
-    bg_level = sorted(g.getpixel(p) for p in
-                      [(2, 2), (dw - 3, 2), (2, dh - 3), (dw - 3, dh - 3)])[2]
-    img = img.point(lambda p: min(255, p * BG[0] // bg_level))
-    # flatten the outer bg region to exactly BG (the tint gets it close; the
-    # art bg's soft gradient would still show as a faint block edge on the
-    # page without this). Interior lights (VMU window, pad body) are enclosed
-    # by darker outlines, so the fill cannot reach them. thresh is PIL's
-    # summed-channel difference: 60 = ~20/channel, enough for the bg's +-8
-    # gradient, far below the outlines. Two-pass sentinel fill: floodfill()
-    # no-ops when the seed already sits within thresh of the target value
-    # (our corners == BG by the tint above), so fill to a sentinel first,
-    # then sentinel -> BG.
-    SENTINEL = (255, 0, 255)
-    for corner in [(2, 2), (dw - 3, 2), (2, dh - 3), (dw - 3, dh - 3)]:
-        ImageDraw.floodfill(img, corner, SENTINEL, thresh=60)
-        ImageDraw.floodfill(img, corner, BG, thresh=60)
+    """640x480 controls page: device schematic rendered by spec["render"],
+    pasted at its origin, then the baked leader lines, button prefixes,
+    invariant labels and footer -- all outside the art."""
+    img, (ox, oy) = spec["render"]()
+    dw, dh = img.size
     page = Image.new("RGB", (640, 480), BG)
-    ox, oy = spec["art_x"], spec["art_y"]
     artbox = (ox, oy, ox + dw, oy + dh)
     assert 0 <= ox and ox + dw <= 640 and oy + dh <= 340, \
         f"{name}: art {dw}x{dh} at ({ox},{oy}) leaves the art region"
     page.paste(img, (ox, oy))
-
-    def to_page(sx, sy):        # original art pixel -> page pixel
-        return (round((sx - cx0) * scale) + ox, round((sy - cy0) * scale) + oy)
 
     # every label row: (leader polyline, then what to draw in the margin)
     polys, texts = [], []
@@ -308,19 +319,18 @@ def build_page(name, spec, anchors):
         assert chip[2] <= artbox[0] or artbox[2] <= chip[0] \
             or chip[3] <= artbox[1] or artbox[3] <= chip[1], \
             f"{name} {b}: chip {chip} overlaps the art box {artbox}"
-    for b, (sx, sy, sr) in spec["buttons"].items():
-        bx, by = to_page(sx, sy)
+    for b, (bx, by, br) in spec["buttons"].items():
         ex, ey = spec["leads"][b][-1]
         dist = ((ex - bx) ** 2 + (ey - by) ** 2) ** 0.5
-        assert dist <= sr * scale + 5, \
+        assert dist <= br + 5, \
             f"{name} {b}: leader ends at ({ex},{ey}), {dist:.1f}px from the " \
-            f"button at ({bx},{by}) r{sr * scale:.1f}"
+            f"button at ({bx},{by}) r{br}"
 
     check_fits(d, 640, 24, M.CTL_FOOTER, F_ROW)
     d.text((320, 464), M.CTL_FOOTER, font=F_ROW, fill=GREY, anchor="mm")
-    print(f"gen_menu_assets: controls_{name}.png art {dw}x{dh} at ({ox},{oy}) "
-          f"scale {scale:.4f}, buttons "
-          + " ".join(f"{b}{to_page(*v[:2])}" for b, v in
+    print(f"gen_menu_assets: controls_{name}.png art {dw}x{dh} at ({ox},{oy}),"
+          " buttons "
+          + " ".join(f"{b}({v[0]},{v[1]})" for b, v in
                      sorted(spec["buttons"].items())))
     return page
 

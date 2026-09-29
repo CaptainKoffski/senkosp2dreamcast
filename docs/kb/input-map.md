@@ -177,8 +177,10 @@ as every other `SHIM_STATE` word (loader-staged, not EEPROM-backed).
 three-row selector: P1 PAD LAYOUT, P2 PAD LAYOUT, STICK LAYOUT (fixed,
 display-only). Left/right on a pad row flips that port's preset
 (`loader/menu.c:155-158`, `menu_pad_layout[cur] ^= 1`); the diagram
-underneath previews whichever row is highlighted, on the operator-provided
-HKT-7700 (pad) or HKT-7300 (stick) art page. The page opens on the Stick row
+underneath previews whichever row is highlighted, on the HKT-7700 (pad) or
+HKT-7300 (stick) art page (schematics drawn in code by
+`scripts/gen_menu_assets.py draw_pad()/draw_stick()` since 2026-09-30 —
+round 3 replaced the AI-generated photos). The page opens on the Stick row
 iff a stick is detected on the menu's own input pad, via the same caps rule
 (`loader/menu.c:132-140 stick_on_menu_pad()`, masking
 `function_data[0] & 0x00000f00` — the same four capability bits

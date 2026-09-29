@@ -3304,6 +3304,20 @@ minors deferred to the whole-branch review's ledger; one fix round on
 T5 (cosmetic chip issues, both closed same task). No Important/Critical
 findings on any task.
 
+**Art rounds (operator-driven, post-review):** round 1 rejected the
+labels-on-art pages outright → redesign `9b7e67a` (labels outside in
+two columns, "<button> —" prefixes, haloed leader lines, smaller art).
+Round 2 (`47deacc`) baked `<` `>` arrows into the pad value chips and
+chased the "gray leopard" mottling (quantize moved after the Lanczos
+downscale + YCbCr median split). Round 3 (2026-09-30): the AI-generated
+photos were still the quality floor — operator approved dropping them
+for schematics drawn in code (`gen_menu_assets.py draw_pad()` /
+`draw_stick()`, 4x supersample → Lanczos, flat palette, union-outline
+silhouettes). The whole photo pipeline (smooth/autocrop/quantize/tint/
+floodfill) and `loader/pad_diagram.png` / `stick_diagram.png` deleted;
+button centres are now geometry constants shared with the
+leader-lands-on-button asserts.
+
 **Verification state:** host tests (`shims/test/test_host.c`) cover all
 three layout tables, the `jvs_pick_layout` classifier, per-port
 independence, and out-of-range preset fallback; one emulator boot-leg
