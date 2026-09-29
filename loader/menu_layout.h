@@ -95,6 +95,7 @@ static const mrect_t MENU_SET_FOOTER = {0,696,640,24};
  * chip's top-left on the page. The footer is baked into both
  * pages -- nothing to blit. */
 #define CTL_N_BUTTONS 6
+#define CTL_FUNC_NONE 5   /* chips with this func are skipped (stick B has no row) */
 static const mrect_t CTL_WORD[6] = {{0,720,126,24}, {126,720,126,24}, {252,720,126,24}, {378,720,126,24}, {504,720,126,24}, {0,744,126,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, NONE */
 
 static const unsigned char CTL_PAD_FUNC[2][6] = {
@@ -112,8 +113,8 @@ static const unsigned short CTL_PAD_ANCHOR[6][2] = {
   {506, 60},   /* RTRIG */
 };
 static const unsigned short CTL_STICK_ANCHOR[6][2] = {
-  {506, 229},   /* A */
-  {506, 195},   /* B */
+  {506, 195},   /* A */
+  {506, 229},   /* B */
   {506, 59},   /* X */
   {506, 93},   /* Y */
   {506, 127},   /* Z */

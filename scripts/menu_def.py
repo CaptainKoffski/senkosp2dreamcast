@@ -67,9 +67,9 @@ PAD_LAYOUTS = [
                     "LTRIG": "ACTION", "RTRIG": "OVERDRIVE"}),
 ]
 # Arcade stick: the Naomi cabinet layout, fixed (layout id 2). B deliberately
-# unmapped -- the tester's spec says "B = none". It renders as the NONE chip:
-# a bare "-" was a ~10px glyph on a BG plate over BG page, so B's leader line
-# read as pointing at nothing (task-5 review).
+# unmapped -- the tester's spec says "B = none". No B row on the stick page
+# (operator, round 5): the C code skips NONE chips (CTL_FUNC_NONE) and the
+# page bakes no prefix/leader for B.
 STICK_LAYOUT = {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
                 "B": "NONE", "C": "OVERDRIVE"}
 
@@ -95,7 +95,10 @@ CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 # invariant, so they are baked labels with leaders and carry no anchor.
 PAD_ANCHORS   = {"A": (506, 165), "B": (506, 133), "X": (506, 197),
                  "Y": (506, 101), "LTRIG": (60, 60), "RTRIG": (506, 60)}
-STICK_ANCHORS = {"A": (506, 229), "B": (506, 195), "X": (506, 59),
+# Stick B is a dead slot: its chip is never blitted (NONE skip in menu.c),
+# but the anchor entry stays so the [6]-wide tables keep their shape; parked
+# on the vacated bottom row so the chip-overlap assert holds.
+STICK_ANCHORS = {"A": (506, 195), "B": (506, 229), "X": (506, 59),
                  "Y": (506, 93), "Z": (506, 127), "C": (506, 161)}
 
 SHEET_W, SHEET_H = 640, 1024    # fixed; generator asserts everything fits

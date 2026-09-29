@@ -106,10 +106,12 @@ static void settings_screen(void) {
  * T9 flicker rule; row/label changes re-blit fixed cells. */
 static void ctl_draw_labels(int cur) {
     for (int i = 0; i < 6; i++) {
-        if (cur == 2)
+        if (cur == 2) {
+            if (CTL_STICK_FUNC[i] == CTL_FUNC_NONE)
+                continue;   /* unmapped button (stick B): no row on the page */
             blit(CTL_WORD[CTL_STICK_FUNC[i]],
                  CTL_STICK_ANCHOR[i][0], CTL_STICK_ANCHOR[i][1]);
-        else
+        } else
             blit(CTL_WORD[CTL_PAD_FUNC[menu_pad_layout[cur]][i]],
                  CTL_PAD_ANCHOR[i][0], CTL_PAD_ANCHOR[i][1]);
     }

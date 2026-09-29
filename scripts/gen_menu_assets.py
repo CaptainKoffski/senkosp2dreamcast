@@ -170,17 +170,20 @@ PAD_PAGE = dict(
            "X": [(375, 209), (375, 141)]},
     tags=[(COL_L, 163, "MOVE", [(229, 163)]),       # d-pad, left edge
           (COL_L, 205, "START", [(307, 205)])])     # start triangle, left edge
+# No "B" row on the stick page (operator, round 5): B maps to NONE, and a
+# labeled leader pointing at an unmapped button is noise. B has no baked
+# prefix/lead here, the runtime chip is skipped via CTL_FUNC_NONE, and A's
+# row moved up to close the gap (its lead re-routed to the freed y207 lane).
 STICK_PAGE = dict(
     art_h=224, art_x=131, art_y=34,
     buttons={"X": (666, 407, 42), "Y": (750, 349, 41), "Z": (849, 350, 41),
-             "A": (665, 516, 41), "B": (750, 456, 43), "C": (849, 456, 41)},
+             "A": (665, 516, 41), "C": (849, 456, 41)},
     prefix={},
     leads={"X": [(317, 71), (317, 97)],
            "Y": [(428, 105), (428, 75), (342, 75), (342, 81)],
            "Z": [(416, 139), (416, 93), (384, 93)],
            "C": [(408, 173), (408, 125), (384, 125)],
-           "B": [(342, 207), (342, 135)],
-           "A": [(317, 241), (317, 152)]},
+           "A": [(317, 207), (317, 152)]},
     tags=[(COL_L, 125, "MOVE", [(174, 125)]),       # lever, left edge
           (COL_R, 37, "START", [(420, 37), (420, 54), (329, 54)])])
 
@@ -494,6 +497,8 @@ def main():
     def preview(name, page, anchors, buttons, layout, row_hi, values):
         pv = page.copy()
         for b in buttons:
+            if layout[b] == "NONE":     # mirror menu.c's CTL_FUNC_NONE skip
+                continue
             pv.paste(sheet.crop(box_of(ctl_word_rects[M.FUNC_WORDS.index(layout[b])])),
                      anchors[b])
         for i, (r_norm, r_hi) in enumerate(ctl_row_rects):
@@ -594,6 +599,8 @@ def main():
                  "\n * chip's top-left on the page. The footer is baked into both"
                  "\n * pages -- nothing to blit. */")
     lines.append(f"#define CTL_N_BUTTONS {len(M.PAD_BUTTONS)}")
+    lines.append(f"#define CTL_FUNC_NONE {M.FUNC_WORDS.index('NONE')}   "
+                 "/* chips with this func are skipped (stick B has no row) */")
     lines.append(f"static const mrect_t CTL_WORD[{len(M.FUNC_WORDS)}] = {{"
                  + ", ".join(R(r) for r in ctl_word_rects) + "};   /* "
                  + ", ".join(M.FUNC_WORDS) + " */")
