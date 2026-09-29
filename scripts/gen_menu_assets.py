@@ -99,9 +99,24 @@ def R(rect):
     return "{%d,%d,%d,%d}" % rect
 
 
-CHIP_W, CHIP_H = 160, 24        # CTL_WORD label-chip cell
+CHIP_W, CHIP_H = 126, 24        # CTL_WORD label-chip cell ("OVERDRIVE" is 118)
 CTL_ROW_LABEL_X = 48
 CTL_ROW_VALUE_X = 344
+
+# The two controls-page label columns. chip_x is where menu.c blits the
+# function chip (== menu_def's anchor x); the baked "<button> --" prefix is
+# right-aligned to chip_x - PREFIX_GAP so every em dash in a column lines up
+# and the chip's left-aligned word starts one gap later ("Y -- ACTION" reads
+# as one line). lead_x is where that row's leader line leaves the label block
+# (fixed, not word-dependent: the leaders are baked, the words are not).
+# inv_x is where a baked invariant label (MOVE / START) starts.
+PREFIX_GAP = 8
+COL_L = dict(chip_x=60, lead_x=192, inv_x=12)
+COL_R = dict(chip_x=506, lead_x=450, inv_x=458)
+
+
+def col_of(anchor_x):
+    return COL_L if anchor_x < 320 else COL_R
 
 
 def CTL_ROW_Y(i):
@@ -113,55 +128,87 @@ def box_of(rect):
     return (x, y, x + w, y + h)
 
 
-# Controls pages. Per page: the paste x of the scaled art ("center" or a
-# literal), the baked identity tags the art itself does not carry, and the
-# leader polylines for chips the art leaves no adjacent room for. Tag/lead
-# coordinates are page space, like menu_def's anchors, and are art-only --
-# the C code never sees them, so they live here and not in menu_def.
-#   pad:   face view, no triggers visible -> L/R TRIGGER tags in the shoulder
-#          corners, with the LTRIG/RTRIG chips directly under them.
-#   stick: Start is an unlabeled yellow circle -> START tag left of it; X/Y/B
-#          are interior cluster buttons -> elbows out to their chips, routed
-#          between the art's own letters (never across one).
-PAD_PAGE = dict(art_x="center",
-                tags=[(118, 186, "MOVE"), (320, 274, "START"),
-                      (92, 20, "L TRIGGER"),
-                      (546, 20, "R TRIGGER")],
-                leads=[])
-STICK_PAGE = dict(art_x=4,
-                  tags=[(98, 88, "MOVE"), (240, 33, "START")],
-                  leads=[[(331, 74), (331, 42), (440, 42)],      # Y
-                         [(331, 157), (331, 190), (440, 190)],   # B
-                         [(261, 118), (170, 118), (170, 205)]])  # X
+# Controls pages, redesigned 2026-09-30 (operator leg: "labels outside the
+# gamepad image, gamepad image smaller"). Per page:
+#   art_h/art_x/art_y  the scaled art's paste box -- height drives the scale,
+#                      x/y are chosen so the art clears both label columns.
+#   buttons            button -> (src_x, src_y, src_r) in ORIGINAL art pixels
+#                      (1024x1024), used to assert each leader lands on its
+#                      button and to keep the hand-routed page-space leads
+#                      honest if the art or the scale ever moves.
+#   prefix             override for the baked "<button> --" tag (the DC pad's
+#                      triggers are CONT_LTRIG/RTRIG but read as "L"/"R").
+#   leads              button -> leader polyline in PAGE space, WITHOUT its
+#                      first point: that is always (column lead_x, row centre),
+#                      so a leader can never drift off its own label row.
+#   tags               invariant labels: (column, row centre y, text, polyline
+#                      tail). Same deal, but the leader starts just past the
+#                      baked text since there is no chip cell to leave from.
+# Routing rules the hand-picked polylines follow: orthogonal only, one elbow
+# where the art allows it, no two leaders crossing, and no leader crossing a
+# button it does not belong to. The stick's 3x2 cluster is the hard case --
+# Y sits behind Z from the right, so it is reached over the top of the
+# cluster, and X likewise over the top (a vertical at X's own centre, which
+# threads between the VMU and the START button).
+PAD_PAGE = dict(
+    art_h=240, art_x=203, art_y=34,
+    buttons={"Y": (806, 363, 34), "X": (728, 437, 34),
+             "B": (884, 437, 34), "A": (806, 510, 34)},
+    prefix={"LTRIG": "L", "RTRIG": "R"},
+    leads={"LTRIG": [(250, 72)],                    # upper-left shoulder
+           "RTRIG": [(390, 72)],                    # upper-right shoulder
+           "Y": [(404, 113)],
+           "B": [(415, 145), (415, 141)],
+           "A": [(395, 177), (395, 160)],
+           "X": [(375, 209), (375, 141)]},
+    tags=[(COL_L, 163, "MOVE", [(229, 163)]),       # d-pad, left edge
+          (COL_L, 205, "START", [(307, 205)])])     # start triangle, left edge
+STICK_PAGE = dict(
+    art_h=224, art_x=131, art_y=34,
+    buttons={"X": (666, 407, 42), "Y": (750, 349, 41), "Z": (849, 350, 41),
+             "A": (665, 516, 41), "B": (750, 456, 43), "C": (849, 456, 41)},
+    prefix={},
+    leads={"X": [(317, 71), (317, 97)],
+           "Y": [(428, 105), (428, 75), (342, 75), (342, 81)],
+           "Z": [(416, 139), (416, 93), (384, 93)],
+           "C": [(408, 173), (408, 125), (384, 125)],
+           "B": [(342, 207), (342, 138)],
+           "A": [(317, 241), (317, 155)]},
+    tags=[(COL_L, 125, "MOVE", [(174, 125)]),       # lever, left edge
+          (COL_R, 37, "START", [(420, 37), (420, 54), (329, 54)])])
 
 
 def clean_art(im):
     """Flatten the operator art to schematic colors: a 3x median kills the
     JPEG ringing the stick art came over-compressed with, then an octree
-    palette (32, no dither) snaps the result to flat fills. Octree, not
-    MEDIANCUT: median-cut allocates the palette by pixel population, and the
-    pad's buttons are small enough that it merged red A / blue B into the
-    body gray (viewed; that is what killed the first pass)."""
+    palette (no dither) snaps the result to flat fills. Octree, not MEDIANCUT:
+    median-cut allocates the palette by pixel population, and the pad's
+    buttons are small enough that it merged red A / blue B into the body gray
+    (viewed; that is what killed the first pass).
+    64 colors, not 32: at 32 the palette had nothing left for the pad's thin
+    light-grey outline strokes and quantized them into the body fill -- the
+    analog ring came out dashed and the baked START glyphs turned to mush
+    (viewed side by side at final scale, 2026-09-30 leg). At 64 the strokes
+    are indistinguishable from the raw art while the stick panel's JPEG
+    mottling is still flattened; 128 gains nothing and starts letting the
+    mottling back in."""
     return (im.filter(ImageFilter.MedianFilter(3))
-              .quantize(colors=32, method=Image.FASTOCTREE,
+              .quantize(colors=64, method=Image.FASTOCTREE,
                         dither=Image.Dither.NONE)
               .convert("RGB"))
 
 
-def tag(draw, x, y, text):
-    """Baked identity label: FG text on its own BG plate. The plate is what
-    makes it readable on the stick's dark panel (bare FG text on that gray
-    is ~2:1 contrast)."""
-    check_fits(draw, 640, 24, text, F_ROW)
-    b = draw.textbbox((x, y), text, font=F_ROW, anchor="mm")
-    draw.rectangle([b[0] - 6, y - 12, b[2] + 6, y + 12], fill=BG)
-    draw.text((x, y), text, font=F_ROW, fill=FG, anchor="mm")
+def label(draw, x, cy, text, anchor="lm"):
+    """Baked page text: plain FG on the page BG. No plate -- every label now
+    sits outside the art, so there is nothing to knock back."""
+    check_fits(draw, 640, CHIP_H, text, F_ROW)
+    draw.text((x, cy), text, font=F_ROW, fill=FG, anchor=anchor)
 
 
-def build_page(name, spec):
-    """640x480 controls page: operator art cleaned, autocropped, scaled into
-    the art region (y 8..338, above the selector rows), tinted + flood-filled
-    onto the page BG, then the baked tags / leader lines / footer."""
+def build_page(name, spec, anchors):
+    """640x480 controls page: operator art cleaned, autocropped, scaled to
+    spec["art_h"] and pasted at (art_x, art_y), then the baked leader lines,
+    button prefixes, invariant labels and footer -- all outside the art."""
     art = os.path.join(LOADER_DIR, f"{name}_diagram.png")
     assert os.path.exists(art), f"missing {art} (operator-provided art)"
     src = clean_art(Image.open(art).convert("RGB"))
@@ -175,11 +222,11 @@ def build_page(name, spec):
     bbox = g.point(lambda p: 255 if abs(p - lvl) > 14 else 0).getbbox()
     assert bbox, f"{name}: autocrop found no content"
     pad = 12
-    src = src.crop((max(bbox[0] - pad, 0), max(bbox[1] - pad, 0),
-                    min(bbox[2] + pad, src.width),
+    cx0, cy0 = max(bbox[0] - pad, 0), max(bbox[1] - pad, 0)
+    src = src.crop((cx0, cy0, min(bbox[2] + pad, src.width),
                     min(bbox[3] + pad, src.height)))
-    scale = min(620 / src.width, 330 / src.height)
-    dw, dh = round(src.width * scale), round(src.height * scale)
+    scale = spec["art_h"] / src.height
+    dw, dh = round(src.width * scale), spec["art_h"]
     img = src.resize((dw, dh), Image.LANCZOS)
     # tint so the art's own background lands exactly on the page BG: sample
     # the bg level from the corners (inside the autocrop pad, pure bg by
@@ -202,18 +249,61 @@ def build_page(name, spec):
         ImageDraw.floodfill(img, corner, SENTINEL, thresh=60)
         ImageDraw.floodfill(img, corner, BG, thresh=60)
     page = Image.new("RGB", (640, 480), BG)
-    ox = (640 - dw) // 2 if spec["art_x"] == "center" else spec["art_x"]
-    assert 0 <= ox and ox + dw <= 640 and dh <= 330, \
-        f"{name}: art {dw}x{dh} at x{ox} leaves the art region"
-    page.paste(img, (ox, 8))
+    ox, oy = spec["art_x"], spec["art_y"]
+    artbox = (ox, oy, ox + dw, oy + dh)
+    assert 0 <= ox and ox + dw <= 640 and oy + dh <= 340, \
+        f"{name}: art {dw}x{dh} at ({ox},{oy}) leaves the art region"
+    page.paste(img, (ox, oy))
+
+    def to_page(sx, sy):        # original art pixel -> page pixel
+        return (round((sx - cx0) * scale) + ox, round((sy - cy0) * scale) + oy)
+
+    # every label row: (leader polyline, then what to draw in the margin)
+    polys, texts = [], []
+    for b, tail in spec["leads"].items():
+        col = col_of(anchors[b][0])
+        cy = anchors[b][1] + CHIP_H // 2
+        polys.append([(col["lead_x"], cy)] + tail)
+        pre = spec["prefix"].get(b, b) + " —"
+        texts.append((col["chip_x"] - PREFIX_GAP, cy, pre, "rm"))
+    for col, cy, text, tail in spec["tags"]:
+        tw = ImageDraw.Draw(page).textlength(text, font=F_ROW)
+        start = col["lead_x"] if col is COL_R else col["inv_x"] + tw + PREFIX_GAP
+        polys.append([(start, cy)] + tail)
+        texts.append((col["inv_x"], cy, text, "lm"))
+
+    # halos first, then every stroke: drawn per-leader the halo of a later
+    # leader would punch a BG notch through an earlier one's stroke.
     d = ImageDraw.Draw(page)
-    for poly in spec["leads"]:
+    for poly in polys:
+        d.line(poly, fill=BG, width=6, joint="curve")
+    for poly in polys:
         d.line(poly, fill=FG, width=2, joint="curve")
-    for x, y, text in spec["tags"]:
-        tag(d, x, y, text)
+    for x, cy, text, anchor in texts:
+        label(d, x, cy, text, anchor)
+
+    # asserts: nothing in the margins may touch the art, and every leader
+    # must actually reach the button it claims (page-space polylines are
+    # hand-routed, so this is the check that keeps them tied to the art).
+    for b, (ax, ay) in anchors.items():
+        chip = (ax, ay, ax + CHIP_W, ay + CHIP_H)
+        assert chip[2] <= artbox[0] or artbox[2] <= chip[0] \
+            or chip[3] <= artbox[1] or artbox[3] <= chip[1], \
+            f"{name} {b}: chip {chip} overlaps the art box {artbox}"
+    for b, (sx, sy, sr) in spec["buttons"].items():
+        bx, by = to_page(sx, sy)
+        ex, ey = spec["leads"][b][-1]
+        dist = ((ex - bx) ** 2 + (ey - by) ** 2) ** 0.5
+        assert dist <= sr * scale + 5, \
+            f"{name} {b}: leader ends at ({ex},{ey}), {dist:.1f}px from the " \
+            f"button at ({bx},{by}) r{sr * scale:.1f}"
+
     check_fits(d, 640, 24, M.CTL_FOOTER, F_ROW)
     d.text((320, 464), M.CTL_FOOTER, font=F_ROW, fill=GREY, anchor="mm")
-    print(f"gen_menu_assets: controls_{name}.png art {dw}x{dh} at x{ox}")
+    print(f"gen_menu_assets: controls_{name}.png art {dw}x{dh} at ({ox},{oy}) "
+          f"scale {scale:.4f}, buttons "
+          + " ".join(f"{b}{to_page(*v[:2])}" for b, v in
+                     sorted(spec["buttons"].items())))
     return page
 
 
@@ -343,11 +433,14 @@ def main():
     put_centered(draw, set_footer_rect, M.SET_FOOTER, F_ROW, GREY)
 
     # ---- CONTROLS sheet cells (same shelf) -------------------------------
+    # LEFT-aligned, not centred: the page bakes a "<button> --" prefix just
+    # left of every chip cell, so a centred word would float away from its
+    # own dash by however much shorter than "OVERDRIVE" it happens to be.
     ctl_word_rects = []
     for word in M.FUNC_WORDS:
-        r = shelf.place(160, 24)
-        check_fits(draw, 160, 24, word, F_ROW)
-        put_centered(draw, r, word, F_ROW, FG)
+        r = shelf.place(CHIP_W, CHIP_H)
+        check_fits(draw, CHIP_W, CHIP_H, word, F_ROW, margin=6)
+        put_left(draw, r, word, F_ROW, FG, pad=2)
         ctl_word_rects.append(r)
 
     ctl_row_rects = []
@@ -372,21 +465,18 @@ def main():
     sheet.save(os.path.join(LOADER_DIR, "menu_sheet.png"))
 
     # ---- controls_pad.png / controls_stick.png ---------------------------
-    pad_page = build_page("pad", PAD_PAGE)
-    stick_page = build_page("stick", STICK_PAGE)
-    pad_page.save(os.path.join(LOADER_DIR, "controls_pad.png"))
-    stick_page.save(os.path.join(LOADER_DIR, "controls_stick.png"))
-
-    # anchor sanity: the chip must stay inside the art region, and two chips
-    # on one page must never collide (they are blitted, not blended)
+    # anchor sanity: the chip must stay on the page above the selector rows,
+    # sit in one of the two label columns, and two chips on one page must
+    # never collide (they are blitted, not blended). build_page adds the
+    # chip-vs-art-box and leader-vs-button checks.
     for page_name, anchors, buttons in [("pad", M.PAD_ANCHORS, M.PAD_BUTTONS),
                                         ("stick", M.STICK_ANCHORS, M.STICK_BUTTONS)]:
         assert set(anchors) == set(buttons), f"{page_name}: anchor/button drift"
         for b in buttons:
             x, y = anchors[b]
-            assert 0 <= x <= 640 - CHIP_W, f"{page_name} {b}: anchor x {x} off-page"
-            assert 8 <= y <= 340 - CHIP_H, f"{page_name} {b}: anchor y {y} off-art"
-            assert (x, y) != (0, 0), f"{page_name} {b}: anchor unmeasured"
+            assert x in (COL_L["chip_x"], COL_R["chip_x"]), \
+                f"{page_name} {b}: anchor x {x} is not a label column"
+            assert 8 <= y <= 340 - CHIP_H, f"{page_name} {b}: anchor y {y} off-page"
         for i, a in enumerate(buttons):
             for b in buttons[i + 1:]:
                 ax, ay = anchors[a]
@@ -394,6 +484,11 @@ def main():
                 assert ax + CHIP_W <= bx or bx + CHIP_W <= ax \
                     or ay + CHIP_H <= by or by + CHIP_H <= ay, \
                     f"{page_name}: {a} and {b} chips overlap"
+
+    pad_page = build_page("pad", PAD_PAGE, M.PAD_ANCHORS)
+    stick_page = build_page("stick", STICK_PAGE, M.STICK_ANCHORS)
+    pad_page.save(os.path.join(LOADER_DIR, "controls_pad.png"))
+    stick_page.save(os.path.join(LOADER_DIR, "controls_stick.png"))
 
     # ---- previews (verification discipline: chips composited exactly as
     # the C code blits them, so the anchors are checked against the truth)

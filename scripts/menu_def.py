@@ -79,23 +79,23 @@ CTL_PAD_VALUES = ["TOURNAMENT", "CLASSIC"]          # index = layout id
 CTL_STICK_VALUE = "ARCADE (FIXED)"
 CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 
-# Label-chip anchors: top-left of the 160x24 chip per button, in PAGE space
-# (measured off build/preview_*.png -- the art is scaled + pasted first, so
-# these are NOT source-art coordinates). Art region is y 8..340; the selector
-# rows start at y 352 (CTL_ROW_Y). Placement rules, in order:
-#   - never cover a button-identity letter (A/B/X/Y, X/Y/Z/A/B/C) or the
-#     Dreamcast swirl/wordmark -- those are the art's own labels;
-#   - sit adjacent to the button where the art leaves room (pad: a compass
-#     ring around the face diamond; stick: Z/C/A);
-#   - where the art leaves no adjacent room (stick X/Y/B are interior buttons
-#     of a 3x2 cluster, hemmed in by the lever, the VMU and each other), the
-#     chip moves out to free panel space and the page bakes a leader line to
-#     it (PAD_PAGE/STICK_PAGE["leads"] in gen_menu_assets.py).
-# The pad art is a face view with no visible triggers, so LTRIG/RTRIG sit in
-# the shoulder corners beside baked "L TRIGGER"/"R TRIGGER" tags.
-PAD_ANCHORS   = {"A": (343, 187), "B": (478, 131), "X": (218, 136),
-                 "Y": (350, 76), "LTRIG": (12, 44), "RTRIG": (466, 44)}
-STICK_ANCHORS = {"A": (200, 206), "B": (440, 178), "X": (10, 193),
-                 "Y": (440, 30), "Z": (400, 79), "C": (400, 128)}
+# Label-chip anchors: top-left of the CHIP_W x 24 function chip per button, in
+# PAGE space. Redesign 2026-09-30 (operator rejected the first pass: chips sat
+# ON the art with white plates and no button identity). Rules now:
+#   - every chip lives OUTSIDE the device art's bounding box, in one of two
+#     label columns -- left x60, right x506 (gen_menu_assets.COL_L/COL_R);
+#     the generator asserts chip-vs-art-box separation;
+#   - the column slot to the LEFT of each chip carries a baked "<button> --"
+#     prefix, so the row reads "Y -- ACTION" with the runtime chip supplying
+#     only the function word (chips are LEFT-aligned for that reason);
+#   - a baked leader line (halo + stroke) runs from the row to its button;
+#     the generator asserts each leader ends on its button's circle.
+# Row y here IS the design: anchor_y + 12 is the row centre the generator
+# routes the leader from, and anchor_x picks the column. MOVE / START are
+# invariant, so they are baked labels with leaders and carry no anchor.
+PAD_ANCHORS   = {"A": (506, 165), "B": (506, 133), "X": (506, 197),
+                 "Y": (506, 101), "LTRIG": (60, 60), "RTRIG": (506, 60)}
+STICK_ANCHORS = {"A": (506, 229), "B": (506, 195), "X": (506, 59),
+                 "Y": (506, 93), "Z": (506, 127), "C": (506, 161)}
 
 SHEET_W, SHEET_H = 640, 1024    # fixed; generator asserts everything fits

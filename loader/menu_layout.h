@@ -95,7 +95,7 @@ static const mrect_t MENU_SET_FOOTER = {0,696,640,24};
  * chip's top-left on the page. The footer is baked into both
  * pages -- nothing to blit. */
 #define CTL_N_BUTTONS 6
-static const mrect_t CTL_WORD[6] = {{0,720,160,24}, {160,720,160,24}, {320,720,160,24}, {480,720,160,24}, {0,744,160,24}, {160,744,160,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, NONE */
+static const mrect_t CTL_WORD[6] = {{0,720,126,24}, {126,720,126,24}, {252,720,126,24}, {378,720,126,24}, {504,720,126,24}, {0,744,126,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, NONE */
 
 static const unsigned char CTL_PAD_FUNC[2][6] = {
   {0, 1, 2, 3, 4, 3},   /* TOURNAMENT */
@@ -104,24 +104,24 @@ static const unsigned char CTL_PAD_FUNC[2][6] = {
 static const unsigned char CTL_STICK_FUNC[6] = {3, 5, 0, 1, 2, 4};
 
 static const unsigned short CTL_PAD_ANCHOR[6][2] = {
-  {343, 187},   /* A */
-  {478, 131},   /* B */
-  {218, 136},   /* X */
-  {350, 76},   /* Y */
-  {12, 44},   /* LTRIG */
-  {466, 44},   /* RTRIG */
+  {506, 165},   /* A */
+  {506, 133},   /* B */
+  {506, 197},   /* X */
+  {506, 101},   /* Y */
+  {60, 60},   /* LTRIG */
+  {506, 60},   /* RTRIG */
 };
 static const unsigned short CTL_STICK_ANCHOR[6][2] = {
-  {200, 206},   /* A */
-  {440, 178},   /* B */
-  {10, 193},   /* X */
-  {440, 30},   /* Y */
-  {400, 79},   /* Z */
-  {400, 128},   /* C */
+  {506, 229},   /* A */
+  {506, 195},   /* B */
+  {506, 59},   /* X */
+  {506, 93},   /* Y */
+  {506, 127},   /* Z */
+  {506, 161},   /* C */
 };
 
 static const mrect_t CTL_ROW_LABEL[3][2] = {
-  {{320,744,288,28}, {0,772,288,28}},
+  {{126,744,288,28}, {0,772,288,28}},
   {{288,772,288,28}, {0,800,288,28}},
   {{288,800,288,28}, {0,828,288,28}},
 };
