@@ -3270,12 +3270,12 @@ T-numbers), all merged to `main`.
 - **T1** (`a61bc85`) — single source `scripts/menu_def.py` generating
   `shims/src/layouts.h` (shim JVS tables) and `loader/menu_layout.h`
   (menu chips/anchors); layout ids 0 Tournament (new default), 1
-  Classic (byte-identical to the pre-2026-09-27 mapping), 2 Stick.
+  Old (byte-identical to the pre-2026-09-27 mapping), 2 Stick.
 - **T2** (`5eeb846`) — table-driven `dc_to_jvs()` in `shims/src/jvs.c`;
   `jvs_pick_layout(caps, pad_sel)` classifies a port from its DEVINFO
   capability word: none of the four analog capability bits (R/L
   trigger, analog X/Y — KOS `dc/maple/controller.h:258-263`) declared
-  ⇒ Stick, always; otherwise the port's preset byte (1 Classic, else
+  ⇒ Stick, always; otherwise the port's preset byte (1 Old, else
   Tournament).
 - **T3** (`9b34b3a`) — closed a hot-swap staleness gap: `was_dead[]`
   flag in `shims/src/maple.c` forces one DEVINFO re-probe on the first
@@ -3331,7 +3331,7 @@ of the menu, and the full hardware matrix (task-7 brief, Step 3):
 
 1. Pad port A defaults to Tournament (A Main, B Sub, X Barrage, Y
    Action, L OverDrive, R Action).
-2. Menu → CONTROLS → P1 = Classic reproduces the old mapping (B
+2. Menu → CONTROLS → P1 = Old reproduces the old mapping (B
    Action, R OverDrive).
 3. Stick port A opens the page on the Stick row; in-game X Main, Y
    Sub, Z Barrage, A Action, C OverDrive (the fixed defect —

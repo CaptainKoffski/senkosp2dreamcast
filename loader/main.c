@@ -476,7 +476,7 @@ int main(void) {
     /* SHIM_STATE[1] = GD backend from the rehearsal probe (0 raw, 1 syscall). */
     *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4) = backend;
     /* SHIM_STATE[2] = per-port pad layout (controls spec 2026-09-27): byte0
-     * port A, byte1 port B; 0 Tournament (default), 1 Classic. Unconditional:
+     * port A, byte1 port B; 0 Tournament (default), 1 Old. Unconditional:
      * with the menu off (MENU=0) the defaults {0,0} restate the zero-fill. */
     *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4 * SHIM_STATE_PAD_LAYOUT) =
         (uint32)menu_pad_layout[0] | ((uint32)menu_pad_layout[1] << 8);

@@ -6,7 +6,7 @@
 #define LAYOUTS_H
 
 #define LAYOUT_PAD_TOURNAMENT 0
-#define LAYOUT_PAD_CLASSIC    1
+#define LAYOUT_PAD_OLD        1
 #define LAYOUT_STICK          2
 #define JVS_LAYOUT_N 6
 
@@ -14,7 +14,7 @@ typedef struct { unsigned dc, jvs; } jvs_map_t;
 
 static const jvs_map_t JVS_LAYOUT_PAD[2][6] = {
   { {CONT_A, JVS_M}, {CONT_B, JVS_S}, {CONT_X, JVS_BARRAGE}, {CONT_Y, JVS_A}, {CONT_LTRIG, JVS_OD}, {CONT_RTRIG, JVS_A} },   /* TOURNAMENT */
-  { {CONT_A, JVS_M}, {CONT_B, JVS_A}, {CONT_X, JVS_S}, {CONT_Y, JVS_BARRAGE}, {CONT_LTRIG, JVS_A}, {CONT_RTRIG, JVS_OD} },   /* CLASSIC */
+  { {CONT_A, JVS_M}, {CONT_B, JVS_A}, {CONT_X, JVS_S}, {CONT_Y, JVS_BARRAGE}, {CONT_LTRIG, JVS_A}, {CONT_RTRIG, JVS_OD} },   /* OLD */
 };
 
 static const jvs_map_t JVS_LAYOUT_STICK[6] = {

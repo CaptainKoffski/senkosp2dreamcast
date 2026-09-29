@@ -57,13 +57,14 @@ FUNC_JVS = {            # function -> jvs.c constant (NONE = unmapped)
 PAD_BUTTONS   = ["A", "B", "X", "Y", "LTRIG", "RTRIG"]  # runtime-labeled, fixed order
 STICK_BUTTONS = ["A", "B", "X", "Y", "Z", "C"]
 
-# List order = shim layout id: 0 TOURNAMENT (default), 1 CLASSIC.
-# TOURNAMENT is the tester's EVO layout (CONTROLS_TASK.MD); CLASSIC is the
+# List order = shim layout id: 0 TOURNAMENT (default), 1 OLD.
+# TOURNAMENT is the tester's EVO layout (CONTROLS_TASK.MD); OLD is the
 # pre-2026-09-27 shipped mapping (docs/kb/input-map.md §DC pad layout).
+# "OLD" was "CLASSIC" until 2026-09-30 (operator: nothing classic about it).
 PAD_LAYOUTS = [
     ("TOURNAMENT", {"A": "MAIN", "B": "SUB", "X": "BARRAGE", "Y": "ACTION",
                     "LTRIG": "OVERDRIVE", "RTRIG": "ACTION"}),
-    ("CLASSIC",    {"A": "MAIN", "B": "ACTION", "X": "SUB", "Y": "BARRAGE",
+    ("OLD",        {"A": "MAIN", "B": "ACTION", "X": "SUB", "Y": "BARRAGE",
                     "LTRIG": "ACTION", "RTRIG": "OVERDRIVE"}),
 ]
 # Arcade stick: the Naomi cabinet layout, fixed (layout id 2). B deliberately
@@ -75,7 +76,7 @@ STICK_LAYOUT = {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
 
 # ---- Controls page (controls spec 2026-09-27) ---------------------------
 CTL_ROW_ITEMS = ["P1 PAD LAYOUT", "P2 PAD LAYOUT", "STICK LAYOUT"]
-CTL_PAD_VALUES = ["TOURNAMENT", "CLASSIC"]          # index = layout id
+CTL_PAD_VALUES = ["TOURNAMENT", "OLD"]              # index = layout id
 CTL_STICK_VALUE = "ARCADE (FIXED)"
 CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 

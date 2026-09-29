@@ -72,7 +72,7 @@ outstanding).
 **Controls-layouts feature — CODE-COMPLETE on `main`, hardware leg
 PENDING (2026-09-27/29).** Same tester's other two requests (message in
 `CONTROLS_TASK.MD`): a gamepad remap and a layout for a permanently-
-attached arcade stick. Shipped as three selectable layouts (Classic =
+attached arcade stick. Shipped as three selectable layouts (Old =
 the old single mapping, byte-identical; **Tournament = new default**;
 Stick = fixed arcade layout), chosen per port per poll from that
 device's DEVINFO capability word (no analog axes declared ⇒ Stick,
@@ -85,7 +85,7 @@ only on the triggers, unreachable on a stick. Seven tasks, commits
 Verified so far: host unit tests (all three tables, the caps
 classifier, per-port independence, out-of-range fallback) and one
 emulator boot-leg screenshot only. **Next step: the operator hardware
-leg** (task-7 brief Step 3 — pad defaults, Classic preset, Stick row,
+leg** (task-7 brief Step 3 — pad defaults, Old preset, Stick row,
 mixed ports, mid-session pad↔stick hot-swap, empty-port hot-plug, menu
 regression on a real TV) — until it records a PASS, no claim that this
 feature works on hardware is authorized.

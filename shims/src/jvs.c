@@ -47,11 +47,11 @@
 
 /* Start + the 8-way are identical in every layout; the per-layout table maps
  * the face/trigger buttons (controls spec 2026-09-27: TOURNAMENT default /
- * CLASSIC per-port pad presets, STICK fixed arcade layout). Callers pick the
+ * OLD per-port pad presets, STICK fixed arcade layout). Callers pick the
  * layout with jvs_pick_layout() below. */
 unsigned dc_to_jvs(unsigned dc_buttons, unsigned layout) {
     const jvs_map_t *m = (layout == LAYOUT_STICK) ? JVS_LAYOUT_STICK
-        : JVS_LAYOUT_PAD[layout == LAYOUT_PAD_CLASSIC ? 1 : 0];
+        : JVS_LAYOUT_PAD[layout == LAYOUT_PAD_OLD ? 1 : 0];
     unsigned w = 0;
     if (dc_buttons & CONT_START)         w |= JVS_START;
     if (dc_buttons & CONT_DPAD_UP)       w |= JVS_UP;
@@ -156,13 +156,13 @@ unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned layout, unsigned *test_bit
  * 0xff070000 (maple_devs.cpp:292) vs standard pad 0xfe060f00 (:85); bit
  * meanings KOS dc/maple/controller.h:258-263 -- and always gets the fixed
  * arcade layout. Anything else is a pad and takes its port's preset byte
- * (SHIM_STATE_PAD_LAYOUT word, shim_iface.h): 1 = Classic, anything else
+ * (SHIM_STATE_PAD_LAYOUT word, shim_iface.h): 1 = Old, anything else
  * (0 = default, junk) = Tournament. Pure: host-tested. */
 unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel) {
     if (!(caps & (CONT_CAP_RTRIG | CONT_CAP_LTRIG |
                   CONT_CAP_ANALOG_X | CONT_CAP_ANALOG_Y)))
         return LAYOUT_STICK;
-    return (pad_sel == LAYOUT_PAD_CLASSIC) ? LAYOUT_PAD_CLASSIC
+    return (pad_sel == LAYOUT_PAD_OLD) ? LAYOUT_PAD_OLD
                                            : LAYOUT_PAD_TOURNAMENT;
 }
 

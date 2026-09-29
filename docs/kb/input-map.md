@@ -46,7 +46,7 @@ controls, below): a tester request (EVO Japan player, archived in
 `CONTROLS_TASK.MD`) plus the shipped-defect finding that OverDrive lived only
 on triggers — unreachable on an arcade stick — replaced this single binding
 with three selectable layouts. The table below is kept as the historical
-Phase-3/4 record; it is byte-identical to what is now called the **Classic**
+Phase-3/4 record; it is byte-identical to what is now called the **Old**
 layout (one of the three), not the live default. See §Three-layout controls
 for the current binding, the per-port selection rule, and verification
 status.
@@ -85,7 +85,7 @@ bit is `0x0020` (`NAOMI_BTN4_KEY`) after senkosp's own descriptor remap — see
 **HARDWARE VERIFICATION STATUS: PENDING.** Every claim below is proven by
 host unit tests and one emulator boot-leg screenshot only. No item has run
 on real Dreamcast hardware yet — the operator leg (task-7 brief, Step 3: pad
-defaults, Classic preset, Stick row, mixed ports, mid-session hot-swap,
+defaults, Old preset, Stick row, mixed ports, mid-session hot-swap,
 empty-port hot-plug, menu regression on a real TV) is owed and outstanding.
 Nothing in this section may be cited as "works on hardware" until that leg
 records a PASS.
@@ -108,7 +108,7 @@ handling is identical in all three. Single source of truth:
 `JVS_LAYOUT_PAD[2]`/`JVS_LAYOUT_STICK` tables, `shims/src/layouts.h:15-27`) and
 `loader/menu_layout.h` (the controls-page chips/anchors) from one place.
 
-| DC control | Classic (id 1) | Tournament (id 0, default) | Stick (id 2, fixed) |
+| DC control | Old (id 1) | Tournament (id 0, default) | Stick (id 2, fixed) |
 |---|---|---|---|
 | A | Main | Main | Action |
 | B | Action | Sub | unmapped |
@@ -120,7 +120,9 @@ handling is identical in all three. Single source of truth:
 | R trigger | OverDrive | Action | n/a |
 | Start | Start | Start | Start |
 
-Classic is byte-for-byte the old single mapping (§DC pad layout above).
+Old is byte-for-byte the old single mapping (§DC pad layout above); it was
+named CLASSIC until 2026-09-30 (operator: "nothing classic in it") — the
+spec, the plan, and pre-rename ledger/commit text still use that name.
 Tournament and Stick are the tester's own layouts verbatim from
 `CONTROLS_TASK.MD`; Stick's B is deliberately unmapped, matching the
 tester's "B = none". Tables: `shims/src/layouts.h:15-27` (generated,
@@ -135,7 +137,7 @@ unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel) {
     if (!(caps & (CONT_CAP_RTRIG | CONT_CAP_LTRIG |
                   CONT_CAP_ANALOG_X | CONT_CAP_ANALOG_Y)))
         return LAYOUT_STICK;
-    return (pad_sel == LAYOUT_PAD_CLASSIC) ? LAYOUT_PAD_CLASSIC
+    return (pad_sel == LAYOUT_PAD_OLD) ? LAYOUT_PAD_OLD
                                            : LAYOUT_PAD_TOURNAMENT;
 }
 ```
@@ -151,7 +153,7 @@ the same capability-gating mechanism the 2026-09-26 Arcade-Stick fix
 introduced (§Non-standard controllers, below); `jvs_pick_layout` is a second
 consumer of that same `caps`/`devinfo_caps[]` latch, not a new probe. Any
 device that *does* declare an axis is treated as a pad and takes its port's
-preset byte: 1 selects Classic, anything else (0 = default, or an
+preset byte: 1 selects Old, anything else (0 = default, or an
 out-of-range/junk byte) selects Tournament.
 
 **Per-port presets — `SHIM_STATE[2]`.** The menu selection is staged into
@@ -159,7 +161,7 @@ shared state, one byte per port, by `loader/main.c:478-482`:
 
 ```c
 /* SHIM_STATE[2] = per-port pad layout (controls spec 2026-09-27): byte0
- * port A, byte1 port B; 0 Tournament (default), 1 Classic. Unconditional:
+ * port A, byte1 port B; 0 Tournament (default), 1 Old. Unconditional:
  * with the menu off (MENU=0) the defaults {0,0} restate the zero-fill. */
 *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4 * SHIM_STATE_PAD_LAYOUT) =
     (uint32)menu_pad_layout[0] | ((uint32)menu_pad_layout[1] << 8);
@@ -199,8 +201,8 @@ the new device's caps — and therefore its layout — promptly instead of
 running stale.
 
 **Default change.** Decided 2026-09-27 (operator + tester, in-session):
-**Tournament is the new default** (was Classic/the old single mapping).
-Classic is preserved, one menu press away, for players who prefer the
+**Tournament is the new default** (was Old/the old single mapping).
+Old is preserved, one menu press away, for players who prefer the
 original binding. Rationale: Tournament matches the tester's stated EVO
 layout, and — unlike the old default — reaches OverDrive without a
 trigger-bearing device, which the fixed Stick layout also achieves.

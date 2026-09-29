@@ -100,7 +100,7 @@ static const mrect_t CTL_WORD[6] = {{0,720,126,24}, {126,720,126,24}, {252,720,1
 
 static const unsigned char CTL_PAD_FUNC[2][6] = {
   {0, 1, 2, 3, 4, 3},   /* TOURNAMENT */
-  {0, 3, 1, 2, 3, 4},   /* CLASSIC */
+  {0, 3, 1, 2, 3, 4},   /* OLD */
 };
 static const unsigned char CTL_STICK_FUNC[6] = {3, 5, 0, 1, 2, 4};
 

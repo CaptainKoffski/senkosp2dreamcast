@@ -15,7 +15,7 @@ extern uint8 ctl_stick_bin[];
 
 unsigned char menu_game_record[16] = MENU_DEFAULT_RECORD;
 /* Controls-page selector state (spec 2026-09-27): per-port pad preset,
- * 0 = Tournament (default), 1 = Classic. Session-only like the record above
+ * 0 = Tournament (default), 1 = Old. Session-only like the record above
  * (VMU save-all-settings will serialize it later); consumed by main.c's
  * SHIM_STATE staging write. Sticks ignore it (shim classifies from DEVINFO). */
 unsigned char menu_pad_layout[2] = { 0, 0 };
@@ -155,7 +155,7 @@ static void controls_screen(void) {
             else { ctl_draw_labels(cur); ctl_draw_rows(cur); }
         }
         if ((e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) && cur < 2) {
-            menu_pad_layout[cur] ^= 1;       /* 0 Tournament <-> 1 Classic */
+            menu_pad_layout[cur] ^= 1;       /* 0 Tournament <-> 1 Old */
             ctl_draw_labels(cur);
             ctl_draw_rows(cur);
         }

@@ -188,7 +188,7 @@ static void mie_poll(u32 rcv) {
     xmemcpy(f, mie_sub33, n);
     /* getcond FIRST (a success-after-dead poll refreshes devinfo_caps, Task 3),
      * then classify: stick -> fixed arcade layout, pad -> this port's preset
-     * byte from the loader-staged word (0 Tournament / 1 Classic). */
+     * byte from the loader-staged word (0 Tournament / 1 Old). */
     u32 p1 = maple_getcond(0), p2 = maple_getcond(1);
     u32 sel = UW(SHIM_STATE + 4 * SHIM_STATE_PAD_LAYOUT);
     u32 l1 = jvs_pick_layout(devinfo_caps[0], sel & 0xffu);

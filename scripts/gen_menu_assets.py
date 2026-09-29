@@ -329,7 +329,7 @@ def emit_layouts_h():
         "#define LAYOUTS_H",
         "",
         "#define LAYOUT_PAD_TOURNAMENT 0",
-        "#define LAYOUT_PAD_CLASSIC    1",
+        "#define LAYOUT_PAD_OLD        1",
         "#define LAYOUT_STICK          2",
         f"#define JVS_LAYOUT_N {n}",
         "",
