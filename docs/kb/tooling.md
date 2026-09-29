@@ -3037,3 +3037,39 @@ footer `UP/DOWN: MOVE   A: SELECT`) in a single 25 s wait, first try —
 unattended screenshot leg of this menu or any other direct-vram-only
 loader screen (splash, halt(), settings/controls pages); not needed for
 screens the game itself renders via the TA (attract, gameplay).
+
+## vtracer + resvg — controls-art vectorization (round 4, 2026-09-30)
+
+The controls-page device art is the operator's AI-generated diagrams,
+vectorized to kill their JPEG compression noise (filtering rounds 1-2
+could not; the round-3 code-drawn schematic was rejected and reverted).
+Committed artifacts: `loader/pad_diagram.svg` / `stick_diagram.svg`
+(traced vectors, the sources of record) and `loader/pad_diagram.png` /
+`stick_diagram.png` (their 1024x1024 resvg renders — the generator's
+actual input). Neither tool is a build dependency; both are only needed
+to RE-trace or re-render.
+
+- **vtracer 1.0.0-alpha.4** (visioncortex), standalone CLI binary:
+  `curl -sL -o vt.tar.gz https://github.com/visioncortex/vtracer/releases/download/1.0.0-alpha.4/vtracer-aarch64-apple-darwin.tar.gz && tar xzf vt.tar.gz`
+  (no brew formula; the `pip install vtracer` pyo3 wheel SEGFAULTS on
+  Python 3.14 — exit 139 inside `convert_image_to_svg_py`, avoid).
+- **resvg 0.47.0** (SVG rasterizer): already present via Homebrew
+  (`brew install resvg`).
+- Exact trace flags (arrived at by viewed A/B/C/D comparison, zoomed
+  crops of the button clusters and baked glyphs):
+  - pad: `vtracer -i pad_orig.png -o pad_diagram.svg --preset poster -m spline -f 8 --max-colors 32 --simplify 1 --optimize 1`
+  - stick: `vtracer -i stick_orig.png -o stick_diagram.svg --preset poster -m spline -f 4 --max-colors 32 --simplify 0.5 --optimize 1`
+    (gentler `-f 4 --simplify 0.5`: at `-f 8 --simplify 1` the stick's
+    small baked B/Y letters deformed)
+  - `--max-colors 16` loses the pad's blue B button (55,96,142 in the
+    source) into the shell grey; 32 keeps all four letter colors.
+  - render: `resvg <name>.svg <name>.png -w 1024 -h 1024` (same size as
+    the originals, so `PAD_PAGE`/`STICK_PAGE` button coordinates in
+    original-art pixels carry over unchanged).
+- `<name>_orig.png` inputs = the pre-round-3 committed diagrams,
+  recoverable with `git show b927ad6~1:loader/pad_diagram.png` (the
+  round-3 commit deleted them; round 4 replaced them with the traced
+  renders above).
+- Generator change: `build_page()` keeps autocrop/scale/tint/floodfill
+  but drops the JPEG de-noise (`smooth_art`) and the FASTOCTREE-64
+  quantize — the traced render is already <=32 flat colors.

@@ -3309,14 +3309,18 @@ labels-on-art pages outright → redesign `9b7e67a` (labels outside in
 two columns, "<button> —" prefixes, haloed leader lines, smaller art).
 Round 2 (`47deacc`) baked `<` `>` arrows into the pad value chips and
 chased the "gray leopard" mottling (quantize moved after the Lanczos
-downscale + YCbCr median split). Round 3 (2026-09-30): the AI-generated
-photos were still the quality floor — operator approved dropping them
-for schematics drawn in code (`gen_menu_assets.py draw_pad()` /
-`draw_stick()`, 4x supersample → Lanczos, flat palette, union-outline
-silhouettes). The whole photo pipeline (smooth/autocrop/quantize/tint/
-floodfill) and `loader/pad_diagram.png` / `stick_diagram.png` deleted;
-button centres are now geometry constants shared with the
-leader-lands-on-button asserts.
+downscale + YCbCr median split). Round 3 (2026-09-30, `b927ad6`): the
+AI photos were still the quality floor — code-drawn schematics replaced
+them, but the operator judged the result "much worse than we had
+before". Round 4 (2026-09-30, same day): operator's own idea —
+**vectorize the AI art** instead. vtracer traces the original diagrams
+into flat-color SVGs (noise dies by construction, the art's character
+survives); resvg renders them back at 1024×1024 as the generator input.
+Round-2 page geometry restored verbatim (button coords in original art
+px still hold); `smooth_art` and the FASTOCTREE quantize dropped for
+good — the traced render is already ≤32 flat colors. Tools + exact
+flags: `docs/kb/tooling.md` §vtracer. Operator verdict on the
+previews: PENDING.
 
 **Verification state:** host tests (`shims/test/test_host.c`) cover all
 three layout tables, the `jvs_pick_layout` classifier, per-port
