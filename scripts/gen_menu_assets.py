@@ -169,9 +169,14 @@ PAD_PAGE = dict(
            "A": [(395, 177), (395, 160)],
            "X": [(375, 209), (375, 141)]},
     tags=[(COL_L, 163, "MOVE",                      # forks: d-pad left arm +
-           [[(229, 163)],                           # analog ring bottom edge
-            [(228, 163), (228, 138)]]),             # (ring page c(236,115) r26)
-          (COL_L, 205, "START", [(307, 205)])])     # start triangle, left edge
+           [[(229, 163)],                           # analog ring left edge.
+            [(195, 163), (195, 115), (211, 115)]]), # Split at x195, in the BG
+          (COL_L, 205, "START", [(307, 205)])])     # clear of the shell, so it
+                                                    # reads as TWO lines (ring
+                                                    # page c(236,115) r26;
+                                                    # operator round: the old
+                                                    # split 1px before the tip
+                                                    # read as stick-only)
 # No "B" row on the stick page (operator, round 5): B maps to NONE, and a
 # labeled leader pointing at an unmapped button is noise. B has no baked
 # prefix/lead here, the runtime chip is skipped via CTL_FUNC_NONE, and A's
