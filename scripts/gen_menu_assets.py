@@ -168,7 +168,9 @@ PAD_PAGE = dict(
            "B": [(415, 145), (415, 141)],
            "A": [(395, 177), (395, 160)],
            "X": [(375, 209), (375, 141)]},
-    tags=[(COL_L, 163, "MOVE", [(229, 163)]),       # d-pad, left edge
+    tags=[(COL_L, 163, "MOVE",                      # forks: d-pad left arm +
+           [[(229, 163)],                           # analog ring bottom edge
+            [(228, 163), (228, 138)]]),             # (ring page c(236,115) r26)
           (COL_L, 205, "START", [(307, 205)])])     # start triangle, left edge
 # No "B" row on the stick page (operator, round 5): B maps to NONE, and a
 # labeled leader pointing at an unmapped button is noise. B has no baked
@@ -262,7 +264,11 @@ def build_page(name, spec, anchors):
     for col, cy, text, tail in spec["tags"]:
         tw = ImageDraw.Draw(page).textlength(text, font=F_ROW)
         start = col["lead_x"] if col is COL_R else col["inv_x"] + tw + PREFIX_GAP
-        polys.append([(start, cy)] + tail)
+        # tail is one polyline, or a list of them for a forking leader (the
+        # pad's MOVE points at BOTH the d-pad and the analog stick); each
+        # fork starts at the same label exit, so shared segments overdraw.
+        for t in (tail if isinstance(tail[0], list) else [tail]):
+            polys.append([(start, cy)] + t)
         texts.append((col["inv_x"], cy, text, "lm"))
 
     # halos first, then every stroke: drawn per-leader the halo of a later
