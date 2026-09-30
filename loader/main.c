@@ -491,7 +491,6 @@ int main(void) {
         static const unsigned char ez[16] = {0x23,0x51,0x17,0x03,0x00,0x01,0x00,
                                              0x02,0x02,0x00,0x78,0x00,0x96,0x00,0x6e,0x00};
         memcpy(menu_game_record, ez, 16);
-        menu_dirty = 1;
     }
 #endif
     /* T9: session settings -> the staged shim's baked EEPROM image (game
@@ -507,8 +506,14 @@ int main(void) {
      * symbol -- see the comment at build_patch_table.py's _eeprom_img_addr.
      * mie_sub03 is a 4-byte MIE reply header followed by the 128-byte
      * EEPROM image, so the game area (image offset 0x24) sits at blob
-     * offset 4+0x24; the +4 below is that header skip. */
-    if (menu_dirty) {
+     * offset 4+0x24; the +4 below is that header skip.
+     *
+     * Unconditional (2026-09-30): the record is poked even when the menu was
+     * never touched, so menu_def.py's DEFAULT_RECORD -- not the captured
+     * blob -- is the single source of boot defaults (it ships Event=ON,
+     * operator ask). The captured blob's game area survives only as the
+     * self-check's pristine fallback. */
+    {
         uint32 ee_off = (EEPROM_IMG_ADDR - SHIM_BASE) + 4 + 0x24;
         if (EEPROM_IMG_ADDR == 0 || ee_off + 40 > shim_len) {
             dbglog(DBG_INFO, "MENUEE SKIP addr=%08x len=%lx\n",

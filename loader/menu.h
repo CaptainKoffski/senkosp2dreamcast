@@ -3,6 +3,5 @@
 #define MENU_H
 extern unsigned char menu_game_record[16];   /* session record, defaults each boot */
 extern unsigned char menu_pad_layout[2];  /* per-port PAD preset: 0 Tournament, 1 Old */
-extern int menu_dirty;                       /* 1 iff a setting was changed */
 void menu_run(void);   /* blocks until START GAME; repaints the splash on exit */
 #endif

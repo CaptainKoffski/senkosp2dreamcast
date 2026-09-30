@@ -10,7 +10,7 @@ treated as single bytes per the recon table's own note), so every row below
 carries idx2=None/bytes2=None; the mechanism stays in the header format
 (MENU_SET_IDX2/MENU_SET_BYTE2) because the C code (Task 5) reads it.
 """
-DEFAULT_RECORD = "23511703000101020200460096004600"   # KB §EEPROM game record
+DEFAULT_RECORD = "23511703010101020200460096004600"   # KB §EEPROM game record, idx4 Event=ON (operator 2026-09-30)
 
 TOP_ITEMS = ["START GAME", "SETTINGS", "CONTROLS"]
 TOP_FOOTER = "UP/DOWN: MOVE   A: SELECT"

@@ -3362,3 +3362,31 @@ the durable record.)
 hot-swap that answers GETCOND before any failed poll keeps stale caps
 until the next fail/re-probe cycle (`was_dead` covers the observed
 human-speed swaps; revisit only if a field report shows it).
+
+## T18 — Event mode ON by default (operator ask 2026-09-30)
+
+One-byte ask: ship with Event mode already ON. Two OFF-defaults existed —
+`menu_def.py DEFAULT_RECORD` idx4 (what the T9 SETTINGS screen shows /
+pokes) and the captured game area inside the shim's baked EEPROM image
+(what the game actually read when the menu was never touched, because the
+staged poke ran only `if (menu_dirty)`). Flipping only the first would
+have made the menu display ON while an untouched boot played OFF.
+
+Change (commit this entry rides with): `DEFAULT_RECORD` idx4 `00→01`
+(menu_layout.h regenerated — exactly that one byte moved, sheet PNGs
+byte-identical); `menu_dirty` deleted (`menu.c/h`, `main.c`) and the
+staged-EEPROM poke made **unconditional** on menu builds, so
+`DEFAULT_RECORD` is now the single source of boot defaults — the baked
+blob's game area survives only as the self-check's pristine fallback
+(and as the defaults of `MENU=0` builds, which compile the poke out; those
+still boot Event OFF). Game honoring idx4=01 via this same baked-image
+path was already proven on hardware (§Event mode build / #27 PASS
+2026-09-02).
+
+Evidence so far: `captures/phase7/event-default-bootsmoke3` — 35 s
+unattended leg, new build, `rend.EmulateFramebuffer=yes` screenshot shows
+the T9 top menu, 0 SHIMERR. (`bootsmoke`/`bootsmoke2` = aborted attempts:
+USR1 with no `FLYCAST_SHOT` env kills the fork; no-EmulateFramebuffer
+grab is gray — both already-recorded lessons, tooling.md.) Pending
+operator leg: SETTINGS shows EVENT MODE ON untouched, START straight in,
+event-mode behavior visible in game; flip to OFF still works.

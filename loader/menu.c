@@ -2,8 +2,8 @@
  * rects from the offline-generated sheet (menu_layout.h -- regenerate with
  * scripts/gen_menu_assets.py after any scripts/menu_def.py change). Pad 1
  * polled the same way main.c's boot-combo check does. Stateless: the record
- * starts at the baked defaults every boot; the staged-EEPROM poke consuming
- * menu_game_record/menu_dirty lives in main.c. */
+ * starts at MENU_DEFAULT_RECORD every boot; the staged-EEPROM poke consuming
+ * menu_game_record (unconditional since 2026-09-30) lives in main.c. */
 #include <kos.h>
 #include "menu.h"
 #include "menu_layout.h"
@@ -19,7 +19,6 @@ unsigned char menu_game_record[16] = MENU_DEFAULT_RECORD;
  * (VMU save-all-settings will serialize it later); consumed by main.c's
  * SHIM_STATE staging write. Sticks ignore it (shim classifies from DEVINFO). */
 unsigned char menu_pad_layout[2] = { 0, 0 };
-int menu_dirty = 0;
 
 static void blit(mrect_t src, int dx, int dy) {
     const uint16 *sheet = (const uint16 *)menu_sheet_bin;
@@ -69,7 +68,6 @@ static void apply_row(int i, int v) {
     menu_game_record[MENU_SET_IDX[i]] = MENU_SET_BYTE[i][v];
     if (MENU_SET_IDX2[i] != 0xff)               /* two-byte rows (recon) */
         menu_game_record[MENU_SET_IDX2[i]] = MENU_SET_BYTE2[i][v];
-    menu_dirty = 1;
 }
 
 static void settings_screen(void) {
