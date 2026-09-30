@@ -130,7 +130,10 @@ def main():
     # FS region: mkisofs with -C 0,11702 (MSINFO 11702 -- file offset 0 of
     # the ISO lands at LBA 11702, session 2's data track; all FS extents are
     # absolute), 1ST_READ.BIN as the only file, IP.BIN as the 16-sector
-    # system area. The FS copy is SCRAMBLED (Marcus Comstedt's tool,
+    # system area. -no-pad: mkisofs's default 150-sector zero tail is
+    # redundant (the region is zero-filled to FS_SECTORS below) and blows
+    # the 1792-sector budget once the loader nears 1672 sectors.
+    # The FS copy is SCRAMBLED (Marcus Comstedt's tool,
     # prebuilt in the KOS checkout): the boot ROM descrambles 1ST_READ.BIN
     # whenever it boots CD media (dreamcast.wiki/Scrambling;
     # fabiensanglard.net/dreamcast_hacking; control-tested by the
@@ -141,8 +144,8 @@ def main():
     fsroot = out / "fsroot"; fsroot.mkdir(exist_ok=True)
     make_gdi.run([str(SCRAMBLE), a.loader, str(fsroot / "1ST_READ.BIN")])
     base = out / "base.iso"
-    make_gdi.run(["mkisofs", "-quiet", "-iso-level", "1", "-V", "SENKOSP",
-                  "-C", f"0,{SESSION2_LBA}",
+    make_gdi.run(["mkisofs", "-quiet", "-no-pad", "-iso-level", "1",
+                  "-V", "SENKOSP", "-C", f"0,{SESSION2_LBA}",
                   "-G", str(ip), "-o", str(base), str(fsroot)])
     fs = base.read_bytes()
     assert len(fs) <= FS_SECTORS * SECTOR, \
