@@ -3319,15 +3319,23 @@ survives); resvg renders them back at 1024×1024 as the generator input.
 Round-2 page geometry restored verbatim (button coords in original art
 px still hold); `smooth_art` and the FASTOCTREE quantize dropped for
 good — the traced render is already ≤32 flat colors. Tools + exact
-flags: `docs/kb/tooling.md` §vtracer. Operator verdict on the
-previews: PENDING.
+flags: `docs/kb/tooling.md` §vtracer. Operator approved round 4
+("Much better!"), then three same-day cosmetic follow-ups: `fee85aa`
+(stick page drops the pointless B—NONE row, `CTL_FUNC_NONE` skip),
+`5c82e8a` (CLASSIC renamed OLD), `ae0105b`+`a9d8120` (MOVE leader
+forks to BOTH d-pad and analog stick; the split moved into open
+background after the operator's screenshot showed the first version
+reading as stick-only).
 
 **Verification state:** host tests (`shims/test/test_host.c`) cover all
 three layout tables, the `jvs_pick_layout` classifier, per-port
 independence, and out-of-range preset fallback; one emulator boot-leg
 screenshot (`docs/kb/img/controls-t6-menu-top.png`) confirms the
-controls page renders. **PENDING:** an interactive emulator walkthrough
-of the menu, and the full hardware matrix (task-7 brief, Step 3):
+controls page renders. **CLOSED 2026-09-30 — operator legs PASS:** the
+operator ran the interactive emulator walkthrough and the hardware
+matrix and reported both PASS in-session ("I've tested in both
+emulator and HW"). Single-rig evidence as usual (one console, one
+GDEMU, one SD card). The gated matrix was (task-7 brief, Step 3):
 
 1. Pad port A defaults to Tournament (A Main, B Sub, X Barrage, Y
    Action, L OverDrive, R Action).
@@ -3346,8 +3354,11 @@ of the menu, and the full hardware matrix (task-7 brief, Step 3):
 7. Menu regression: SETTINGS rows still work, START still boots,
    controls page legible on a real TV.
 
-Full report: `.superpowers/sdd/2026-09-27-controls-layouts/task-7-report.md`.
-KB doc updates (this entry, `docs/kb/input-map.md` §Three-layout
-controls, `docs/kb/00-status.md`) are task 7a, code-complete on `main`;
-the hardware leg above is task 7's Steps 2–5, operator-gated and not
-yet run.
+(The per-task SDD workspace `.superpowers/sdd/2026-09-27-controls-layouts/`
+was session scratch, deleted after the clean final review — this entry is
+the durable record.)
+**T17 CLOSED 2026-09-30** — operator legs PASS (above), release tag
+`0.12.0` (commits `a61bc85`..`a9d8120`). Parked watch item stands: a
+hot-swap that answers GETCOND before any failed poll keeps stale caps
+until the next fail/re-probe cycle (`was_dead` covers the observed
+human-speed swaps; revisit only if a field report shows it).

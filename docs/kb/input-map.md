@@ -82,13 +82,13 @@ bit is `0x0020` (`NAOMI_BTN4_KEY`) after senkosp's own descriptor remap — see
 
 ## Three-layout controls (decided + shipped 2026-09-27) — current binding
 
-**HARDWARE VERIFICATION STATUS: PENDING.** Every claim below is proven by
-host unit tests and one emulator boot-leg screenshot only. No item has run
-on real Dreamcast hardware yet — the operator leg (task-7 brief, Step 3: pad
-defaults, Old preset, Stick row, mixed ports, mid-session hot-swap,
-empty-port hot-plug, menu regression on a real TV) is owed and outstanding.
-Nothing in this section may be cited as "works on hardware" until that leg
-records a PASS.
+**HARDWARE VERIFICATION: PASS (operator, 2026-09-30).** The operator ran
+the interactive emulator walkthrough and the hardware-leg matrix (task-7
+brief, Step 3: pad defaults, Old preset, Stick row, mixed ports,
+mid-session hot-swap, empty-port hot-plug, menu regression on a real TV)
+and reported both PASS in-session ("I've tested in both emulator and HW").
+Single-rig evidence per the project's standing caveat (one console, one
+GDEMU, one SD card). Release tag `0.12.0`.
 
 **Origin.** A tester (EVO Japan competitor for this game) requested a
 gamepad remap and, separately, a layout usable with a permanently-attached
@@ -207,12 +207,12 @@ original binding. Rationale: Tournament matches the tester's stated EVO
 layout, and — unlike the old default — reaches OverDrive without a
 trigger-bearing device, which the fixed Stick layout also achieves.
 
-Verification so far (host-only, see the PENDING notice above): host tests
-`shims/test/test_host.c` cover all three tables, the `jvs_pick_layout`
-classifier, per-port independence, and out-of-range preset fallback; one
-emulator boot-leg screenshot (`docs/kb/img/controls-t6-menu-top.png`) shows
-the controls page rendering. No interactive emulator walkthrough and no
-hardware leg have run.
+Verification: host tests `shims/test/test_host.c` cover all three tables,
+the `jvs_pick_layout` classifier, per-port independence, and out-of-range
+preset fallback; one emulator boot-leg screenshot
+(`docs/kb/img/controls-t6-menu-top.png`) shows the controls page rendering;
+the operator's emulator walkthrough and hardware-leg matrix both PASS
+(2026-09-30 — see the verification notice at the top of this section).
 
 ### Non-standard controllers: axis bytes are capability-gated (2026-09-26)
 

@@ -69,26 +69,27 @@ unchanged) — full story `input-map.md` §Non-standard controllers, legs
 stick still untested (no HKT-7300 on the rig; tester hardware pass
 outstanding).
 
-**Controls-layouts feature — CODE-COMPLETE on `main`, hardware leg
-PENDING (2026-09-27/29).** Same tester's other two requests (message in
+**Controls-layouts feature — SHIPPED & VERIFIED, release tag `0.12.0`
+(2026-09-27→30).** Same tester's other two requests (message in
 `CONTROLS_TASK.MD`): a gamepad remap and a layout for a permanently-
 attached arcade stick. Shipped as three selectable layouts (Old =
-the old single mapping, byte-identical; **Tournament = new default**;
-Stick = fixed arcade layout), chosen per port per poll from that
-device's DEVINFO capability word (no analog axes declared ⇒ Stick,
-always; else that port's preset), staged via `SHIM_STATE[2]` and a
-three-row controls-page selector with live pad-diagram preview. Fixes
-a real defect, not just a preference: the old mapping put OverDrive
-only on the triggers, unreachable on a stick. Seven tasks, commits
-`a61bc85`..`c6fd6b5`, all merged; full story `docs/kb/input-map.md`
-§Three-layout controls, task ledger `docs/kb/phase7-polishing.md` §T17.
-Verified so far: host unit tests (all three tables, the caps
-classifier, per-port independence, out-of-range fallback) and one
-emulator boot-leg screenshot only. **Next step: the operator hardware
-leg** (task-7 brief Step 3 — pad defaults, Old preset, Stick row,
-mixed ports, mid-session pad↔stick hot-swap, empty-port hot-plug, menu
-regression on a real TV) — until it records a PASS, no claim that this
-feature works on hardware is authorized.
+the old single mapping, byte-identical — named CLASSIC until
+2026-09-30; **Tournament = new default**; Stick = fixed arcade
+layout), chosen per port per poll from that device's DEVINFO
+capability word (no analog axes declared ⇒ Stick, always; else that
+port's preset), staged via `SHIM_STATE[2]` and a three-row
+controls-page selector with live device-diagram preview (the
+operator's AI art, vectorized after four art rounds —
+`docs/kb/tooling.md` §vtracer). Fixes a real defect, not just a
+preference: the old mapping put OverDrive only on the triggers,
+unreachable on a stick. Commits `a61bc85`..`a9d8120`; full story
+`docs/kb/input-map.md` §Three-layout controls, task ledger
+`docs/kb/phase7-polishing.md` §T17. Verified: host unit tests (all
+three tables, the caps classifier, per-port independence,
+out-of-range fallback), operator emulator walkthrough + hardware-leg
+matrix both PASS (2026-09-30, single-rig evidence as usual). Remaining
+tester ask, separate task: "OLD dash type" default (needs a GAME
+ASSIGNMENTS recon pass for the EEPROM byte).
 
 ## What this is
 
