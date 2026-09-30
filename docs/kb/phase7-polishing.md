@@ -3387,6 +3387,8 @@ Evidence so far: `captures/phase7/event-default-bootsmoke3` — 35 s
 unattended leg, new build, `rend.EmulateFramebuffer=yes` screenshot shows
 the T9 top menu, 0 SHIMERR. (`bootsmoke`/`bootsmoke2` = aborted attempts:
 USR1 with no `FLYCAST_SHOT` env kills the fork; no-EmulateFramebuffer
-grab is gray — both already-recorded lessons, tooling.md.) Pending
-operator leg: SETTINGS shows EVENT MODE ON untouched, START straight in,
-event-mode behavior visible in game; flip to OFF still works.
+grab is gray — both already-recorded lessons, tooling.md.) Operator leg
+(2026-09-30): SETTINGS shows EVENT MODE ON untouched, START straight in,
+event-mode behavior visible in game, flip to OFF still works — all PASS.
+
+**T18 CLOSED 2026-09-30** (operator PASS, same day as the ask).
