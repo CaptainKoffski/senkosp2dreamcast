@@ -91,6 +91,41 @@ matrix both PASS (2026-09-30, single-rig evidence as usual). Remaining
 tester ask, separate task: "OLD dash type" default (needs a GAME
 ASSIGNMENTS recon pass for the EEPROM byte).
 
+**Event mode ON by default — T18 CLOSED, tag `0.13.0` (2026-09-30).**
+Operator's one-byte ask, but two OFF-defaults existed: menu
+`DEFAULT_RECORD` idx4 (what SETTINGS shows/pokes) and the game area of
+the shim's baked EEPROM image (what an untouched boot actually read,
+since the staged poke ran only `if (menu_dirty)`) — flipping only the
+first would display ON while playing OFF. Fix: idx4 `00→01` and the
+staged-EEPROM poke made **unconditional** (`menu_dirty` deleted), so
+`DEFAULT_RECORD` is the single source of boot defaults. Operator leg
+PASS same day (menu shows ON untouched, in-game active, OFF flip
+works). Commits `c41d5c7`/`a995f62`; story
+`docs/kb/phase7-polishing.md` §T18.
+
+**CDI mastering fix — tag `0.13.1` (2026-09-30).** `make_cdi.py` now
+passes `-no-pad` to mkisofs: its default 150-sector zero tail is
+redundant (the script zero-fills the FS region itself) and pushed the
+FS image to 1846 sectors — past the fixed 1792-sector FS+loader
+region — once the loader hit 1672. Padded/unpadded ISOs byte-identical
+except the PVD volume-size field; release re-mastered, emulator +
+hardware PASS. Commit `f30c453`.
+
+**Controls-page art rework — tags `0.14.0`/`0.15.0` (2026-10-03, two
+rounds).** Round 1 (`0.14.0`, commit `38b2622`): new operator
+controller diagrams (blue line-art, chosen on emulator A/B legs; used
+directly, no vtracer round), pad L/R leaders J-drop onto the shoulder
+ledges, and the fixed-layout stick page fully baked — all labels are
+tags, `menu.c` blits nothing there; routes simplified 12 corners → 4.
+Also banked in `tooling.md`: the RAWFB USR2 guest-framebuffer dump
+instrument + the post-Xcode-drift Flycast fork rebuild recipe
+(2026-10-02). Round 2 (`0.15.0`, commit `3bc8412`): letterless label
+chips (the art letters every face button), label columns moved in
+(left x60→10, right x506→456), stick art centered on x320 with its
+own right column, every
+leader landing dead-center on its button's arc. Both rounds
+emulator-verified via MENU_SHOWCASE RAWFB legs / composited previews.
+
 **Menu logo (tester request) — SHIPPED, tag `0.16.0` (2026-10-03).**
 The game logo now sits above the pre-game menu (tester mockup; menu
 rows moved 178→275 to clear the 424×246 rect). Ships **8bpp
