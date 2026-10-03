@@ -103,12 +103,12 @@ static const unsigned char CTL_PAD_FUNC[2][6] = {
 };
 
 static const unsigned short CTL_PAD_ANCHOR[6][2] = {
-  {506, 165},   /* A */
-  {506, 133},   /* B */
-  {506, 197},   /* X */
-  {506, 101},   /* Y */
-  {60, 40},   /* LTRIG */
-  {506, 40},   /* RTRIG */
+  {456, 165},   /* A */
+  {456, 133},   /* B */
+  {456, 197},   /* X */
+  {456, 101},   /* Y */
+  {10, 40},   /* LTRIG */
+  {456, 40},   /* RTRIG */
 };
 
 static const mrect_t CTL_ROW_LABEL[3][2] = {

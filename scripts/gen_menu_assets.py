@@ -105,15 +105,21 @@ CTL_ROW_LABEL_X = 48
 CTL_ROW_VALUE_X = 344
 
 # The two controls-page label columns. chip_x is where menu.c blits the
-# function chip (== menu_def's anchor x); the baked "<button> --" prefix is
-# right-aligned to chip_x - PREFIX_GAP so every em dash in a column lines up
-# and the chip's left-aligned word starts one gap later ("Y -- ACTION" reads
-# as one line). lead_x is where that row's leader line leaves the label block
-# (fixed, not word-dependent: the leaders are baked, the words are not).
-# inv_x is where a baked invariant label (MOVE / START) starts.
-PREFIX_GAP = 8
-COL_L = dict(chip_x=60, lead_x=192, inv_x=12)
-COL_R = dict(chip_x=506, lead_x=450, inv_x=458)
+# function chip (== menu_def's anchor x); chips are bare function words since
+# 2026-10-03 (operator: the art itself letters every face button, so the old
+# baked "<button> --" prefixes were redundant) -- chip_x + the cell's 2px pad
+# puts the word on the column text line shared with the baked tags (inv_x).
+# lead_x is where that row's leader line leaves the label block (fixed, not
+# word-dependent: the leaders are baked, the words are not). inv_x is where
+# a baked invariant label (MOVE / START) starts.
+TEXT_GAP = 8
+COL_L = dict(chip_x=10, lead_x=192, inv_x=12)
+COL_R = dict(chip_x=456, lead_x=450, inv_x=458)
+# Stick-page right column: the centered stick art (2026-10-03) carries shell
+# ink out to x~465, past COL_R's text line, so its tags sit further right --
+# x482 (operator: x470 hugged the shell; "OVERDRIVE" still ends at 600,
+# inside the left column's own 12px margin). Tag-only, hence no chip_x.
+SCOL_R = dict(lead_x=476, inv_x=482)
 
 
 def col_of(anchor_x):
@@ -143,8 +149,6 @@ def box_of(rect):
 #                      (1024x1024), used to assert each leader lands on its
 #                      button and to keep the hand-routed page-space leads
 #                      honest if the art or the scale ever moves.
-#   prefix             override for the baked "<button> --" tag (the DC pad's
-#                      triggers are CONT_LTRIG/RTRIG but read as "L"/"R").
 #   leads              button -> leader polyline in PAGE space, WITHOUT its
 #                      first point: that is always (column lead_x, row centre),
 #                      so a leader can never drift off its own label row.
@@ -163,7 +167,6 @@ PAD_PAGE = dict(
     art_h=240, art_x=203, art_y=34,
     buttons={"Y": (822, 345, 38), "X": (742, 426, 38),
              "B": (897, 426, 38), "A": (822, 507, 38)},
-    prefix={"LTRIG": "L", "RTRIG": "R"},
     leads={"LTRIG": [(230, 52), (230, 76)],         # J-drop onto the shoulder
            "RTRIG": [(410, 52), (410, 76)],         # ledge above each trigger
            "Y": [(404, 113)],
@@ -186,30 +189,42 @@ PAD_PAGE = dict(
 # operator: the chip-grid routes were overcomplicated). Freed from the chip
 # columns, each row sits at its button's own height and the leaders are as
 # straight as the art allows:
-#   Z/C   dead-straight horizontals into the cluster's east rims (ring ink
-#         measured at x385-386 on both lanes);
+#   Z/C   horizontals at the button centre heights (y83/y123), kissing the
+#         cluster's east rims (rim east points x427.7). BARRAGE's text row
+#         sits lower, y95, stepping up to y83 mid-run at x450 (operator:
+#         at y83 the label crowded SUB, whose own line cannot leave the
+#         y65 seam, and a step right at the label read badly; x450 keeps
+#         the leg's halo clear of the screw at ~(442,76), Z's rim at 428,
+#         and the shell edge verticals at 455-457/464);
 #   Y     rides the button panel's top edge line (y65 -- the corridor the
 #         old 3-corner route jogged into), one drop onto Y's crown;
 #   X     top-left tag: over the dome (y30 clears the art box entirely),
-#         one drop down the canyon between the VMU (right edge x297) and
-#         the START button (left edge x320), landing on X's crown;
-#   A     one elbow, its vertical hugging the "Dreamcast" logo's right edge
-#         (page x319.4 measured, halo clears at x324);
-#   START one drop onto the button crown (centre ~(327,54) r7; the old hook
+#         one drop down the canyon between the VMU (right edge x338) and
+#         the START button (left edge x361), landing on X's crown;
+#   A     one elbow, its vertical rising onto A's south rim dead under the
+#         button centre (x348; operator 2026-10-03: the old logo-edge x365
+#         landed on the SE arc and read as off-centre). The horizontal at
+#         y173 clears the "Dreamcast" logo top (ink from y~180) with its
+#         halo; the vertical stays above the logo's y-range entirely;
+#   START one drop onto the button crown (centre ~(368,54) r7; the old hook
 #         cut through the vent panel's left slope).
+# art_x 131 -> 172 (2026-10-03): ink centered at x320 like the pad page's
+# (operator). Every page-space x in the routes and the measurements above
+# moved +41 with it; the right column is SCOL_R, see its comment.
 STICK_PAGE = dict(
-    art_h=224, art_x=131, art_y=34,
+    art_h=224, art_x=172, art_y=34,
     buttons={"X": (605, 397, 50), "Y": (705, 327, 50), "Z": (827, 327, 50),
              "A": (606, 524, 50), "C": (828, 461, 50)},
-    prefix={},
     leads={},
-    tags=[(COL_L, 30, "X — MAIN", [(304, 30), (304, 91)], "X"),
-          (COL_L, 125, "MOVE", [(192, 125)]),       # lever ball, left edge
-          (COL_R, 37, "START", [(327, 37), (327, 48)]),
-          (COL_R, 65, "Y — SUB", [(338, 65), (338, 70)], "Y"),
-          (COL_R, 87, "Z — BARRAGE", [(386, 87)], "Z"),
-          (COL_R, 123, "C — OVERDRIVE", [(386, 123)], "C"),
-          (COL_R, 173, "A — ACTION", [(324, 173), (324, 149)], "A")])
+    tags=[(COL_L, 30, "MAIN", [(347, 30), (347, 88)], "X"),
+          (COL_L, 123, "MOVE", [(230, 123)]),       # lever ball west point:
+                                                    # ball x231-261 y108-138,
+                                                    # kiss at centre height
+          (SCOL_R, 37, "START", [(368, 37), (368, 48)]),
+          (SCOL_R, 65, "SUB", [(377, 65), (377, 67)], "Y"),
+          (SCOL_R, 95, "BARRAGE", [(450, 95), (450, 83), (429, 83)], "Z"),
+          (SCOL_R, 123, "OVERDRIVE", [(429, 123)], "C"),
+          (SCOL_R, 173, "ACTION", [(348, 173), (348, 157)], "A")])
 
 
 def label(draw, x, cy, text, anchor="lm"):
@@ -222,7 +237,7 @@ def label(draw, x, cy, text, anchor="lm"):
 def build_page(name, spec, anchors):
     """640x480 controls page: vector-traced art autocropped, scaled to
     spec["art_h"] and pasted at (art_x, art_y), then the baked leader lines,
-    button prefixes, invariant labels and footer -- all outside the art.
+    invariant labels and footer -- all outside the art.
     No de-noise/quantize steps: the input is a flat-color (<=32) render of
     the traced SVG, so there is no JPEG noise left to clean."""
     art = os.path.join(LOADER_DIR, f"{name}_diagram.png")
@@ -281,12 +296,13 @@ def build_page(name, spec, anchors):
         col = col_of(anchors[b][0])
         cy = anchors[b][1] + CHIP_H // 2
         polys.append([(col["lead_x"], cy)] + tail)
-        pre = spec["prefix"].get(b, b) + " —"
-        texts.append((col["chip_x"] - PREFIX_GAP, cy, pre, "rm"))
     for tag in spec["tags"]:
         col, cy, text, tail = tag[:4]
         tw = ImageDraw.Draw(page).textlength(text, font=F_ROW)
-        start = col["lead_x"] if col is COL_R else col["inv_x"] + tw + PREFIX_GAP
+        # right column iff the leader exits LEFT of the text (lead_x < inv_x);
+        # a left column's leader exits just past the text's right end.
+        start = col["lead_x"] if col["lead_x"] < col["inv_x"] \
+            else col["inv_x"] + tw + TEXT_GAP
         # tail is one polyline, or a list of them for a forking leader (the
         # pad's MOVE points at BOTH the d-pad and the analog stick); each
         # fork starts at the same label exit, so shared segments overdraw.
@@ -459,9 +475,10 @@ def main():
     put_centered(draw, set_footer_rect, M.SET_FOOTER, F_ROW, GREY)
 
     # ---- CONTROLS sheet cells (same shelf) -------------------------------
-    # LEFT-aligned, not centred: the page bakes a "<button> --" prefix just
-    # left of every chip cell, so a centred word would float away from its
-    # own dash by however much shorter than "OVERDRIVE" it happens to be.
+    # LEFT-aligned, not centred: the word must hug the cell's left edge --
+    # that edge is the column text line shared with the baked tags, and a
+    # centred word would float off it by however much shorter than
+    # "OVERDRIVE" it happens to be.
     ctl_word_rects = []
     for word in M.FUNC_WORDS:
         r = shelf.place(CHIP_W, CHIP_H)

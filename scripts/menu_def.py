@@ -85,11 +85,11 @@ CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 # PAGE space. Redesign 2026-09-30 (operator rejected the first pass: chips sat
 # ON the art with white plates and no button identity). Rules now:
 #   - every chip lives OUTSIDE the device art's bounding box, in one of two
-#     label columns -- left x60, right x506 (gen_menu_assets.COL_L/COL_R);
+#     label columns -- left x10, right x456 (gen_menu_assets.COL_L/COL_R);
 #     the generator asserts chip-vs-art-box separation;
-#   - the column slot to the LEFT of each chip carries a baked "<button> --"
-#     prefix, so the row reads "Y -- ACTION" with the runtime chip supplying
-#     only the function word (chips are LEFT-aligned for that reason);
+#   - the chip is the bare function word -- no "<button> --" prefix since
+#     2026-10-03 (operator: the art letters every face button already, and
+#     each leader touches its own button, so the letters were redundant);
 #   - a baked leader line (halo + stroke) runs from the row to its button;
 #     the generator asserts each leader ends on its button's circle.
 # Row y here IS the design: anchor_y + 12 is the row centre the generator
@@ -99,8 +99,8 @@ CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 # (top edge y72-79): their leaders run horizontal then drop vertically onto
 # the ledge above each hidden trigger (operator 2026-10-02: straight side
 # stubs didn't read as pointing at the triggers underneath).
-PAD_ANCHORS   = {"A": (506, 165), "B": (506, 133), "X": (506, 197),
-                 "Y": (506, 101), "LTRIG": (60, 40), "RTRIG": (506, 40)}
+PAD_ANCHORS   = {"A": (456, 165), "B": (456, 133), "X": (456, 197),
+                 "Y": (456, 101), "LTRIG": (10, 40), "RTRIG": (456, 40)}
 # No STICK_ANCHORS: the stick layout is fixed, so its labels are baked tags
 # owned by gen_menu_assets.STICK_PAGE (2026-10-03 re-route -- operator found
 # the chip-grid routes overcomplicated; baking frees each row to sit at its
