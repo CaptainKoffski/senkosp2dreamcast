@@ -91,6 +91,21 @@ matrix both PASS (2026-09-30, single-rig evidence as usual). Remaining
 tester ask, separate task: "OLD dash type" default (needs a GAME
 ASSIGNMENTS recon pass for the EEPROM byte).
 
+**Menu logo (tester request) — SHIPPED, tag `0.16.0` (2026-10-03).**
+The game logo now sits above the pre-game menu (tester mockup; menu
+rows moved 178→275 to clear the 424×246 rect). Ships **8bpp
+palettized** (`loader/logo_strip.pal8`: 256× RGB565 palette + indices,
+105 KB, decoded by `menu.c` `draw_logo()`): the raw RGB565 version
+blew the CDI's fixed 1792-sector FS+loader region by 148 KB
+(`make_cdi.py`'s assert caught it); palettized leaves ~90 KB region
+headroom. `logo.png` and both generated logo files are gitignored
+branded art, same category as `splash.png` — a clone without them
+still regenerates every committed asset
+(`scripts/gen_menu_assets.py` prints the hint). Commit `d53a878`;
+Flycast-verified on the booted CDI
+(`captures/logo-menu-1-rawfb.png`); hardware confirmation outstanding
+(next operator leg batch, standing Flycast≠hardware rule).
+
 ## What this is
 
 Static binary conversion of *Senko no Ronde Special* (Sega Naomi GD-ROM,
