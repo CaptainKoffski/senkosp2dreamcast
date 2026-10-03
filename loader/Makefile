@@ -2,7 +2,7 @@
 # checkout -- setup in docs/kb/tooling.md).
 TARGET = loader.elf
 OBJS = main.o handoff.o gd.o gd_sys.o shim_blob.o bios_data.o splash_blob.o naomi_crc.o \
-       menu.o menu_sheet_blob.o ctl_pad_blob.o ctl_stick_blob.o
+       menu.o menu_sheet_blob.o ctl_pad_blob.o ctl_stick_blob.o logo_blob.o
 CFLAGS += -I../shims/include -I../build
 CFLAGS += $(DEFS)   # debug toggles from the top Makefile (e.g. SERIAL=1)
 # T10b spike (THROWAWAY, branch t10b-spike): LZ4BENCH=1 adds the SH4
@@ -169,6 +169,16 @@ ctl_stick_blob.o: ../build/ctl_stick.bin
 	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
 	  --redefine-sym _binary____build_ctl_stick_bin_start=_ctl_stick_bin \
 	  --redefine-sym _binary____build_ctl_stick_bin_end=_ctl_stick_bin_end \
+	  $< $@
+# Top-menu logo, already palettized+RGB565 by scripts/gen_menu_assets.py
+# (blob format: menu.c draw_logo comment) -- objcopy only, no conversion
+# step. Gitignored (official G.Rev logo art, branded -- copyright rule,
+# CLAUDE.md); regenerate with gen_menu_assets.py, which needs the gitignored
+# logo.png at repo root.
+logo_blob.o: logo_strip.pal8
+	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
+	  --redefine-sym _binary_logo_strip_pal8_start=_logo_bin \
+	  --redefine-sym _binary_logo_strip_pal8_end=_logo_bin_end \
 	  $< $@
 ../build/1ST_READ.BIN: $(TARGET)
 	mkdir -p ../build

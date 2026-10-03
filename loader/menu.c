@@ -12,6 +12,11 @@ extern uint8 splash_bin[];
 extern uint8 menu_sheet_bin[];
 extern uint8 ctl_pad_bin[];
 extern uint8 ctl_stick_bin[];
+extern uint8 logo_bin[];        /* top-screen logo, logo_strip.pal8: 256 x
+                                 * RGB565-LE palette (512 B) then 8bpp
+                                 * indices, MENU_LOGO_W x MENU_LOGO_H.
+                                 * Palettized because the raw RGB565 rect
+                                 * blew the CDI 1792-sector loader region. */
 
 unsigned char menu_game_record[16] = MENU_DEFAULT_RECORD;
 /* Controls-page selector state (spec 2026-09-27): per-port pad preset,
@@ -155,9 +160,25 @@ static void controls_screen(void) {
     }
 }
 
+/* Entry-only (with draw_top's block moved below it, per-keypress repaints
+ * never touch the logo rows). Palette copied to the stack first: the blob
+ * section carries no alignment guarantee, and SH4 faults on a misaligned
+ * uint16 load. */
+static void draw_logo(void) {
+    uint16 pal[256];
+    memcpy(pal, logo_bin, sizeof pal);
+    const uint8 *px = logo_bin + sizeof pal;
+    for (int y = 0; y < MENU_LOGO_H; y++) {
+        uint16 *dst = vram_s + (MENU_LOGO_Y + y) * 640 + MENU_LOGO_X;
+        for (int x = 0; x < MENU_LOGO_W; x++)
+            *dst++ = pal[*px++];
+    }
+}
+
 void menu_run(void) {
     int cur = 0;
     clear_bg();
+    draw_logo();
     draw_top(cur);
     for (;;) {
         uint32 e = edge();
@@ -169,6 +190,7 @@ void menu_run(void) {
             if (cur == 1) settings_screen();
             else          controls_screen();
             clear_bg();                          /* sub-screen leftovers */
+            draw_logo();
             draw_top(cur);
         }
     }

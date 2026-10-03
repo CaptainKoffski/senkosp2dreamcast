@@ -6,6 +6,11 @@ typedef struct { unsigned short x, y, w, h; } mrect_t;
 
 #define MENU_SHEET_W 640
 #define MENU_BG_COLOR 0xe71c
+/* logo_strip.pal8 rect: 256 x RGB565-LE palette then 8bpp indices */
+#define MENU_LOGO_W 424
+#define MENU_LOGO_H 246
+#define MENU_LOGO_X 108
+#define MENU_LOGO_Y 16
 
 static const mrect_t MENU_TOP_LABEL[3][2] = {
   {{0,0,320,36}, {320,0,320,36}},
@@ -14,9 +19,9 @@ static const mrect_t MENU_TOP_LABEL[3][2] = {
 };
 
 static const unsigned short MENU_TOP_DEST[3][2] = {
-  {160, 178},
-  {160, 222},
-  {160, 266},
+  {160, 275},
+  {160, 319},
+  {160, 363},
 };
 
 static const mrect_t MENU_TOP_FOOTER = {0,108,640,24};
