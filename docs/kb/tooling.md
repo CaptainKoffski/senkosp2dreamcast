@@ -3073,3 +3073,59 @@ to RE-trace or re-render.
 - Generator change: `build_page()` keeps autocrop/scale/tint/floodfill
   but drops the JPEG de-noise (`smooth_art`) and the FASTOCTREE-64
   quantize — the traced render is already <=32 flat colors.
+
+## RAWFB guest-framebuffer dump + controls-art A/B legs (2026-10-02)
+
+Operator delivered four new line-art controller diagrams (blue/orange ×
+pad/stick, 1024×1024 RGB, flat strokes on white — no vtracer round needed,
+used directly as `loader/*_diagram.png`). A/B emulator legs produced
+on-screen captures of both colors' controls pages for the operator's pick.
+
+- **Fork instrument `FLYCAST_SHOT_RAWFB=<path.png>`** (uncommitted in
+  `../flycast4naomi2dreamcast`, `core/ui/gui.cpp` next to the Task-18
+  `FLYCAST_SHOT` block): on `kill -USR2 <pid>` a watcher thread dumps the
+  scan-out framebuffer straight from guest VRAM (`FB_R_SOF1`, packed
+  RGB565 640×480, through `pvr_read32p<u16>` — a linear `vram[]` read
+  gives bank-interleave striping). Closes the standing gap that
+  `FLYCAST_SHOT`/`GetLastFrame` only sees TA presents (loadbar-smoke2
+  finding): loader-era FB-only frames (splash, pre-game menu) are now
+  capturable. Renderer-independent, no macOS TCC permission.
+- **Why not Lua input scripting:** upstream CMake disables Lua on Apple
+  (`if(NOT APPLE AND LUA_FOUND)` — CMakeLists.txt:575); `USE_LUA=ON` in
+  the cache is inert on macOS. Menu navigation for unattended legs stays
+  guest-side: transient `DEFS=-DMENU_SHOWCASE=1` build (never shipped,
+  `LOADER_FORCE_TEST_BOOT` precedent, reverted same session) alternated
+  the controls pad/stick views every ~12 s in `menu_run()`.
+- **Fork rebuild recipe changed (Xcode drift, 2026-10-02):** the Sep-21
+  app linked against the then-current Xcode.app SDK; Xcode has since
+  updated and the stale `build/` cache died three ways (tapi "unknown
+  architecture arm64e.x1" on the new SDK stubs; `-lz` as an unresolvable
+  Makefile prerequisite from CMakeLists' Apple `ZLIB_LIBRARY="-lz"`
+  preset; x86_64 slice vs arm64-only Homebrew libpng). Working recipe —
+  fresh configure, matches the original build's arch and the cache's old
+  explicit ZLIB path:
+  `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DUSE_BREAKPAD=OFF
+  -DCMAKE_OSX_SYSROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+  -DCMAKE_OSX_ARCHITECTURES=arm64
+  -DZLIB_LIBRARY=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libz.tbd
+  && cmake --build build -j8`. Old broken dir kept as
+  `build-broken-sdkmix/` (deletable). **Launch gotcha added:** a leftover
+  `pvr.rend = 4` (Vulkan) in `emu.cfg` segfaults this bundle (no
+  MoltenVK); unattended legs now pass `-config config:pvr.rend=0`.
+- **Leg recipe** (scratchpad `runleg.sh`, throwaway): per color, build
+  `make clean && make gdi DEFS=-DMENU_SHOWCASE=1` with that color's art,
+  boot the GDI, `kill -USR2` every 2 s for ~80 s, keep md5-distinct
+  dumps — pad and stick views land as separate PNGs; emulator captures
+  matched the generator previews. `gen_menu_assets.py` `PAD_PAGE`/
+  `STICK_PAGE` button coords + stick leads re-measured for the new art.
+  **Operator picked BLUE** (same session) and flagged two stick-page
+  routing defects (A detoured three turns; X's top run crossed START's
+  descent at page (348,43)). Crossing-free routing is topologically
+  forced here: leader lanes nest by row order, so `menu_def.py
+  STICK_ANCHORS` rows were reordered Y/Z/C/A/X (top→bottom, matching
+  button heights; X—MAIN's west hook must depart from the bottom row or
+  it crosses the lower rows' stubs). A is one elbow, its vertical at
+  page x324 hugging the "Dreamcast" logo (right edge x319.4, measured).
+  Fix emulator-verified via a second RAWFB leg; release rebuilt, `make
+  test` green (18 OK/PASS). Working tree holds the blue change set,
+  uncommitted.

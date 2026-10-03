@@ -99,20 +99,15 @@ static void settings_screen(void) {
 /* Controls page = layout selector (spec 2026-09-27). Three rows under the
  * diagram; the diagram previews the HIGHLIGHTED row (pad rows: that port's
  * preset on the HKT-7700 art; stick row: the fixed arcade layout on the
- * HKT-7300 art). Chips carry the page BG, so they sit seamlessly on the
- * art's cleared margins. Art memcpy only on entry / device-view change --
- * T9 flicker rule; row/label changes re-blit fixed cells. */
+ * HKT-7300 art, labels baked into the page since its layout never changes).
+ * Chips carry the page BG, so they sit seamlessly on the art's cleared
+ * margins. Art memcpy only on entry / device-view change -- T9 flicker
+ * rule; row/label changes re-blit fixed cells. */
 static void ctl_draw_labels(int cur) {
-    for (int i = 0; i < 6; i++) {
-        if (cur == 2) {
-            if (CTL_STICK_FUNC[i] == CTL_FUNC_NONE)
-                continue;   /* unmapped button (stick B): no row on the page */
-            blit(CTL_WORD[CTL_STICK_FUNC[i]],
-                 CTL_STICK_ANCHOR[i][0], CTL_STICK_ANCHOR[i][1]);
-        } else
-            blit(CTL_WORD[CTL_PAD_FUNC[menu_pad_layout[cur]][i]],
-                 CTL_PAD_ANCHOR[i][0], CTL_PAD_ANCHOR[i][1]);
-    }
+    if (cur == 2) return;              /* stick page: fixed, fully baked */
+    for (int i = 0; i < 6; i++)
+        blit(CTL_WORD[CTL_PAD_FUNC[menu_pad_layout[cur]][i]],
+             CTL_PAD_ANCHOR[i][0], CTL_PAD_ANCHOR[i][1]);
 }
 
 static void ctl_draw_rows(int cur) {

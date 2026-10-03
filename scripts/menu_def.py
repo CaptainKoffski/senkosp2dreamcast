@@ -69,8 +69,9 @@ PAD_LAYOUTS = [
 ]
 # Arcade stick: the Naomi cabinet layout, fixed (layout id 2). B deliberately
 # unmapped -- the tester's spec says "B = none". No B row on the stick page
-# (operator, round 5): the C code skips NONE chips (CTL_FUNC_NONE) and the
-# page bakes no prefix/leader for B.
+# (operator, round 5). Because this layout never changes, the stick page's
+# labels are fully baked (gen_menu_assets STICK_PAGE tags, 2026-10-03) --
+# menu.c blits no chips on it, and B simply has no baked row.
 STICK_LAYOUT = {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
                 "B": "NONE", "C": "OVERDRIVE"}
 
@@ -94,12 +95,15 @@ CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 # Row y here IS the design: anchor_y + 12 is the row centre the generator
 # routes the leader from, and anchor_x picks the column. MOVE / START are
 # invariant, so they are baked labels with leaders and carry no anchor.
+# L/R rows sit at y40 (row centre 52), ABOVE the shell's shoulder ledges
+# (top edge y72-79): their leaders run horizontal then drop vertically onto
+# the ledge above each hidden trigger (operator 2026-10-02: straight side
+# stubs didn't read as pointing at the triggers underneath).
 PAD_ANCHORS   = {"A": (506, 165), "B": (506, 133), "X": (506, 197),
-                 "Y": (506, 101), "LTRIG": (60, 60), "RTRIG": (506, 60)}
-# Stick B is a dead slot: its chip is never blitted (NONE skip in menu.c),
-# but the anchor entry stays so the [6]-wide tables keep their shape; parked
-# on the vacated bottom row so the chip-overlap assert holds.
-STICK_ANCHORS = {"A": (506, 195), "B": (506, 229), "X": (506, 59),
-                 "Y": (506, 93), "Z": (506, 127), "C": (506, 161)}
+                 "Y": (506, 101), "LTRIG": (60, 40), "RTRIG": (506, 40)}
+# No STICK_ANCHORS: the stick layout is fixed, so its labels are baked tags
+# owned by gen_menu_assets.STICK_PAGE (2026-10-03 re-route -- operator found
+# the chip-grid routes overcomplicated; baking frees each row to sit at its
+# button's own height, where most leaders become straight lines).
 
 SHEET_W, SHEET_H = 640, 1024    # fixed; generator asserts everything fits

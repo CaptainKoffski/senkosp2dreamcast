@@ -89,36 +89,26 @@ static const mrect_t MENU_SET_FOOTER = {0,696,640,24};
 #define MENU_DEFAULT_RECORD {0x23, 0x51, 0x17, 0x03, 0x01, 0x01, 0x01, 0x02, 0x02, 0x00, 0x46, 0x00, 0x96, 0x00, 0x46, 0x00}
 
 /* ---- CONTROLS pages (controls_pad.png / controls_stick.png) ----
- * CTL_*_FUNC index FUNC_WORDS/CTL_WORD; button order is
- * menu_def.py's PAD_BUTTONS / STICK_BUTTONS, same order as
- * shims/src/layouts.h's JVS_LAYOUT_* rows. CTL_*_ANCHOR is the
- * chip's top-left on the page. The footer is baked into both
- * pages -- nothing to blit. */
+ * CTL_PAD_FUNC indexes FUNC_WORDS/CTL_WORD; button order is
+ * menu_def.py's PAD_BUTTONS, same order as shims/src/layouts.h's
+ * JVS_LAYOUT_* rows. CTL_PAD_ANCHOR is the chip's top-left on
+ * the page. The stick page is fully baked (fixed layout) and
+ * needs no tables; the footer is baked into both pages. */
 #define CTL_N_BUTTONS 6
-#define CTL_FUNC_NONE 5   /* chips with this func are skipped (stick B has no row) */
 static const mrect_t CTL_WORD[6] = {{0,720,126,24}, {126,720,126,24}, {252,720,126,24}, {378,720,126,24}, {504,720,126,24}, {0,744,126,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, NONE */
 
 static const unsigned char CTL_PAD_FUNC[2][6] = {
   {0, 1, 2, 3, 4, 3},   /* TOURNAMENT */
   {0, 3, 1, 2, 3, 4},   /* OLD */
 };
-static const unsigned char CTL_STICK_FUNC[6] = {3, 5, 0, 1, 2, 4};
 
 static const unsigned short CTL_PAD_ANCHOR[6][2] = {
   {506, 165},   /* A */
   {506, 133},   /* B */
   {506, 197},   /* X */
   {506, 101},   /* Y */
-  {60, 60},   /* LTRIG */
-  {506, 60},   /* RTRIG */
-};
-static const unsigned short CTL_STICK_ANCHOR[6][2] = {
-  {506, 195},   /* A */
-  {506, 229},   /* B */
-  {506, 59},   /* X */
-  {506, 93},   /* Y */
-  {506, 127},   /* Z */
-  {506, 161},   /* C */
+  {60, 40},   /* LTRIG */
+  {506, 40},   /* RTRIG */
 };
 
 static const mrect_t CTL_ROW_LABEL[3][2] = {

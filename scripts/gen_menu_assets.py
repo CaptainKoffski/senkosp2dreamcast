@@ -149,21 +149,23 @@ def box_of(rect):
 #                      first point: that is always (column lead_x, row centre),
 #                      so a leader can never drift off its own label row.
 #   tags               invariant labels: (column, row centre y, text, polyline
-#                      tail). Same deal, but the leader starts just past the
-#                      baked text since there is no chip cell to leave from.
+#                      tail[, button]). Same deal, but the leader starts just
+#                      past the baked text since there is no chip cell to
+#                      leave from. A 5th element names the button the tag
+#                      points at, opting it into the leader-end assert (the
+#                      stick page's rows are all tags -- its layout is fixed,
+#                      so nothing is blitted at runtime, see STICK_PAGE).
 # Routing rules the hand-picked polylines follow: orthogonal only, one elbow
 # where the art allows it, no two leaders crossing, and no leader crossing a
-# button it does not belong to. The stick's 3x2 cluster is the hard case --
-# Y sits behind Z from the right, so it is reached over the top of the
-# cluster, and X likewise over the top (a vertical at X's own centre, which
-# threads between the VMU and the START button).
+# button it does not belong to (2026-10-03 re-route: corners only where a
+# straight shot is geometrically impossible).
 PAD_PAGE = dict(
     art_h=240, art_x=203, art_y=34,
-    buttons={"Y": (806, 363, 34), "X": (728, 437, 34),
-             "B": (884, 437, 34), "A": (806, 510, 34)},
+    buttons={"Y": (822, 345, 38), "X": (742, 426, 38),
+             "B": (897, 426, 38), "A": (822, 507, 38)},
     prefix={"LTRIG": "L", "RTRIG": "R"},
-    leads={"LTRIG": [(250, 72)],                    # upper-left shoulder
-           "RTRIG": [(390, 72)],                    # upper-right shoulder
+    leads={"LTRIG": [(230, 52), (230, 76)],         # J-drop onto the shoulder
+           "RTRIG": [(410, 52), (410, 76)],         # ledge above each trigger
            "Y": [(404, 113)],
            "B": [(415, 145), (415, 141)],
            "A": [(395, 177), (395, 160)],
@@ -178,21 +180,36 @@ PAD_PAGE = dict(
                                                     # split 1px before the tip
                                                     # read as stick-only)
 # No "B" row on the stick page (operator, round 5): B maps to NONE, and a
-# labeled leader pointing at an unmapped button is noise. B has no baked
-# prefix/lead here, the runtime chip is skipped via CTL_FUNC_NONE, and A's
-# row moved up to close the gap (its lead re-routed to the freed y207 lane).
+# labeled leader pointing at an unmapped button is noise.
+# Every label here is a baked TAG, not a chip row: the stick layout is fixed
+# ("ARCADE (FIXED)"), so menu.c blits nothing on this page (2026-10-03,
+# operator: the chip-grid routes were overcomplicated). Freed from the chip
+# columns, each row sits at its button's own height and the leaders are as
+# straight as the art allows:
+#   Z/C   dead-straight horizontals into the cluster's east rims (ring ink
+#         measured at x385-386 on both lanes);
+#   Y     rides the button panel's top edge line (y65 -- the corridor the
+#         old 3-corner route jogged into), one drop onto Y's crown;
+#   X     top-left tag: over the dome (y30 clears the art box entirely),
+#         one drop down the canyon between the VMU (right edge x297) and
+#         the START button (left edge x320), landing on X's crown;
+#   A     one elbow, its vertical hugging the "Dreamcast" logo's right edge
+#         (page x319.4 measured, halo clears at x324);
+#   START one drop onto the button crown (centre ~(327,54) r7; the old hook
+#         cut through the vent panel's left slope).
 STICK_PAGE = dict(
     art_h=224, art_x=131, art_y=34,
-    buttons={"X": (666, 407, 42), "Y": (750, 349, 41), "Z": (849, 350, 41),
-             "A": (665, 516, 41), "C": (849, 456, 41)},
+    buttons={"X": (605, 397, 50), "Y": (705, 327, 50), "Z": (827, 327, 50),
+             "A": (606, 524, 50), "C": (828, 461, 50)},
     prefix={},
-    leads={"X": [(317, 71), (317, 97)],
-           "Y": [(428, 105), (428, 75), (342, 75), (342, 81)],
-           "Z": [(416, 139), (416, 93), (384, 93)],
-           "C": [(408, 173), (408, 125), (384, 125)],
-           "A": [(317, 207), (317, 152)]},
-    tags=[(COL_L, 125, "MOVE", [(174, 125)]),       # lever, left edge
-          (COL_R, 37, "START", [(420, 37), (420, 54), (329, 54)])])
+    leads={},
+    tags=[(COL_L, 30, "X — MAIN", [(304, 30), (304, 91)], "X"),
+          (COL_L, 125, "MOVE", [(192, 125)]),       # lever ball, left edge
+          (COL_R, 37, "START", [(327, 37), (327, 48)]),
+          (COL_R, 65, "Y — SUB", [(338, 65), (338, 70)], "Y"),
+          (COL_R, 87, "Z — BARRAGE", [(386, 87)], "Z"),
+          (COL_R, 123, "C — OVERDRIVE", [(386, 123)], "C"),
+          (COL_R, 173, "A — ACTION", [(324, 173), (324, 149)], "A")])
 
 
 def label(draw, x, cy, text, anchor="lm"):
@@ -266,7 +283,8 @@ def build_page(name, spec, anchors):
         polys.append([(col["lead_x"], cy)] + tail)
         pre = spec["prefix"].get(b, b) + " —"
         texts.append((col["chip_x"] - PREFIX_GAP, cy, pre, "rm"))
-    for col, cy, text, tail in spec["tags"]:
+    for tag in spec["tags"]:
+        col, cy, text, tail = tag[:4]
         tw = ImageDraw.Draw(page).textlength(text, font=F_ROW)
         start = col["lead_x"] if col is COL_R else col["inv_x"] + tw + PREFIX_GAP
         # tail is one polyline, or a list of them for a forking leader (the
@@ -294,9 +312,13 @@ def build_page(name, spec, anchors):
         assert chip[2] <= artbox[0] or artbox[2] <= chip[0] \
             or chip[3] <= artbox[1] or artbox[3] <= chip[1], \
             f"{name} {b}: chip {chip} overlaps the art box {artbox}"
+    lead_end = {b: tail[-1] for b, tail in spec["leads"].items()}
+    for tag in spec["tags"]:
+        if len(tag) == 5:
+            lead_end[tag[4]] = tag[3][-1]
     for b, (sx, sy, sr) in spec["buttons"].items():
         bx, by = to_page(sx, sy)
-        ex, ey = spec["leads"][b][-1]
+        ex, ey = lead_end[b]
         dist = ((ex - bx) ** 2 + (ey - by) ** 2) ** 0.5
         assert dist <= sr * scale + 5, \
             f"{name} {b}: leader ends at ({ex},{ey}), {dist:.1f}px from the " \
@@ -479,8 +501,7 @@ def main():
     # sit in one of the two label columns, and two chips on one page must
     # never collide (they are blitted, not blended). build_page adds the
     # chip-vs-art-box and leader-vs-button checks.
-    for page_name, anchors, buttons in [("pad", M.PAD_ANCHORS, M.PAD_BUTTONS),
-                                        ("stick", M.STICK_ANCHORS, M.STICK_BUTTONS)]:
+    for page_name, anchors, buttons in [("pad", M.PAD_ANCHORS, M.PAD_BUTTONS)]:
         assert set(anchors) == set(buttons), f"{page_name}: anchor/button drift"
         for b in buttons:
             x, y = anchors[b]
@@ -496,7 +517,7 @@ def main():
                     f"{page_name}: {a} and {b} chips overlap"
 
     pad_page = build_page("pad", PAD_PAGE, M.PAD_ANCHORS)
-    stick_page = build_page("stick", STICK_PAGE, M.STICK_ANCHORS)
+    stick_page = build_page("stick", STICK_PAGE, {})   # all-tag page, no chips
     pad_page.save(os.path.join(LOADER_DIR, "controls_pad.png"))
     stick_page.save(os.path.join(LOADER_DIR, "controls_stick.png"))
 
@@ -524,7 +545,7 @@ def main():
         preview(f"pad_{lname.lower()}", pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS,
                 lay, 0, [ctl_pad_value_rects[lid], ctl_pad_value_rects[1 - lid],
                          ctl_stick_value_rect])
-    preview("stick", stick_page, M.STICK_ANCHORS, M.STICK_BUTTONS,
+    preview("stick", stick_page, {}, [],   # labels baked -- nothing to blit
             M.STICK_LAYOUT, 2, ctl_pad_value_rects + [ctl_stick_value_rect])
 
     # ---- loader/menu_layout.h -------------------------------------------
@@ -604,14 +625,12 @@ def main():
     lines.append("#define MENU_DEFAULT_RECORD {" + ", ".join(f"0x{b:02x}" for b in rec_bytes) + "}")
     lines.append("")
     lines.append("/* ---- CONTROLS pages (controls_pad.png / controls_stick.png) ----"
-                 "\n * CTL_*_FUNC index FUNC_WORDS/CTL_WORD; button order is"
-                 "\n * menu_def.py's PAD_BUTTONS / STICK_BUTTONS, same order as"
-                 "\n * shims/src/layouts.h's JVS_LAYOUT_* rows. CTL_*_ANCHOR is the"
-                 "\n * chip's top-left on the page. The footer is baked into both"
-                 "\n * pages -- nothing to blit. */")
+                 "\n * CTL_PAD_FUNC indexes FUNC_WORDS/CTL_WORD; button order is"
+                 "\n * menu_def.py's PAD_BUTTONS, same order as shims/src/layouts.h's"
+                 "\n * JVS_LAYOUT_* rows. CTL_PAD_ANCHOR is the chip's top-left on"
+                 "\n * the page. The stick page is fully baked (fixed layout) and"
+                 "\n * needs no tables; the footer is baked into both pages. */")
     lines.append(f"#define CTL_N_BUTTONS {len(M.PAD_BUTTONS)}")
-    lines.append(f"#define CTL_FUNC_NONE {M.FUNC_WORDS.index('NONE')}   "
-                 "/* chips with this func are skipped (stick B has no row) */")
     lines.append(f"static const mrect_t CTL_WORD[{len(M.FUNC_WORDS)}] = {{"
                  + ", ".join(R(r) for r in ctl_word_rects) + "};   /* "
                  + ", ".join(M.FUNC_WORDS) + " */")
@@ -621,16 +640,11 @@ def main():
         lines.append("  {" + ", ".join(str(M.FUNC_WORDS.index(lay[b]))
                                        for b in M.PAD_BUTTONS) + f"}},   /* {name} */")
     lines.append("};")
-    lines.append(f"static const unsigned char CTL_STICK_FUNC[{len(M.STICK_BUTTONS)}] = {{"
-                 + ", ".join(str(M.FUNC_WORDS.index(M.STICK_LAYOUT[b]))
-                             for b in M.STICK_BUTTONS) + "};")
     lines.append("")
-    for tname, buttons, anchors in [("PAD", M.PAD_BUTTONS, M.PAD_ANCHORS),
-                                    ("STICK", M.STICK_BUTTONS, M.STICK_ANCHORS)]:
-        lines.append(f"static const unsigned short CTL_{tname}_ANCHOR[{len(buttons)}][2] = {{")
-        for b in buttons:
-            lines.append("  {%d, %d},   /* %s */" % (anchors[b][0], anchors[b][1], b))
-        lines.append("};")
+    lines.append(f"static const unsigned short CTL_PAD_ANCHOR[{len(M.PAD_BUTTONS)}][2] = {{")
+    for b in M.PAD_BUTTONS:
+        lines.append("  {%d, %d},   /* %s */" % (M.PAD_ANCHORS[b][0], M.PAD_ANCHORS[b][1], b))
+    lines.append("};")
     lines.append("")
     lines.append(f"static const mrect_t CTL_ROW_LABEL[{len(M.CTL_ROW_ITEMS)}][2] = {{")
     for norm, hi in ctl_row_rects:
