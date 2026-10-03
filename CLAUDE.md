@@ -6,8 +6,9 @@ source code), following the method proven by the Cleopatra Fortune Plus
 port (`../cleopatra`).
 
 - **Start here:** `docs/kb/00-status.md` — project state, strategy, next step.
-- **Method:** `docs/kb/port-playbook.md` — the six-phase playbook (carried
-  over from the Cleopatra port; gates enforced, spec + plan per phase).
+- **Method:** `../naomi2dreamcast/docs/kb/port-playbook.md` — the port
+  playbook, maintained in the umbrella repo (gates enforced, spec + plan per
+  phase); `docs/kb/port-playbook.md` here is just the pointer.
 - **Knowledge base:** `docs/kb/` — game notes, tooling records, findings.
 - **Specs & plans:** `docs/superpowers/specs/`, `docs/superpowers/plans/`.
 - **ROM:** `roms/` (gitignored — never commit, never upload):
