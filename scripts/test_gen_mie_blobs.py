@@ -107,9 +107,66 @@ def test_sub03_layout():
     assert b[4 + 0x24:4 + 0x4C] == EVENT_AREA and b[4 + 0x4C:] == bytes(52)
 
 
+def test_input_guards():
+    rec, hdr = EVENT_REC, synth_header()
+    assert "NAOMI" in must_exit(g.all_blobs, b"XXXXX" + hdr[5:], rec, 27)
+    assert "printable" in must_exit(g.all_blobs, synth_header(game_id=b"\x01\x02\x03\x04"), rec, 27)
+    assert "16" in must_exit(g.all_blobs, hdr, rec[:15], 27)
+    assert "1..28" in must_exit(g.all_blobs, hdr, rec, 0)
+    assert "1..28" in must_exit(g.all_blobs, hdr, rec, 29)
+
+
+def test_cli_any_cwd_and_size_guard():
+    """main() resolves paths from __file__ (shims/Makefile runs it from
+    shims/), writes mie_blobs.c, and rejects a wrong-size image. The good
+    image is a sparse CART_SIZE file -- no real ROM bytes involved."""
+    script = os.path.join(REPO, "scripts", "gen_mie_blobs.py")
+    with tempfile.TemporaryDirectory() as t:
+        dat = os.path.join(t, "fake.dat")
+        with open(dat, "wb") as f:
+            f.write(synth_header())
+            f.truncate(g.cart_size())
+        r = subprocess.run([sys.executable, script, "--dat", dat, "--out", t],
+                           cwd=t, capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        blobs = parse_c(open(os.path.join(t, "mie_blobs.c")).read())
+        assert list(blobs) == list(g.ORDER)
+        assert blobs["mie_sub03"][4 + 3:4 + 7] == b"TEST"
+        with open(dat, "r+b") as f:
+            f.truncate(4096)
+        r = subprocess.run([sys.executable, script, "--dat", dat, "--out", t],
+                           cwd=t, capture_output=True, text=True)
+        assert r.returncode != 0 and "CART_SIZE" in r.stderr, r.stderr
+        r = subprocess.run([sys.executable, script, "--dat", os.path.join(t, "nope.dat"),
+                            "--out", t], cwd=t, capture_output=True, text=True)
+        assert r.returncode != 0 and "README step 1" in r.stderr, r.stderr
+
+
+def test_oracle():
+    """Gate 1: generator == extract_mie_blobs.py on the real capture, with
+    the extractor's game area overridden to DEFAULT_RECORD's (the extractor
+    alone bakes the captured Event-OFF area; the loader replaces it at boot)."""
+    dat = os.path.join(REPO, "senkosp.dat")
+    cap = os.path.join(REPO, "captures", "phase4", "pc2.log")
+    if not (os.path.exists(dat) and os.path.exists(cap)):
+        return "oracle SKIP (no senkosp.dat or captures/phase4/pc2.log)"
+    rec = bytes.fromhex(menu_def.DEFAULT_RECORD)
+    with tempfile.TemporaryDirectory() as t:
+        env = dict(os.environ, EEPROM_GAME_HEX=g.game_area(rec).hex())
+        subprocess.run([sys.executable, os.path.join(REPO, "scripts", "extract_mie_blobs.py"),
+                        "--out", t], env=env, cwd=REPO, check=True, capture_output=True)
+        want = parse_c(open(os.path.join(t, "mie_blobs.c")).read())
+    with open(dat, "rb") as f:
+        got = g.all_blobs(f.read(0x500), rec, menu_def.SYSTEM_COIN_SETTING)
+    assert list(got) == list(want), (list(got), list(want))
+    for name in want:
+        assert got[name] == want[name], f"{name}:\n gen    {got[name].hex()}\n oracle {want[name].hex()}"
+    return "oracle PASS (15 blobs byte-identical to the capture)"
+
+
 if __name__ == "__main__":
     for fn in (test_protocol_frames, test_sub33_idle_identity, test_system_bios_defaults,
                test_system_rom_defaults, test_game_area_matches_bios_written,
-               test_sub03_layout):
+               test_sub03_layout, test_input_guards, test_cli_any_cwd_and_size_guard):
         fn()
-    print("test_gen_mie_blobs OK")
+    print("test_gen_mie_blobs OK;", test_oracle())
