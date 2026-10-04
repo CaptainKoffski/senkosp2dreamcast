@@ -87,3 +87,59 @@ PROTOCOL = {
                                         "03081000" "12060000" "00")),
     "mie_jvsdflt": jvs_blob(bytes.fromhex("0007010100000000")),   # default branch, :2209+
 }
+
+
+def _players_byte(cabinet):
+    # cabinet bitmap -> EEPROM[8] b4-5 (naomi_flashrom.cpp:152-161, 211-232)
+    return 0x30 if cabinet & 8 else 0x20 if cabinet & 4 else 0x10 if cabinet & 2 else 0
+
+
+def system_section(header, coin_setting):
+    """EEPROM 0x00..0x23: Flycast initEeprom + configure_naomi_eeprom over a
+    fresh image (naomi_flashrom.cpp:144-235; RomBootID offsets per
+    core/hw/naomi/naomi_cart.h:9-46), then byte 9 := coin_setting - 1 (the
+    port's setting; 27 = FREE PLAY, docs/kb/phase4-conversion.md §FREE PLAY).
+    write_naomi_eeprom (:116-135) mirrors bytes 2..17 at +18 and keeps both
+    CRCs (over 2..17, little-endian) in sync -- done once at the end here."""
+    game_id = header[0x134:0x138]
+    coin = header[0x1E0:0x1F0]          # coinFlag[0]
+    cabinet, vertical = header[0x429], header[0x42B]
+    s = bytearray(18)
+    s[3:7] = game_id
+    s[7] = 9                            # "FIXME 9 or 0x18?" upstream, :151
+    s[8] = _players_byte(cabinet)
+    if coin[0] == 1:                    # ROM-specific defaults, :163-179
+        s[2] = (coin[1] & 1) | 0x10
+        if coin[2] == 1:
+            s[8] |= 1
+        s[9] = (coin[3] - 1) & 0xFF
+        s[10], s[11], s[12] = max(coin[6], 1), max(coin[4], 1), max(coin[5], 1)
+        s[13] = coin[7]
+        for i in range(4):
+            s[14 + i] = (coin[8 + 2 * i] | coin[9 + 2 * i] << 4) & 0xFF
+    else:                               # BIOS defaults, :180-193
+        s[2] = 0x11 if vertical & 2 else 0x10
+        s[9:18] = bytes([0, 1, 1, 1, 0, 0x11, 0x11, 0x11, 0x11])
+    if vertical == 2:                   # configure_naomi_eeprom, :200-209
+        s[2] |= 1
+    elif vertical == 1:
+        s[2] &= 0xFE
+    if cabinet != 0 and cabinet < 0x10 and not cabinet & (1 << (s[8] >> 4)):
+        s[8] = _players_byte(cabinet) | (s[8] & 1)      # :211-232
+    s[9] = coin_setting - 1             # the port's setting (menu_def.py)
+    s[0:2] = crc16(bytes(s[2:18])).to_bytes(2, "little")
+    return bytes(s) * 2
+
+
+def game_area(record):
+    """EEPROM 0x24..0x4B: [crc_lo crc_hi 0x10 0x10] x2, then the record x2 --
+    the exact layout the loader pokes at boot (loader/naomi_crc.c:20-31)."""
+    hdr = crc16(record).to_bytes(2, "little") + b"\x10\x10"
+    return hdr * 2 + record * 2
+
+
+def sub03(header, record, coin_setting):
+    """EEPROM read reply: 87 00 20 20 (32 words) + the 128-byte image
+    (maple_jvs.cpp:1931-1940); zero tail past the game area."""
+    image = system_section(header, coin_setting) + game_area(record)
+    return bytes.fromhex("87002020") + image + bytes(128 - len(image))

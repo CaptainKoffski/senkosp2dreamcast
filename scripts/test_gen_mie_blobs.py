@@ -77,7 +77,39 @@ def test_sub33_idle_identity():
     assert out[-8:] == g.PROTOCOL["mie_sub17"]
 
 
+def test_system_bios_defaults():
+    s = g.system_section(synth_header(), 27)
+    body = b"\x10TEST\x09\x10\x1a\x01\x01\x01\x00\x11\x11\x11\x11"
+    assert s[2:18] == body, s[2:18].hex()
+    assert s[0:2] == crc16(body).to_bytes(2, "little")
+    assert s[18:36] == s[0:18]
+    # vertical=2 sets bit 0 of byte 2 (configure_naomi_eeprom)
+    assert g.system_section(synth_header(vertical=2), 27)[2] == 0x11
+
+
+def test_system_rom_defaults():
+    coin = bytes([1, 1, 1, 5, 2, 3, 4, 6, 1, 2, 3, 4, 5, 6, 7, 8])
+    s = g.system_section(synth_header(coin=coin, cabinet=0x0C, vertical=0), 1)
+    # b2 = (1&1)|0x10; b8 = 4P 0x30 | individual chute 1; b9 = setting 1 - 1;
+    # b10..12 = max(coin6,1), max(coin4,1), max(coin5,1); b13 = coin7;
+    # b14..17 = coin8|coin9<<4 ...
+    assert s[2:18] == bytes([0x11]) + b"TEST" + bytes(
+        [0x09, 0x31, 0x00, 4, 2, 3, 6, 0x21, 0x43, 0x65, 0x87]), s[2:18].hex()
+
+
+def test_game_area_matches_bios_written():
+    assert g.game_area(EVENT_REC) == EVENT_AREA
+
+
+def test_sub03_layout():
+    b = g.sub03(synth_header(), EVENT_REC, 27)
+    assert len(b) == 132 and b[:4] == bytes.fromhex("87002020")
+    assert b[4 + 0x24:4 + 0x4C] == EVENT_AREA and b[4 + 0x4C:] == bytes(52)
+
+
 if __name__ == "__main__":
-    for fn in (test_protocol_frames, test_sub33_idle_identity):
+    for fn in (test_protocol_frames, test_sub33_idle_identity, test_system_bios_defaults,
+               test_system_rom_defaults, test_game_area_matches_bios_written,
+               test_sub03_layout):
         fn()
     print("test_gen_mie_blobs OK")
