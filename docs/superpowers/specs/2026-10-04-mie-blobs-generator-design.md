@@ -39,8 +39,13 @@ present only *implicitly*, via the capture).
 ## Decisions
 
 - **Committed constants for the 14 protocol replies**, each annotated with
-  the Flycast emitter lines that produce it. They are emulator output, so
-  committing them commits no game or BIOS bytes.
+  the Flycast emitter lines that produce it: plain MIE acks as hex, JVS
+  replies as their payload only, wrapped by a ~10-line frame builder that
+  mirrors Flycast's emitters (wrapper, `[node status len]` prefix, sync,
+  checksum, word padding — so lengths and checksums are computed, never
+  copied). They are emulator output, so committing them commits no game or
+  BIOS bytes. (Refined while planning: a scratch run showed the builder
+  reproduces all 8 JVS-carrying blobs byte-for-byte.)
 - **EEPROM system section derived at build time** from the builder's
   `senkosp.dat` header with a Python port of Flycast's `initEeprom` /
   `configure_naomi_eeprom`. The 4-char game ID is ROM bytes, so the output
@@ -83,13 +88,16 @@ present only *implicitly*, via the capture).
   `<name>_len` companions, same emission order and lengths as today. This
   is the consumer contract; nothing in `shims/` or `build_patch_table.py`
   changes.
-- **Protocol replies:** a table of the 14 blobs as hex, one comment per blob
-  naming its emitter and decoding the non-obvious fields (sense byte `0x8e`,
-  JVS sync/length/checksum, the idle input frame of `mie_sub33`). A
-  self-check recomputes every JVS checksum in the table
-  (`maple_jvs.cpp:2487-2491`) and re-runs the `mie_sub33` idle-frame
-  equivalence the extractor asserts today (the shim rebuilds polls from
-  that frame — `shims/src/jvs.c:200`).
+- **Protocol replies:** six plain MIE acks as hex (`sub01/13/17/21/31`,
+  `86empty`) and eight JVS payloads (`jvsf1/10/11/12/13/14/dflt`, `sub33`)
+  fed through `jvs_blob()`, the frame builder: MIE wrapper
+  (`receive_jvs_messages`, `maple_jvs.cpp:1716-1754`), `[01 00 len]`
+  (`send_jvs_message`, `:1673-1677`), `E0` sync + checksum (`:2487-2491`),
+  zero pad to Flycast's `dword_length` (`:1719`). `mie_sub33` = the built
+  data frame + the sub-0x17 ack frame (`:1889-1894`). One comment per blob
+  names its emitter. The `mie_sub33` idle-frame equivalence the extractor
+  asserts today (the shim rebuilds polls from that frame —
+  `shims/src/jvs.c:200`) is kept as a test.
 - **`mie_sub03`:** header `87 00 20 20` (32 words = 128 B,
   `maple_jvs.cpp:1936`) + 128-B image: system section = `initEeprom` port
   over the header, then byte 9 := `SYSTEM_COIN_SETTING − 1`, CRC + mirror
@@ -171,6 +179,10 @@ bytes-on-disc differences, both deliberate:
   image the builder must obtain; replacing it means mastering tracks 1–3
   from scratch and re-proving boot on hardware.
 - Persistent settings (VMU save) — unchanged, session-only as today.
+- **`loader/logo_strip.pal8`** (G.Rev menu logo, gitignored, hard
+  dependency of `loader/Makefile:178` since 0.16.0) is missing from README's
+  fresh-clone inputs — found while scoping this spec (2026-10-04). Gate 4
+  supplies it by hand; documenting/optionalizing it is separate work.
 
 ## Risks
 
