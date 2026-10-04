@@ -9,16 +9,19 @@ project.
 
   track01.iso / track02.raw / track03.iso / disc.gdi
       = the donor's files VERBATIM (track03 = donor IP.BIN + donor filesystem
-        + donor game data, exact size; disc.gdi byte-identical).
+        + donor game data, exact size) EXCEPT disc.gdi's track-4 start, which
+        moves from the donor's LBA 450000 down to TRACK4_LBA 320000
+        (2026-10-04 — the donor order overran the disc; see TRACK4_LBA).
   track04.iso
-      = [senkosp's loader, zero-padded to the donor's 3,538,944-byte boot
-         region][senkosp.dat, the flat 251,342,848-byte cart image]
-      Same CART_FAD math as Cleopatra: the donor FS says 1ST_READ.BIN =
-      3,538,016 B @ LBA 450000, so the bootstrap loads our loader + zero
-      padding — the KOS binary at 0x8c010000 runs the same either way. The
-      cart follows at LBA 451728 = CART_FAD 451878 - 150
+      = [senkosp.dat, the flat 251,342,848-byte cart image][--lz4 blob]
+        [zero pad][senkosp's loader, zero-padded to the donor's
+         3,538,944-byte boot region]
+      The cart starts the track at LBA 320000 = CART_FAD 320150 - 150
       (shims/include/shim_iface.h — the only per-project constant this
-      script cross-checks itself against).
+      script cross-checks itself against). The loader sits at LBA 450000,
+      where the donor FS says 1ST_READ.BIN = 3,538,016 B lives, so the
+      bootstrap loads our loader + zero padding — the KOS binary at
+      0x8c010000 runs the same either way.
 
 Deltas from Cleopatra's script (this project's task brief,
 `.superpowers/sdd/2026-08-22-phase4-conversion/task-8-brief.md`): cart source
@@ -191,9 +194,25 @@ DONOR_SUB = "Dolphin Blue"
 DONOR_FILES = ("track01.iso", "track02.raw", "track03.iso", "track04.iso", "disc.gdi")
 BOOT_REGION = 3538944           # donor track04 size = its FS 1ST_READ region
 BOOT_FILE_SIZE = 3538016        # donor FS dir-record size for 1ST_READ.BIN
-CART_LBA = 450000 + BOOT_REGION // SECTOR   # 451728; FAD 451878 = CART_FAD
-assert CART_LBA == 451728, f"CART_LBA {CART_LBA} != donor-derived 451728"
 CART_SIZE = 251342848            # len(senkosp.dat); docs/kb/game.md
+# Track 4 layout (2026-10-04, docs/kb/tooling.md §GDI mastering). Two hard
+# limits, both measured:
+#  - 1ST_READ.BIN must start at LBA >= 450000 ("at least 100 minutes into the
+#    disc" -- projects.sappharad.com/tools/gdibuilder.html). Real-BIOS Flycast
+#    bisect: extent 450000 boots, 449000 / 400000 drop to the BIOS menu
+#    without ever reading the file; the TOC's track-4 start is irrelevant.
+#  - the image must end by LBA 549150 = lead-out FAD 549300 - 150 (flycast
+#    core/imgread/common.h:148). GDEMU's default image_tests=1 rejects
+#    "oversized media" (gdemu.wordpress.com/operation/gdemu-operation/).
+# The donor order [loader @ 450000][cart] ended at LBA 574454, so the cart now
+# goes BEFORE the loader: track04 = [cart][--lz4 blob][zero pad][loader].
+# The FS extent stays the donor's 450000 (track03 verbatim). 320000 leaves
+# 7,274 sectors (~14 MB) between the cart end and the loader for the blob.
+BOOT_LBA = 450000               # donor disc.gdi track 4 + FS 1ST_READ.BIN extent
+TRACK4_LBA = 320000
+GD_END_LBA = 549150             # first sector past the HD area (lead-out)
+CART_LBA = TRACK4_LBA           # 320000; FAD 320150 = CART_FAD
+assert CART_LBA + CART_SIZE // SECTOR <= BOOT_LBA, "cart overlaps the loader"
 
 # Cross-check against the shim's compiled-in constants (Cleopatra final
 # review: this derivation and shim_iface.h's CART_FAD were previously
@@ -211,6 +230,20 @@ assert _csz == CART_SIZE, f"CART_SIZE mismatch: gdi {CART_SIZE:#x} vs shim {_csz
 
 
 def run(cmd): subprocess.run(cmd, check=True)
+
+
+def check_boot_extent(track03: pathlib.Path):
+    """The loader is written at BOOT_LBA only because the donor FS points
+    1ST_READ.BIN there -- assert it rather than assume it. ISO9660 directory
+    record: extent LBA at +2 (u32 LE), data length at +10 (u32 LE)."""
+    with open(track03, "rb") as f:
+        head = f.read(1 << 20)
+    i = head.find(b"1ST_READ.BIN;1")
+    assert i > 33, "1ST_READ.BIN directory record not found in donor track03"
+    rec = i - 33
+    assert int.from_bytes(head[rec + 2:rec + 6], "little") == BOOT_LBA, \
+        "1ST_READ.BIN extent is not LBA 450000 -- donor swap? refusing"
+    assert int.from_bytes(head[rec + 10:rec + 14], "little") == BOOT_FILE_SIZE
 
 
 def check_fad_mark(ldr: bytes, fad: int, what: str):
@@ -308,14 +341,17 @@ def main():
         f"1ST_READ.BIN {len(ldr)} B exceeds donor FS size {BOOT_FILE_SIZE}"
     check_fad_mark(ldr, CART_LBA + 150, "GDI")
 
-    for f in ("track01.iso", "track02.raw", "track03.iso", "disc.gdi"):
+    for f in ("track01.iso", "track02.raw", "track03.iso"):
         shutil.copyfile(donor / f, out / f)
+    gdi = (donor / "disc.gdi").read_bytes()
+    old = b"\n4 %d " % BOOT_LBA
+    assert gdi.count(old) == 1, "donor disc.gdi track-4 line not found"
+    (out / "disc.gdi").write_bytes(gdi.replace(old, b"\n4 %d " % TRACK4_LBA))
+    check_boot_extent(out / "track03.iso")
     brand_ip(out / "track03.iso")
     patch_gdtex(out / "track03.iso", out)
     patch_iplogo(out / "track03.iso")
     with open(out / "track04.iso", "wb") as t4:
-        t4.write(ldr)
-        t4.write(b"\0" * (BOOT_REGION - len(ldr)))
         t4.write(rom)
         if a.lz4:
             mj = json.loads((out / "lz4pak_map.json").read_text())
@@ -335,13 +371,25 @@ def main():
                         f"texpatch record {t['pvrt_off']:#x} intersects the LZ4 pak"
             t4.write(blob)
             print(f"lz4pak: {len(blob)} B appended at FAD {mj[0]['blob_fad']}")
+        boot_off = (BOOT_LBA - TRACK4_LBA) * SECTOR
+        assert t4.tell() <= boot_off, \
+            f"cart+blob end at LBA {TRACK4_LBA + t4.tell() // SECTOR}, past the " \
+            f"loader at {BOOT_LBA} -- lower TRACK4_LBA (and CART_FAD)"
+        t4.write(b"\0" * (boot_off - t4.tell()))
+        t4.write(ldr)
+        t4.write(b"\0" * (BOOT_REGION - len(ldr)))
+        end = TRACK4_LBA + t4.tell() // SECTOR
+    assert end <= GD_END_LBA, \
+        f"track04 ends at LBA {end}, past the GD-ROM HD area ({GD_END_LBA}) -- " \
+        "GDEMU rejects it with image_tests=1"
 
     # stale outputs from any earlier layout confuse SD-card deploys -- drop them
     for f in ("senkosp.gdi", "track01.bin", "track03.bin", "track04.bin"):
         (out / f).unlink(missing_ok=True)
 
-    print(f"OK disc.gdi (B5 max-clone: tracks 1-3 + gdi = donor verbatim; "
-          f"track4 = loader + cart at LBA {CART_LBA} / FAD {CART_LBA + 150})")
+    print(f"OK disc.gdi (B5 max-clone; track4 @ LBA {TRACK4_LBA} = cart at "
+          f"FAD {CART_LBA + 150}, loader at LBA {BOOT_LBA}, "
+          f"ends at LBA {end} <= {GD_END_LBA})")
 
 
 if __name__ == "__main__":

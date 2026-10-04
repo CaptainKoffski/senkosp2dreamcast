@@ -8,10 +8,10 @@ Ground truth:
                      (the loader patches only in-RAM boot images at load
                      time; the disc always carries the pristine cart bytes).
   build/track04.iso -- FAD domain. file offset = (fad - base_fad) * 2048
-                     (base_fad default 450150 = LBA 450000 + 150,
-                     scripts/make_gdi.py:149). GDPIO/GDDMA fad/secs/type
+                     (base_fad default 320150 = LBA 320000 + 150,
+                     scripts/make_gdi.py TRACK4_LBA). GDPIO/GDDMA fad/secs/type
                      index straight into it -- track04.iso already IS
-                     [loader+padding][senkosp.dat], so no separate cart-FAD
+                     [senkosp.dat][blob][pad][loader], so no separate cart-FAD
                      split is needed here.
 
 Texpatch caveat (2026-08-24): default make_gdi.py builds splice the
@@ -29,7 +29,7 @@ import zlib
 
 SHIMCRC = re.compile(r'SHIMCRC o=([0-9a-f]{8}) l=([0-9a-f]{8}) c=([0-9a-f]{8})')
 GDREAD  = re.compile(r'GD(PIO|DMA) fad=([0-9a-f]{8}) secs=([0-9a-f]+) type=([0-9a-f]+) crc=([0-9a-f]{8})')
-TRACK04_BASE_FAD = 450150          # LBA 450000 + 150 (make_gdi.py:149)
+TRACK04_BASE_FAD = 320150          # LBA 320000 + 150 (make_gdi.py TRACK4_LBA)
 SECTOR_TYPE_DATA = 0x800           # 2048 B/sector; anything else is a TOC/raw read
 
 def crc(buf): return zlib.crc32(buf) & 0xffffffff

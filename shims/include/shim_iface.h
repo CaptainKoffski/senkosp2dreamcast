@@ -82,7 +82,7 @@
  * CD data/data FAD (scripts/make_cdi.py; Makefile CD_CART_FAD). BLOB_FAD
  * below derives from CART_FAD, so it tracks automatically. */
 #ifndef CART_FAD
-#define CART_FAD        451878      /* GDI: donor CART_LBA 451728 + 150 */
+#define CART_FAD        320150      /* GDI: CART_LBA 320000 + 150 (cart opens track04, make_gdi.py TRACK4_LBA) */
 #endif
 /* Task 8 finding: was 0x0efb0000 (251,330,560) -- 0x3000 short of the
  * comment's own claimed value. 251,342,848 = 0xefb3000; caught by
@@ -96,7 +96,7 @@
  * (make_gdi.py --lz4). First blob sector = first sector after the .dat
  * region; CART_SIZE is a 2048-multiple so the division is exact.
  * Spec: docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md */
-#define BLOB_FAD        (CART_FAD + CART_SIZE / 2048)   /* 574604 */
+#define BLOB_FAD        (CART_FAD + CART_SIZE / 2048)   /* 442876 */
 
 /* Phase 7 T3: prefetch ring -- 64 KB stolen from the game heap's BOTTOM by
  * reloc_patchset.json entry "0x13ae68" (heap-base pool word 0x8c1de200 ->

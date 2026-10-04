@@ -986,6 +986,34 @@ after Task 1's captures.
   and the CART_FAD/CART_SIZE cross-check against `shims/include/shim_iface.h`
   are unchanged. That cross-check caught a real bug on the first run — see
   `docs/kb/phase4-conversion.md` §First DC boot for the `CART_SIZE` fix.
+- **Track 4 re-laid out: cart first, loader last (2026-10-04, branch
+  `gdi-track4-fit`).** Donor order `[loader @ LBA 450000][cart]` made our
+  track04 (124,454 sectors) end at LBA 574,454 — 25,304 sectors past the
+  GD-ROM high-density area (ends LBA 549150 = lead-out FAD 549300 − 150,
+  `../flycast4naomi2dreamcast/core/imgread/common.h:148`). GDEMU's default
+  `image_tests = 1` rejects such images ("relaxed to allow oversized media"
+  only when 0 — https://gdemu.wordpress.com/operation/gdemu-operation/)
+  → straight back to the BIOS (operator report, GDEMU-clone fw 5.15b: boots
+  only with `image_tests = 0`). Every GDI since Task 8 had this layout,
+  hence this overrun; Flycast never enforced the limit.
+  - **The loader can't move below LBA 450000.** First attempt shifted all
+    of track 4 (and the FS extent) to 400000: real-BIOS Flycast
+    (`UseReios = no`) dropped to the BIOS menu without ever reading the
+    file. Bisect (`captures/track4/var-{A..D}-1`, same bytes, only the
+    .gdi track-4 start / FS extent varied): gdi 450000 + extent 450000 →
+    reads FAD 450150; gdi **400000** + extent 450000 → reads it too (TOC
+    start irrelevant); extent 400000 or **449000** → never read. Matches
+    GDIBuilder: the boot file "must be at least 100 minutes into the disc"
+    (100 × 60 × 75 = 450,000 —
+    https://projects.sappharad.com/tools/gdibuilder.html) and "placed at
+    the end of the final data track" (https://github.com/Sappharad/GDIbuilder).
+  - **Fix:** track04 = `[cart][--lz4 blob][zero pad][loader]`, track 4 at
+    LBA 320000 (disc.gdi line rewritten), cart at CART_FAD **320150**
+    (was 451878; `shim_iface.h`), loader at the donor's LBA 450000 (track03
+    back to donor-verbatim; `check_boot_extent()` asserts the FS extent),
+    image ends at LBA 451728. 7,274 sectors (~14 MB) between cart end and
+    loader hold the blob; `make_gdi.py` asserts both the blob/loader
+    overlap and the ≤ 549150 end.
 - **`scripts/capture_dc_leg.sh <leg> [gdi-path]`** — DC-profile leg launcher
   (clone of `scripts/capture_leg.sh`, no `FLYCAST_ENTRYPC`/BIOSEXEC export,
   GDI default `build/disc.gdi`, separate `<leg>.stdout.log`). Same launch
@@ -1161,6 +1189,12 @@ is now **xz-compressed in place** (`xz -6`, homebrew xz 5.8.4; parallel
 via `xargs -P 8`) — `<name>` → `<name>.xz`, all verified with `xz -t`.
 Restore with `unxz <file>.xz` (or stream with `xzcat`). KB references
 keep the original names: try `<name>.xz`, then `<name>.zst` (first pass).
+**Exception — `captures/phase4/pc2.log` must stay uncompressed:** it is a
+shim build input (`shims/Makefile` `CAPTURE`, read by
+`extract_mie_blobs.py`), so this pass broke `make gdi` ("pc2.log missing").
+Restored 2026-10-04 with `xz -dk captures/phase4/pc2.log.xz` (340,977
+lines, matches §Phase 4 leg inventory; `cmp`-identical to the first-pass
+`.zst`).
 captures/ went 5.6 GB → 669 MB. Deleted as regenerable/finished:
 `build/cdi-bisect/` (CDI bisect test discs, verdict in §CDI mastering),
 `build-t2b/`, `build-t3/`, `build-t15/` (phase-7 test GDIs; md5s kept in

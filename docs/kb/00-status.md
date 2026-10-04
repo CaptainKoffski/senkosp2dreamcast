@@ -141,6 +141,22 @@ Flycast-verified on the booted CDI
 (`captures/logo-menu-1-rawfb.png`); hardware confirmation outstanding
 (next operator leg batch, standing Flycast≠hardware rule).
 
+**GDI overran the disc — fixed on branch `gdi-track4-fit` (2026-10-04,
+UNMERGED).** Operator report: on a GDEMU clone (fw 5.15b) the GDI boots
+only with `image_tests = 0` in `GDEMU.ini`; default `1` → back to the
+BIOS. Cause: the donor order `[loader @ LBA 450000][245 MB cart]` ended
+track04 at LBA 574,454, past the GD-ROM's 549,150. The loader can't move
+down (the BIOS refuses a boot file below LBA 450000 — Flycast real-BIOS
+bisect + GDIBuilder), so the cart now comes first: track 4 at LBA
+320000 = `[cart][lz4 room][pad][loader @ 450000]`, ending at 451,728;
+CART_FAD 451878 → 320150. Flycast real BIOS, `MENU=0`
+(`captures/track4/menu0-boot1`): full boot ladder to the attract demo,
+cart streamed to +195 MB, 0 SHIMERR. Details + citations:
+`tooling.md` §GDI mastering. Also restored `captures/phase4/pc2.log`
+(a shim build input the morning's xz pass had compressed). **Hardware
+outstanding:** GDEMU boot with `image_tests = 1`, plus a load-time
+spot check (the cart moved inward from LBA ~452k to 320k).
+
 ## What this is
 
 Static binary conversion of *Senko no Ronde Special* (Sega Naomi GD-ROM,

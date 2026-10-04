@@ -14,7 +14,7 @@ int main(void) {
     assert(SHIM_CODE_MAX  == 0x4000u);
     assert(SHIM_END       == 0x8c018000u);
     assert(CART_SIZE == 0x0efb3000u);                 /* 251,342,848 = len(senkosp.dat); Task 8 fixed a 0x3000 typo here */
-    assert(CART_FAD  == 451878);                      /* donor CART_LBA 451728 + 150 (B5 layout) */
+    assert(CART_FAD  == 320150);                      /* CART_LBA 320000 + 150 (cart opens track04) */
 
     /* Region map: ordered, disjoint, and clear of the KOS stack (a length
      * bump would silently overlap the next slice; nothing else checks
