@@ -141,7 +141,7 @@ Flycast-verified on the booted CDI
 (`captures/logo-menu-1-rawfb.png`); hardware confirmation outstanding
 (next operator leg batch, standing Flycast≠hardware rule).
 
-**GDI overran the disc — fixed on branch `gdi-track4-fit` (2026-10-04).** Operator report: on a GDEMU clone (fw 5.15b) the GDI boots
+**GDI overran the disc — fixed, tag `0.16.1` (2026-10-04).** Operator report: on a GDEMU clone (fw 5.15b) the GDI boots
 only with `image_tests = 0` in `GDEMU.ini`; default `1` → back to the
 BIOS. Cause: the donor order `[loader @ LBA 450000][245 MB cart]` ended
 track04 at LBA 574,454, past the GD-ROM's 549,150. The loader can't move
