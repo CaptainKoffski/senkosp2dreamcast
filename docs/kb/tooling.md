@@ -1155,6 +1155,18 @@ build INPUT), f2-shots/f2-campaign-shots/f2-splash-frames, build/donor
 archived to `captures/phase5/f2-campaign-shots/` (gitignored,
 ROM-derived).
 
+**Second pass (2026-10-04, 98% disk):** every capture `*.log` over 1 MB
+and every `*.bin` dump over 1 MB (`*.ram.bin` RAM snapshots, VRAM dumps)
+is now **xz-compressed in place** (`xz -6`, homebrew xz 5.8.4; parallel
+via `xargs -P 8`) — `<name>` → `<name>.xz`, all verified with `xz -t`.
+Restore with `unxz <file>.xz` (or stream with `xzcat`). KB references
+keep the original names: try `<name>.xz`, then `<name>.zst` (first pass).
+captures/ went 5.6 GB → 669 MB. Deleted as regenerable/finished:
+`build/cdi-bisect/` (CDI bisect test discs, verdict in §CDI mastering),
+`build-t2b/`, `build-t3/`, `build-t15/` (phase-7 test GDIs; md5s kept in
+00-status), `build/Archive.zip` (pre-release zip, 2026-08-28). `git gc`
+packed 286 MB loose objects → 19 MB. Repo 14 GB → 3.7 GB.
+
 ### Unused-PAK texture dump (2026-08-27)
 
 One-off extractor (session scratchpad, reuses `pktx_vq.py` walk/LZSS +
@@ -2755,7 +2767,9 @@ streaming endurance).
 Prepared while round 2 read as "same failure": five images to split
 GDEMU-side vs mastering-chain vs loader. Superseded mid-build by the
 operator's three-attempt result above; kept (gitignored,
-`build/cdi-bisect/`) against regressions. Payload source:
+`build/cdi-bisect/`) against regressions until 2026-10-04, then deleted
+for disk (§Capture compression, second pass) — rebuild from the
+per-image mastering column below. Payload source:
 `scripts/cdi-bisect/hello.c` (committed) — KOS, draws a
 magenta/green banner, zero disc access.
 
