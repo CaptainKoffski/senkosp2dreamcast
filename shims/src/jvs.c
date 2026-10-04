@@ -197,8 +197,9 @@ unsigned dc_cond_to_pressed(unsigned w2, unsigned w3, unsigned caps) {
  * the sum runs over everything after the sync, up to but excluding the checksum
  * -- for senkosp's own has-data frame, 0x1b..0x39 with the byte at 0x3a, which
  * the frame's own length field independently confirms (0x1c + frame[0x1c] ==
- * 0x3a; asserted in scripts/extract_mie_blobs.py). Must be recomputed whenever
- * a button byte changes; src/main.c mie_poll() does that every poll. */
+ * 0x3a; asserted in scripts/test_gen_mie_blobs.py test_sub33_idle_identity).
+ * Must be recomputed whenever a button byte changes; src/main.c mie_poll()
+ * does that every poll. */
 unsigned char jvs_checksum(const unsigned char *f) {
     unsigned int s = 0;
     int i;

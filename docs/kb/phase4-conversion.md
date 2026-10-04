@@ -2832,6 +2832,13 @@ the boot driver's last kick.
 
 ### Blob provenance
 
+**Superseded 2026-10-04** — the build now generates these blobs
+(`scripts/gen_mie_blobs.py`, spec `docs/superpowers/specs/2026-10-04-mie-blobs-generator-design.md`); this section remains the
+provenance of the oracle (`scripts/test_gen_mie_blobs.py` compares the two
+byte-for-byte). The system section's byte 9 = `0x1a` is now the explicit
+`menu_def.SYSTEM_COIN_SETTING = 27`; the rest of the system section is Flycast
+`initEeprom` over the ROM header (oracle-verified).
+
 `scripts/extract_mie_blobs.py` harvests **15** reply classes from
 `captures/phase4/pc2.log`, post-`MAINHANDOFF` only (pre-handoff maple traffic
 is the Naomi BIOS's, §R5, and goes to the BIOS's own buffer `0x0c296220`).

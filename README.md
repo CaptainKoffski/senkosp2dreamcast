@@ -39,18 +39,17 @@ your own legally-obtained copies of:
 
 The romset itself must sit in **two** places: under
 `../naomi2dreamcast/naomi/` (step 1's converter reads it there) *and*
-under this repo's `roms/` (the Flycast capture legs of steps 2–3 boot
+under this repo's `roms/` (the Flycast capture leg of step 2 boots
 from there) — exact paths in step 1's comment.
 
-Three more gitignored inputs are needed at build time, but there is
+Two more gitignored inputs are needed at build time, but there is
 nothing to hunt for — you generate each one from the inputs above in
 the numbered steps below:
 
 | Generated input | Path | Made in |
 |---|---|---|
-| MIE capture | `captures/phase4/pc2.log` | step 2 — instrumented-Flycast capture the shim's MIE reply blobs are extracted from at build time |
-| RAM snapshot | `tools/ram-snapshot.bin` | step 3 — 32 MB Naomi RAM dump from the instrumented emulator (BIOS kernel slice source); recipe also in `docs/kb/tooling.md` §"Phase 3: RAM snapshot" |
-| Boot splash | `loader/splash.png` | step 4 — NAOMI boot-logo frame captured from your BIOS |
+| RAM snapshot | `tools/ram-snapshot.bin` | step 2 — 32 MB Naomi RAM dump from the instrumented emulator (BIOS kernel slice source); recipe also in `docs/kb/tooling.md` §"Phase 3: RAM snapshot" |
+| Boot splash | `loader/splash.png` | step 3 — NAOMI boot-logo frame captured from your BIOS |
 
 Optional, also gitignored: `0GDTEX.png`/`.pvr` (disc art for the DC BIOS /
 GDEMU menu) and `iplogo.mr` (license-screen logo).
@@ -113,27 +112,12 @@ md5 bios/naomi/epr-21576h.ic27    # must be d1e4be4862f1f9592b17a042abc5831e
 #    TWO places: ../naomi2dreamcast/naomi/senkosp.zip +
 #    ../naomi2dreamcast/naomi/senkosp/gdl-0038.chd (chd2dat input), and
 #    roms/senkosp.zip + roms/senkosp/gdl-0038.chd in THIS repo (the
-#    Flycast capture legs of steps 2-3 boot from there).
+#    Flycast capture leg of step 2 boots from there).
 ( cd ../naomi2dreamcast/tools/dat-extract && ./chd2dat.sh senkosp )
 cp ../naomi2dreamcast/tools/dat-extract/out/senkosp.dat .
 head -c 5 senkosp.dat; echo       # must print NAOMI
 
-# 2. Run the game once in instrumented Flycast (Naomi mode, fork commit
-#    0d55a1812+) to capture the MIE/JVS traffic the shim replays on DC.
-#    Must run under the interpreter -- the fork's entry gate and PC
-#    tagging fire only there -- so switch dynarec off first, back on
-#    after. (Key absent in a fresh emu.cfg? Toggle Dynarec in Flycast's
-#    UI instead.) The script runs Flycast in the foreground; let it sit
-#    ~300 s (unattended boot -> attract), then FROM A SECOND TERMINAL:
-#    pkill -TERM -f "flycast4naomi2dreamcast.*Flycast"
-#    The shim build extracts the reply blobs from this log automatically.
-#    Botched run? The script refuses to overwrite an existing leg log --
-#    delete captures/<leg>.log first, then rerun.
-sed -i '' 's/Dynarec.Enabled = yes/Dynarec.Enabled = no/' ~/Library/Application\ Support/Flycast/emu.cfg
-scripts/capture_leg.sh phase4/pc2
-sed -i '' 's/Dynarec.Enabled = no/Dynarec.Enabled = yes/' ~/Library/Application\ Support/Flycast/emu.cfg
-
-# 3. Naomi RAM snapshot -> tools/ram-snapshot.bin (the loader needs one
+# 2. Naomi RAM snapshot -> tools/ram-snapshot.bin (the loader needs one
 #    512-byte kernel window that exists in RAM only, not in the BIOS ROM).
 #    Enable Flycast's AutoSaveState, run ~150 s of attract in Naomi mode,
 #    quit Flycast (it auto-saves), carve + validate, set AutoSaveState
@@ -144,18 +128,18 @@ scripts/capture_leg.sh canary-snapshot   # ~150 s, then: pkill -TERM -f "flycast
 python3 scripts/carve_ram_snapshot.py    # 4 control tests -> tools/ram-snapshot.bin
 sed -i '' 's/AutoSaveState = yes/AutoSaveState = no/' ~/Library/Application\ Support/Flycast/emu.cfg
 
-# 4. Capture the NAOMI boot splash (BIOS-drawn; the script boots your
+# 3. Capture the NAOMI boot splash (BIOS-drawn; the script boots your
 #    senkosp.dat). Pick the full-logo frame:
 scripts/capture_naomi_splash.sh                # emits naomi_boot_s*.png
 cp naomi_boot_s6.png loader/splash.png         # frame number may vary
 
-# 5. Optional: disc cover art (DC BIOS menu / GDEMU menu) — drop a 256x256
+# 4. Optional: disc cover art (DC BIOS menu / GDEMU menu) — drop a 256x256
 #    PNG as 0GDTEX.png (or a ready PVR as 0GDTEX.pvr) at the repo root.
 #    Optional: iplogo.mr (Sega MR format, <=8 KB) for the boot TM screen.
 #    Absent, the donor's art / a blank logo slot are kept.
 #    Both contributed by stuart2773 for the release build.
 
-# 6. Texture VQ pass (VRAM arena fit) -- `make gdi` splices
+# 5. Texture VQ pass (VRAM arena fit) -- `make gdi` splices
 #    build/texpatch/ into the cart image at mastering time and FAILS
 #    without it. Needs numpy, hence the one-off venv. ORDER MATTERS:
 #    pktx_vq.py wipes build/texpatch/, shrink_vq.py appends to it.
@@ -165,6 +149,9 @@ python3 -m venv tools/pyenv && tools/pyenv/bin/pip install numpy
 tools/pyenv/bin/python3 scripts/pktx_vq.py
 tools/pyenv/bin/python3 scripts/shrink_vq.py
 ```
+
+The shim's MIE reply blobs are generated at build time by
+`scripts/gen_mie_blobs.py` from your `senkosp.dat` — no capture needed.
 
 Then, and on every rebuild after:
 

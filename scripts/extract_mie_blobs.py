@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Extract senkosp's own MIE reply blobs from a Naomi-mode capture, for the
+"""DEV-ONLY ORACLE since 2026-10 -- not a build input. The build uses
+scripts/gen_mie_blobs.py; scripts/test_gen_mie_blobs.py runs this against
+captures/phase4/pc2.log (when present) to prove the generator byte-identical.
+
+Extract senkosp's own MIE reply blobs from a Naomi-mode capture, for the
 shim's maple service (Phase 4 Task 11).
 
 Adapted from ../cleopatra/scripts/extract_jvs_replies.py. Differences, all

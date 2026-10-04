@@ -104,10 +104,10 @@ void scif_puts(const char *); void scif_puthex(unsigned int);   /* src/scif.c */
 #define SHIM_TRACE 0            /* per-transaction serial; see cart.c */
 #endif
 
-/* Captured MIE replies (scripts/extract_mie_blobs.py -> shims/build/mie_blobs.c,
- * gitignored: captured traffic). Provenance: captures/phase4/pc2.log, the
- * Naomi-mode leg, post-MAINHANDOFF only -- i.e. senkosp's own transactions,
- * never the Naomi BIOS's (§R5). */
+/* MIE replies (scripts/gen_mie_blobs.py -> shims/build/mie_blobs.c, generated:
+ * Flycast emulator output + EEPROM derived from the ROM header and menu_def.py;
+ * spec docs/superpowers/specs/2026-10-04-mie-blobs-generator-design.md).
+ * Byte-identical to the capture-era blobs except the baked game area (Event ON). */
 extern const unsigned char mie_sub01[];   extern const unsigned int mie_sub01_len;
 extern const unsigned char mie_sub03[];   extern const unsigned int mie_sub03_len;
 extern const unsigned char mie_sub13[];   extern const unsigned int mie_sub13_len;
@@ -235,13 +235,11 @@ static void mie_poll(u32 rcv) {
  * backing store on this port -- the EEPROM lives on the MIE, which does not
  * exist on a Dreamcast, and the shim has no VMU/flash writer -- so anything
  * changed in the game's own test menu holds until power-off and then reverts
- * to the baked image. Free play is baked in (image byte 9 = 0x1a, KB §Steady
- * input), so the one setting the port depends on survives a reset regardless.
+ * to the baked image. Free play is baked in (image byte 9 = 0x1a =
+ * menu_def.SYSTEM_COIN_SETTING 27 - 1, KB §Steady input), so the one setting the port depends on survives a reset regardless.
  *
- * Bytes 60..127 of the baked image are RECONSTRUCTED from the Naomi dual-copy
- * layout, not captured (Task 11, scripts/extract_mie_blobs.py rebuild_sub03;
- * verified byte-identical against the EEPROM Flycast itself saved for this ROM,
- * which is a different code path but not a capture). */
+ * Bytes 0x24..0x4B are DEFAULT_RECORD's game area (gen_mie_blobs.py game_area),
+ * the same bytes loader/main.c pokes at boot. */
 static u8 ee[132];                  /* 4-byte reply header + the 128-B image */
 static u8 ee_state = 0xff;          /* 0xff = not yet loaded (.data sentinel) */
 static void ee_load(void) {

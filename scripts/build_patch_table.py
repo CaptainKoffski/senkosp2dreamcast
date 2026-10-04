@@ -662,8 +662,8 @@ _gd_test_server_addr = sym_opt("gd_test_server") or 0
 # shims/src/main.c, dead code carried over from the import). The LIVE EEPROM
 # path (same file, case 0x03/0x0b, docs/kb/phase4-conversion.md "EEPROM -- a
 # RAM copy, session-only") serves sub-0x03 out of a RAM copy of `mie_sub03`
-# -- the generated MIE reply blob (shims/build/mie_blobs.c, rebuild_sub03()
-# in scripts/extract_mie_blobs.py): a 4-byte MIE reply header followed by the
+# -- the generated MIE reply blob (shims/build/mie_blobs.c, sub03()
+# in scripts/gen_mie_blobs.py): a 4-byte MIE reply header followed by the
 # 128-byte EEPROM image. EEPROM_IMG_ADDR therefore resolves to mie_sub03's
 # address; loader/main.c's poke offset folds in the extra +4 header skip so
 # the game-area offset (+0x24 in image coordinates) still lands correctly.
