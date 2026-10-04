@@ -151,11 +151,17 @@ def test_oracle():
     if not (os.path.exists(dat) and os.path.exists(cap)):
         return "oracle SKIP (no senkosp.dat or captures/phase4/pc2.log)"
     rec = bytes.fromhex(menu_def.DEFAULT_RECORD)
-    with tempfile.TemporaryDirectory() as t:
-        env = dict(os.environ, EEPROM_GAME_HEX=g.game_area(rec).hex())
-        subprocess.run([sys.executable, os.path.join(REPO, "scripts", "extract_mie_blobs.py"),
-                        "--out", t], env=env, cwd=REPO, check=True, capture_output=True)
-        want = parse_c(open(os.path.join(t, "mie_blobs.c")).read())
+    # Run it bare, as the KB recipes do: the default output must never be the
+    # build's input (shims/build/mie_blobs.c), or the next make links
+    # capture-era blobs as if they were fresh.
+    built = os.path.join(REPO, "shims", "build", "mie_blobs.c")
+    before = open(built, "rb").read() if os.path.exists(built) else None
+    env = dict(os.environ, EEPROM_GAME_HEX=g.game_area(rec).hex())
+    subprocess.run([sys.executable, os.path.join(REPO, "scripts", "extract_mie_blobs.py")],
+                   env=env, cwd=REPO, check=True, capture_output=True)
+    after = open(built, "rb").read() if os.path.exists(built) else None
+    assert after == before, "extract_mie_blobs.py default --out clobbered shims/build/mie_blobs.c"
+    want = parse_c(open(os.path.join(REPO, "build", "mie-oracle", "mie_blobs.c")).read())
     with open(dat, "rb") as f:
         got = g.all_blobs(f.read(0x500), rec, menu_def.SYSTEM_COIN_SETTING)
     assert list(got) == list(want), (list(got), list(want))

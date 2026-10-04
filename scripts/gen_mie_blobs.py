@@ -9,7 +9,7 @@ below as constants with their emitter cited
 stored as payload only and framed by jvs_blob(). mie_sub03 (EEPROM read) is
 computed: system section from the builder's own senkosp.dat header (port of
 Flycast initEeprom + configure_naomi_eeprom, core/hw/naomi/
-naomi_flashrom.cpp:144-235) plus the port's coin setting, game area from
+naomi_flashrom.cpp:144-269) with the port's coin setting, game area from
 menu_def.DEFAULT_RECORD (the layout loader/naomi_crc.c:20-31 pokes at boot).
 The output carries the ROM's 4-char game ID: generated, gitignored, never
 committed.
@@ -96,9 +96,11 @@ def _players_byte(cabinet):
 
 def system_section(header, coin_setting):
     """EEPROM 0x00..0x23: Flycast initEeprom + configure_naomi_eeprom over a
-    fresh image (naomi_flashrom.cpp:144-235; RomBootID offsets per
-    core/hw/naomi/naomi_cart.h:9-46), then byte 9 := coin_setting - 1 (the
-    port's setting; 27 = FREE PLAY, docs/kb/phase4-conversion.md §FREE PLAY).
+    fresh image (naomi_flashrom.cpp:144-269; RomBootID offsets per
+    core/hw/naomi/naomi_cart.h:9-46). Its last step, the ForceFreePlay write
+    of byte 9 := 27 - 1 (:266-268, option on by default, core/cfg/option.cpp:40),
+    is taken from the port's explicit setting instead: byte 9 := coin_setting - 1
+    (27 = FREE PLAY, docs/kb/phase4-conversion.md §FREE PLAY).
     write_naomi_eeprom (:116-135) mirrors bytes 2..17 at +18 and keeps both
     CRCs (over 2..17, little-endian) in sync -- done once at the end here."""
     game_id = header[0x134:0x138]
@@ -126,7 +128,7 @@ def system_section(header, coin_setting):
         s[2] &= 0xFE
     if cabinet != 0 and cabinet < 0x10 and not cabinet & (1 << (s[8] >> 4)):
         s[8] = _players_byte(cabinet) | (s[8] & 1)      # :211-232
-    s[9] = coin_setting - 1             # the port's setting (menu_def.py)
+    s[9] = coin_setting - 1             # ForceFreePlay slot, :266-268 (menu_def.py)
     s[0:2] = crc16(bytes(s[2:18])).to_bytes(2, "little")
     return bytes(s) * 2
 

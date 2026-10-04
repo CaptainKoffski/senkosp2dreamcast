@@ -29,7 +29,7 @@ bytes come from three different places:
 | Blobs | Bytes come from | Evidence |
 |---|---|---|
 | `mie_sub01/13/17/21/31/33`, `mie_86empty`, `mie_jvsf1/10/11/12/13/14/dflt` (14) | **Flycast's emulated MIE + JVS I/O board** — frame header `87 00 20 <words>` (`BaseMIE::reply`, `maple_jvs.cpp:1283-1289`), sub-command acks and the DIP/ready replies (`:1760-1980`), JVS data frames (`receive_jvs_messages`, `:1716-1754`), JVS answers incl. board ID (`get_id()`, `:1105`) and checksum (`:2487-2491`) | emulator output, not Sega/G.Rev code; the board-ID string is already committed (`extract_mie_blobs.py` `BOARD_ID`) |
-| `mie_sub03` EEPROM **system section** (image 0x00–0x23) | Flycast `initEeprom` + `configure_naomi_eeprom` (`naomi_flashrom.cpp:144-235`) applied to the cart's `RomBootID` header (`naomi_cart.h:9-46`: game ID @0x134, `coinFlag[0]` @0x1E0, `cabinet` @0x429, `vertical` @0x42B) — **plus one later change: byte 9 = `0x1a`** | spike 2026-10-04 (scratch, not committed): the port of `initEeprom` over `senkosp.dat` reproduces the captured section except byte 9 (derived `0x00`, captured `0x1a`); with byte 9 = `0x1a` the CRC is `9d 6e` = captured, all 36 bytes identical. `0x1a` = coin setting 27 = **FREE PLAY** (`docs/kb/phase4-conversion.md` §FREE PLAY) — an operator test-menu edit that persisted in Flycast's EEPROM file before the capture |
+| `mie_sub03` EEPROM **system section** (image 0x00–0x23) | Flycast `initEeprom` + `configure_naomi_eeprom` (`naomi_flashrom.cpp:144-269`) applied to the cart's `RomBootID` header (`naomi_cart.h:9-46`: game ID @0x134, `coinFlag[0]` @0x1E0, `cabinet` @0x429, `vertical` @0x42B) — **plus one later change: byte 9 = `0x1a`** | spike 2026-10-04 (scratch, not committed): the port of `initEeprom` over `senkosp.dat` reproduces the captured section except byte 9 (derived `0x00`, captured `0x1a`); with byte 9 = `0x1a` the CRC is `9d 6e` = captured, all 36 bytes identical. `0x1a` = coin setting 27 = **FREE PLAY** (`docs/kb/phase4-conversion.md` §FREE PLAY). **Corrected in review (2026-10-04):** not an operator edit — Flycast's own `ForceFreePlay` write at the end of `configure_naomi_eeprom` (`naomi_flashrom.cpp:266-268`, on by default, `core/cfg/option.cpp:40`); the spike's port stopped at `:235`, before that line |
 | `mie_sub03` EEPROM **game area** (0x24–0x4B) | the game's own defaults, as captured (Event Mode OFF) | since T18 the loader overwrites this area at every boot from the committed `MENU_DEFAULT_RECORD` (`loader/main.c:486-539`, `scripts/menu_def.py:13`); the captured bytes survive only as the self-check's pristine fallback |
 
 So the port has **two** deliberate default changes, not one: Event Mode ON
@@ -186,9 +186,10 @@ bytes-on-disc differences, both deliberate:
 
 ## Risks
 
-- **Byte-9 provenance.** The derivation explains the captured system
-  section exactly with one override; if a future capture or a different
-  romset revision disagrees, the oracle test (gate 1) is what catches it.
+- **Byte-9 provenance.** Resolved in review: byte 9 is Flycast's
+  `ForceFreePlay` write (`naomi_flashrom.cpp:266-268`), so the derivation
+  is the whole of `configure_naomi_eeprom`, not Flycast plus an override.
+  A different romset revision is still caught by the oracle (gate 1).
 - **ROM revision.** The derivation reads the builder's header; a different
   `senkosp` revision with different `coinFlag`/`cabinet` bytes would yield
   a different (still Flycast-correct) system section. Nothing pins the

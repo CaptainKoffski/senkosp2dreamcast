@@ -11,7 +11,7 @@ carries idx2=None/bytes2=None; the mechanism stays in the header format
 (MENU_SET_IDX2/MENU_SET_BYTE2) because the C code (Task 5) reads it.
 """
 DEFAULT_RECORD = "23511703010101020200460096004600"   # KB §EEPROM game record, idx4 Event=ON (operator 2026-09-30)
-SYSTEM_COIN_SETTING = 27   # Naomi coin setting 27 = FREE PLAY: system EEPROM byte 9 = 27 - 1 = 0x1a (KB phase4-conversion.md §FREE PLAY); read by gen_mie_blobs.py
+SYSTEM_COIN_SETTING = 27   # Naomi coin setting 27 = FREE PLAY: system EEPROM byte 9 = 27 - 1 = 0x1a (KB phase4-conversion.md §FREE PLAY) -- same value Flycast's ForceFreePlay writes (naomi_flashrom.cpp:266-268); read by gen_mie_blobs.py
 
 TOP_ITEMS = ["START GAME", "SETTINGS", "CONTROLS"]
 TOP_FOOTER = "UP/DOWN: MOVE   A: SELECT"
