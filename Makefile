@@ -231,6 +231,7 @@ test:
 	python3 scripts/test_build_patch_table.py
 	python3 scripts/test_maple_literals.py
 	python3 scripts/test_eeprom_game_diff.py
+	python3 scripts/test_gen_mie_blobs.py
 
 # T10b: build the compressed-pak blob + generated map (spec 2026-09-23).
 # Host-side; needs senkosp.dat at repo root. Outputs are derived game

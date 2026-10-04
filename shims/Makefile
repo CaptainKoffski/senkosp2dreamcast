@@ -4,10 +4,9 @@ OBJCOPY = /opt/toolchains/dc/sh-elf/bin/sh-elf-objcopy
 CFLAGS = -ml -m4-single-only -ffreestanding -nostdlib -Os -Wall -Wextra -fno-tree-loop-distribute-patterns -Iinclude
 CFLAGS += $(DEFS)   # debug toggles, e.g. make DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
 B = build
-# Task 11: the MIE reply blobs ARE embedded now, but as generated C
-# ($(B)/mie_blobs.c below), not Cleopatra's xxd-embedded .bin blobs -- they
-# are captured traffic, so they are regenerated at build time and never
-# committed.
+# Task 11: the MIE reply blobs ARE embedded, as generated C ($(B)/mie_blobs.c
+# below), not Cleopatra's xxd-embedded .bin blobs. Since 2026-10 they come
+# from scripts/gen_mie_blobs.py (no capture); generated, never committed.
 # gdstack.S revived in Phase 7 Task 5 (2026-09-03-phase7-t1-dreamshell spec +
 # plan): DreamShell's isoldr backend needs the private-stack/FPU-quarantine/
 # MMUCR-window trampoline gd_sys.c calls as gdc_call -- raw ATA (src/gd.c)
@@ -78,18 +77,19 @@ test:
 	cc -DHOST_TEST -Iinclude -o $(B)/test_gd_math test/test_gd_math.c src/gd.c && $(B)/test_gd_math
 	cc -o $(B)/test_naomi_crc test/test_naomi_crc.c ../loader/naomi_crc.c && $(B)/test_naomi_crc
 	cc -Iinclude -o $(B)/test_lz4_lay test/test_lz4_lay.c src/lz4_lay.c && $(B)/test_lz4_lay
-# MIE reply blobs: captured traffic, so they are GENERATED at build time from a
-# capture log (never committed -- same rule as bios_data.bin in loader/Makefile).
-# Task 11; provenance note in docs/kb/phase4-conversion.md §Attract.
-CAPTURE = ../captures/phase4/pc2.log
-$(B)/mie_blobs.c: ../scripts/extract_mie_blobs.py $(CAPTURE)
+# MIE reply blobs: GENERATED at build time by scripts/gen_mie_blobs.py from
+# committed constants (Flycast emulator output, cited) + the builder's own
+# ../senkosp.dat header + scripts/menu_def.py's port defaults -- no capture
+# needed. Never committed: mie_sub03 carries the ROM's game ID. Spec
+# docs/superpowers/specs/2026-10-04-mie-blobs-generator-design.md.
+$(B)/mie_blobs.c: ../scripts/gen_mie_blobs.py ../scripts/menu_def.py \
+                  ../scripts/eeprom_game_diff.py ../senkosp.dat include/shim_iface.h
 	mkdir -p $(B)
-	python3 ../scripts/extract_mie_blobs.py
-# Fresh clone: captures/ is gitignored (same rule as senkosp.dat in
-# scripts/build_patch_table.py). Say so instead of make's "no rule to make".
-$(CAPTURE):
-	$(error $(CAPTURE) missing -- recapture a Naomi-profile leg with \
-	  scripts/capture_leg.sh, docs/kb/tooling.md §Phase 2 capture harness)
+	python3 ../scripts/gen_mie_blobs.py
+# Fresh clone: senkosp.dat is gitignored (your own romset, README step 1).
+# Say so instead of make's "no rule to make target".
+../senkosp.dat:
+	$(error ../senkosp.dat missing -- README step 1 (generate it from your own romset))
 
 $(B)/shim.elf: $(SRCS) shim.ld include/shim_iface.h src/layouts.h
 	mkdir -p $(B)
