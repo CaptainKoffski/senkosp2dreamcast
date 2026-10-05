@@ -252,8 +252,11 @@ handoff (the Naomi kernel slice sits on the BIOS's low RAM, `shims/src/gd.c`
 header). There's no return to the game's own title screen: the Naomi
 original has no such path. Code: `dc_reset_combo()` in `shims/src/jvs.c`
 (host-tested), acted on in `mie_poll` (`shims/src/main.c`). It's live in
-every mode, test menu included. Status: host tests + SH-4 build only; real
-GDEmu behaviour after the reboot (GDMenu vs relaunch) is **not yet verified**.
+every mode, test menu included. **Hardware-verified 2026-10-05** (operator,
+real DC + GDEmu). The combo mid-game reboots cleanly to the BIOS swirl
+animation. GDEmu then treats it as a normal boot and loads its first image,
+so the player lands back in **GDMenu**. It works from both port A and
+port B.
 
 ## OverDrive wire
 
