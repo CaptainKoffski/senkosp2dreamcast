@@ -240,6 +240,21 @@ stick-only C/Z, unmapped) are unaffected. Verified: host tests
 phase-4 idle baseline) / `dcstick-pad-regress` (standard pad, idle
 unchanged), all `input:device1=4|0`, tooling.md §Leg records.
 
+### Pad reset combo — A+B+X+Y+Start reboots (2026-10-05, branch `feat/pad-reset-combo`)
+
+Tester request (GDEmu users): the retail DC soft-reset combo. Holding
+A+B+X+Y+Start on either port cold-boots the console the same way KOS
+`arch_reboot` does: mask IRQs, then call the BIOS reset vector at P2
+`0xa0000000` (`tools/kos/kernel/arch/dreamcast/kernel/init.c:438-449`; combo
+= `CONT_RESET_BUTTONS`, `dc/maple/controller.h:127`). We can't use
+`arch_menu` (the BIOS-menu syscall) because every BIOS syscall is dead after
+handoff (the Naomi kernel slice sits on the BIOS's low RAM, `shims/src/gd.c`
+header). There's no return to the game's own title screen: the Naomi
+original has no such path. Code: `dc_reset_combo()` in `shims/src/jvs.c`
+(host-tested), acted on in `mie_poll` (`shims/src/main.c`). It's live in
+every mode, test menu included. Status: host tests + SH-4 build only; real
+GDEmu behaviour after the reboot (GDMenu vs relaunch) is **not yet verified**.
+
 ## OverDrive wire
 
 Capture-time binding: D → `DC_BTN_Z` ("Button 6" per Flycast's own

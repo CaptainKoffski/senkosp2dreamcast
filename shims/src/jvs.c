@@ -63,6 +63,15 @@ unsigned dc_to_jvs(unsigned dc_buttons, unsigned layout) {
     return w;
 }
 
+/* The retail DC reset combo, A+B+X+Y+Start all held (KOS dc/maple/
+ * controller.h:127 CONT_RESET_BUTTONS, "used as a reset mechanism by most
+ * retail games"). Takes the PRESSED mask, like dc_to_jvs. Pure: host-tested;
+ * src/main.c mie_poll acts on it. */
+#define CONT_RESET_BUTTONS (CONT_A | CONT_B | CONT_X | CONT_Y | CONT_START)
+int dc_reset_combo(unsigned dc_buttons) {
+    return (dc_buttons & CONT_RESET_BUTTONS) == CONT_RESET_BUTTONS;
+}
+
 /* Test-mode remap (Task 13, criterion 4): when SHIM_STATE[0]==1 (combo boot
  * into the test image, loader/main.c seeds it), the MIE test menu takes over
  * pad 1's Start and A -- Start advances (Test), A selects (Service), the

@@ -169,6 +169,16 @@ int main(void) {
         assert(jvs_checksum(f) == 0x12);
     }
 
+    /* dc_reset_combo: A+B+X+Y+Start, all five held (KOS CONT_RESET_BUTTONS). */
+    {
+        unsigned all = CONT_A | CONT_B | CONT_X | CONT_Y | CONT_START;
+        assert(dc_reset_combo(all));
+        assert(dc_reset_combo(all | CONT_DPAD_UP | CONT_RTRIG));   /* extras don't block it */
+        assert(!dc_reset_combo(all & ~CONT_Y));                    /* any one missing: no reset */
+        assert(!dc_reset_combo(all & ~CONT_START));
+        assert(!dc_reset_combo(0));                                /* idle / no pad */
+    }
+
     printf("PASS test_host dc_to_jvs + jvs_checksum\n");
     return 0;
 }

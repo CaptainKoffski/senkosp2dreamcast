@@ -134,6 +134,20 @@ unsigned char jvs_checksum(const unsigned char *f);     /* src/jvs.c */
 void *xmemcpy(void *, const void *, u32);               /* src/util.c */
 extern u32 devinfo_caps[2];                              /* src/maple.c */
 unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel); /* src/jvs.c, controls spec 2026-09-27 */
+int      dc_reset_combo(unsigned dc_buttons);           /* src/jvs.c */
+
+/* Pad reset combo -> cold boot through the BIOS reset vector, exactly as KOS
+ * arch_reboot does (tools/kos/kernel/arch/dreamcast/kernel/init.c:438-449:
+ * IRQs masked, then call P2 0xa0000000; the mask is KOS arch_irq_disable,
+ * include/arch/irq.h:244-250). Not KOS arch_menu (BIOS-menu syscall): every
+ * BIOS syscall is dead after handoff -- the Naomi kernel slice sits on the
+ * BIOS's low RAM (src/gd.c header). */
+static void __attribute__((noreturn)) pad_reboot(void) {
+    u32 sr; __asm__ volatile ("stc sr,%0" : "=r"(sr));
+    __asm__ volatile ("ldc %0,sr" : : "r"((sr & 0xefffff0fu) | 0xf0u));
+    ((void (*)(void))0xa0000000u)();
+    __builtin_unreachable();
+}
 
 #define MMIR(o) (*(volatile u32 *)P2ADDR(MAPLE_MIRROR + (o)))   /* mirror cell */
 #define UW(a)   (*(volatile u32 *)P2ADDR(a))    /* DMA-source view: uncached */
@@ -190,6 +204,7 @@ static void mie_poll(u32 rcv) {
      * then classify: stick -> fixed arcade layout, pad -> this port's preset
      * byte from the loader-staged word (0 Tournament / 1 Old). */
     u32 p1 = maple_getcond(0), p2 = maple_getcond(1);
+    if (dc_reset_combo(p1) || dc_reset_combo(p2)) pad_reboot();  /* either pad, as retail */
     u32 sel = UW(SHIM_STATE + 4 * SHIM_STATE_PAD_LAYOUT);
     u32 l1 = jvs_pick_layout(devinfo_caps[0], sel & 0xffu);
     u32 l2 = jvs_pick_layout(devinfo_caps[1], (sel >> 8) & 0xffu);
