@@ -124,7 +124,7 @@ head -c 5 senkosp.dat; echo       # must print NAOMI
 #    back to no. (If the sed matches nothing -- fresh Flycast install
 #    without the key -- toggle Auto Save State in Flycast's UI instead.)
 sed -i '' 's/AutoSaveState = no/AutoSaveState = yes/' ~/Library/Application\ Support/Flycast/emu.cfg
-scripts/capture_leg.sh canary-snapshot   # ~150 s, then: pkill -TERM -f "flycast4naomi2dreamcast.*Flycast"
+scripts/capture_leg.sh canary-snapshot & pid=$!   # ~150 s, then: kill -TERM $pid
 python3 scripts/carve_ram_snapshot.py    # 4 control tests -> tools/ram-snapshot.bin
 sed -i '' 's/AutoSaveState = yes/AutoSaveState = no/' ~/Library/Application\ Support/Flycast/emu.cfg
 

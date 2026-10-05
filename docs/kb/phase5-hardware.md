@@ -503,8 +503,7 @@ cartlog("TEXERR idx=%08x code=%08x d98=%08x\n", idx, code, cnt);
 
 ```
 scripts/capture_dc_leg.sh phase5/instrument-ctl build/disc.gdi \
-    -config Debug:SerialConsoleEnabled=yes & sleep 300; \
-FPID=$(pgrep -f "Flycast.app/Contents/MacOS/Flycast" | head -1); \
+    -config Debug:SerialConsoleEnabled=yes & FPID=$!; sleep 300; \
 kill -USR1 $FPID; sleep 5; kill -9 $FPID; wait
 ```
 

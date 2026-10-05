@@ -220,8 +220,10 @@ referenced, not duplicated — that file is part of this project's method.
     once per session (else a prior killed run silently blocks the next boot);
   - `-config config:rend.vsync=no` (unfocused window deadlocks the emu
     thread otherwise);
-  - `pkill -9 -f "flycast-src.*Flycast"` before relaunch (stale instance →
-    SH4 vmem `Verify Failed`, no boot).
+  - stop by PID only (`$!` of the launcher — it `exec`s Flycast), never
+    `pkill -f`/`-x`: other projects run Flycast concurrently (2026-10-04).
+    (Old note: stale instance → SH4 vmem `Verify Failed`; not reproduced
+    with two healthy instances side by side, 2026-10-04.)
 - **Screenshots:** env `FLYCAST_SHOT=/abs/path.png` (+ optional
   `FLYCAST_SHOT_EVERY=N` frames, default 60); `kill -USR1 <pid>` = reliable
   on-demand single grab. 640×480 RGB PNG. Copy the file before reading —
@@ -455,13 +457,14 @@ header".
   — exits nonzero on any failed CHECK.
   Self-check: `cd scripts && python3 test_parse_cartlog.py` → `ok`.
 - **Launch/stop pattern (macOS has no `timeout(1)`):** background the leg,
-  wait out the duration, then kill by process match —
-  `scripts/capture_leg.sh <leg-name> & sleep <secs>; pkill -9 -f "flycast-src.*Flycast"`.
-  `capture_leg.sh` execs into Flycast, so the
-  `pkill` is what ends the run; a killed run mid-profile-scan is a valid
+  wait out the duration, then kill by PID —
+  `scripts/capture_leg.sh <leg-name> & pid=$!; sleep <secs>; kill -9 $pid`.
+  `capture_leg.sh` execs into Flycast, so `$!` is Flycast and the
+  kill is what ends the run (never by name: other projects run Flycast
+  concurrently, 2026-10-04); a killed run mid-profile-scan is a valid
   log (profiles are emitted every ~10 s).
 - **Attract leg (2026-08-19):**
-  `scripts/capture_leg.sh attract & sleep 660; pkill -9 -f "flycast-src.*Flycast"`
+  `scripts/capture_leg.sh attract & pid=$!; sleep 660; kill -9 $pid`
   — 660 s unattended, 39 MB / 1,081,979 lines / 69 MAINPROFILE samples
   (~690 s covered). `CHECK attract_anchor: PASS` — attract high-water
   `0x1fe7520` (33,453,344) reproduces the assessment anchor exactly; all
@@ -513,8 +516,8 @@ header".
 
 ### Phase 3: flat-.dat boot control test (2026-08-20)
 
-- **Leg:** `scripts/capture_leg.sh phase3/datboot "$PWD/senkosp.dat" & sleep
-  120; pkill -9 -f "flycast-src.*Flycast"` — dynarec ON (default; the
+- **Leg:** `scripts/capture_leg.sh phase3/datboot "$PWD/senkosp.dat" & pid=$!;
+  sleep 120; kill -9 $pid` — dynarec ON (default; the
   wrapper's `FLYCAST_ENTRYPC` export is a no-op here since BIOSEXEC only
   fires under the interpreter, §Phase 3 BIOSEXEC entry gate above). Log:
   `captures/phase3/datboot.log` — leg name `phase3/datboot` per controller
@@ -602,9 +605,10 @@ interaction is needed. Exact steps (reproducible):
 1. `sed -i '' 's/Dreamcast.AutoSaveState = no/Dreamcast.AutoSaveState = yes/' \
    ~/Library/Application\ Support/Flycast/emu.cfg` (restored to `no`
    afterwards — the emulator persists config on exit).
-2. `scripts/capture_leg.sh canary-snapshot` (canary log class — deleted
-   after use), let attract run ~150 s, then
-   `pkill -TERM -f "flycast4naomi2dreamcast.*Flycast"` and wait ~20 s.
+2. `scripts/capture_leg.sh canary-snapshot & pid=$!` (canary log class —
+   deleted after use), let attract run ~150 s, then `kill -TERM $pid` and
+   wait ~20 s (SIGTERM is graceful: SDL → SDL_QUIT, exit rc 0; by PID since
+   2026-10-04 — name patterns kill other projects' instances).
    (Pattern updated 2026-09-22: the instrumented build lives in the
    `../flycast4naomi2dreamcast` sibling since the decoupling — the old
    `flycast-src` pattern no longer matches and the auto-save never fires.)
@@ -666,7 +670,7 @@ ls -la senkosp-reloc.dat senkosp.dat   # both 251,342,848 B
 contrast the interpreter-only BIOSEXEC gate above):
 
 ```
-scripts/capture_leg.sh phase3/dryrun-attract "$PWD/senkosp-reloc.dat" & sleep 660; pkill -9 -f "flycast-src.*Flycast"
+scripts/capture_leg.sh phase3/dryrun-attract "$PWD/senkosp-reloc.dat" & pid=$!; sleep 660; kill -9 $pid
 scripts/capture_leg.sh phase3/dryrun-play "$PWD/senkosp-reloc.dat"       # operator: boot -> coin -> one full match -> quit
 ```
 
@@ -2763,8 +2767,10 @@ harness's background zsh the one-call pattern's
 `pgrep -f "Flycast.app/Contents/MacOS/Flycast"` ALSO matches the
 wrapper zsh itself (the eval text embeds the path), `head -1` picks
 the lower PID = the wrapper, and the kill -9 shoots the watcher while
-Flycast survives orphaned. Kill by exact process name instead:
-`pkill -9 -x Flycast`.
+Flycast survives orphaned. ~~Kill by exact process name instead:
+`pkill -9 -x Flycast`.~~ Superseded 2026-10-04: `-x Flycast` kills every
+project's instance; use the leg's own `$!` (`capture_dc_leg.sh` `exec`s
+Flycast, so `$!` is the emulator).
 
 ### Hardware round 2 — GDEMU, audio/data: three attempts, three depths (operator, 2026-09-25, no capture)
 

@@ -120,10 +120,10 @@ operator-leg rule, `.superpowers/sdd/2026-08-22-phase4-conversion/task-2-brief.m
 verified before the leg — this is the point of running under dynarec: the
 content scan proves itself under the same fast-path memory writes a
 write-hook would miss, not just under the interpreter), ~660 s unattended
-boot → attract, killed via `pkill -9 -f "flycast-src.*Flycast"`.
+boot → attract, killed by PID (`$!`).
 
 ```
-scripts/capture_leg.sh phase4/shimwatch & sleep 660; pkill -9 -f "flycast-src.*Flycast"
+scripts/capture_leg.sh phase4/shimwatch & pid=$!; sleep 660; kill -9 $pid
 python3 scripts/parse_cartlog.py captures/phase4/shimwatch.log
 ```
 
@@ -2377,7 +2377,7 @@ typo above, caught by `make_gdi.py`'s own cross-check before boot.
 **Reproduction:**
 ```
 make gdi
-scripts/capture_dc_leg.sh phase4/loader-alive & sleep 90; pkill -9 -f "flycast-src.*Flycast"
+scripts/capture_dc_leg.sh phase4/loader-alive & pid=$!; sleep 90; kill -9 $pid
 grep -c MDODMA captures/phase4/loader-alive.log   # continuous background activity, no gap
 ```
 For the text proof (temporary diagnostic only — do not commit with
@@ -2652,7 +2652,7 @@ flags gate visibility only, exactly as `LOADER_SERIAL`'s Task 8 analysis says.
 
 ```sh
 make -C shims && make gdi
-scripts/capture_dc_leg.sh phase4/<leg> & sleep 120; pkill -9 -f "flycast-src.*Flycast"
+scripts/capture_dc_leg.sh phase4/<leg> & pid=$!; sleep 120; kill -9 $pid
 # diagnostic build (temporary; revert before commit -- Task 8's recipe):
 #   loader/main.c: LOADER_SERIAL -> 1
 #   make -C shims clean && make -C shims DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
@@ -3045,7 +3045,8 @@ post-handoff, **0** `MDODMA` from any game PC.
    `pkill -9 -f "flycast-src.*Flycast"` did **not** match the process in this
    session (the next leg's own startup pkill is what ended the previous one),
    so a log read right after a "kill" can be both truncated *and* still
-   growing. Kill by PID (`pgrep -f "Flycast.app/Contents/MacOS/Flycast"`) and
+   growing. Kill by PID (since 2026-10-04: the leg's own `$!` — `pgrep -f`
+   can hit the wrapper or another project's instance) and
    re-read after the size settles. Three intermediate readings in this task
    suggested a stall that did not exist.
 
@@ -3057,8 +3058,8 @@ python3 scripts/extract_mie_blobs.py                    # 15 classes, all assert
 
 # build + leg (diagnostic: LOADER_SERIAL=1 in loader/main.c, reverted before commit)
 make -C shims clean && make -C shims DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
-make gdi && scripts/capture_dc_leg.sh phase4/attractN &
-# ... let it run, then:  kill -9 $(pgrep -f "Flycast.app/Contents/MacOS/Flycast")
+make gdi && { scripts/capture_dc_leg.sh phase4/attractN & pid=$!; }
+# ... let it run, then:  kill -9 $pid
 # ... wait for the .stdout.log size to settle before reading it
 
 # what to grep for
@@ -3545,9 +3546,9 @@ None of the following can run unattended — each needs a human at the controls.
 Commands are exact; run them from the repo root with the diagnostic build
 (`loader/main.c` `LOADER_SERIAL 1`, `make -C shims clean && make -C shims
 DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'`, `make gdi`), and **kill by PID**
-(`kill -9 $(pgrep -f "Flycast.app/Contents/MacOS/Flycast")`), then wait for the
-`.stdout.log` size to settle before reading it — `pkill -f "flycast-src.*Flycast"`
-does not match the process (§Attract, finding 4).
+(the leg's `$!`: `kill -9 $pid`), then wait for the
+`.stdout.log` size to settle before reading it — name patterns miss the
+process or hit other projects' instances (§Attract, finding 4; 2026-10-04).
 
 | # | leg | what to do | evidence it yields |
 | --- | --- | --- | --- |
@@ -3640,8 +3641,8 @@ make test                                # incl. dc_cond_to_pressed host tests
 
 # diagnostic build + unattended leg (revert LOADER_SERIAL before committing)
 make -C shims clean && make -C shims DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
-make gdi && scripts/capture_dc_leg.sh phase4/steadyN &
-# ... then: kill -9 $(pgrep -f "Flycast.app/Contents/MacOS/Flycast")
+make gdi && { scripts/capture_dc_leg.sh phase4/steadyN & pid=$!; }
+# ... then: kill -9 $pid
 # ... and wait for the .stdout.log size to settle before reading it
 
 tr '\r' '\n' < captures/phase4/steadyN.stdout.log > /tmp/s.txt
@@ -3984,8 +3985,8 @@ make test                                # incl. 7 new dc_to_jvs_test host asser
 # regression leg (diagnostic build, revert LOADER_SERIAL before committing)
 make -C shims clean && make -C shims DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
 # loader/main.c: LOADER_SERIAL -> 1
-make gdi && scripts/capture_dc_leg.sh phase4/teststaticN &
-# ... then: kill -9 $(pgrep -f "Flycast.app/Contents/MacOS/Flycast")
+make gdi && { scripts/capture_dc_leg.sh phase4/teststaticN & pid=$!; }
+# ... then: kill -9 $pid
 # ... and wait for the .stdout.log size to settle before reading it
 
 # diagnostic test-boot leg (same shim; loader/main.c: LOADER_FORCE_TEST_BOOT -> 1)
@@ -4676,9 +4677,8 @@ inputs `tooling.md` documents reproduce the exact shipped disc.
 ### `phase4/final` — unattended DC-profile verification leg (this task)
 
 ```sh
-scripts/capture_dc_leg.sh phase4/final & LEGPID=$!; sleep 150; \
-FPID=$(pgrep -f "Flycast.app/Contents/MacOS/Flycast" | head -1); kill -USR1 $FPID; \
-sleep 5; kill -9 $FPID 2>/dev/null; wait $LEGPID 2>/dev/null; true
+scripts/capture_dc_leg.sh phase4/final & FPID=$!; sleep 150; \
+kill -USR1 $FPID; sleep 5; kill -9 $FPID 2>/dev/null; wait $FPID 2>/dev/null; true
 ```
 
 Release configuration (committed defaults — no `LOADER_SERIAL`, no

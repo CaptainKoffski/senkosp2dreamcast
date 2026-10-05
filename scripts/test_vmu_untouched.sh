@@ -32,9 +32,8 @@ DISC="$REPO/build/disc.gdi"
 [ -x "$BIN" ]  || { echo "ERROR: Flycast not built (sibling repo): $BIN" >&2; exit 1; }
 [ -f "$DISC" ] || { echo "ERROR: disc not built (make disc): $DISC" >&2; exit 1; }
 
-# Launch gotchas: stale instance wedges SH4 vmem; macOS relaunch modal blocks
-# boot forever (docs/kb/tooling.md).
-pkill -9 -f "flycast4naomi2dreamcast.*Flycast" 2>/dev/null || true
+# Launch gotcha: macOS relaunch modal blocks boot forever (docs/kb/tooling.md).
+# No pre-launch pkill: other projects' Flycast instances may be running.
 defaults write com.flyinghead.Flycast ApplePersistenceIgnoreState -bool YES 2>/dev/null || true
 defaults write com.flyinghead.Flycast NSQuitAlwaysKeepsWindows -bool false 2>/dev/null || true
 
@@ -67,7 +66,10 @@ else
     # Graceful quit, NOT kill -9: VMU fwrites are stdio-buffered and only
     # guaranteed on-disk after clean fclose (maple_devs.cpp fullSave/BlockWrite
     # have no fflush) -- a SIGKILL could hide a small write = false PASS.
-    osascript -e 'quit app "Flycast"' 2>/dev/null || true
+    # SIGTERM to THIS pid (`quit app "Flycast"` hits any instance): SDL turns
+    # it into SDL_QUIT (flycast core/deps/SDL/src/events/SDL_quit.c:116-119)
+    # = same graceful path; measured exit rc=0, not 143 (2026-10-04).
+    kill -TERM "$PID" 2>/dev/null || true
     n=0
     while kill -0 "$PID" 2>/dev/null && [ "$n" -lt 20 ]; do sleep 1; n=$((n+1)); done
     if kill -0 "$PID" 2>/dev/null; then
