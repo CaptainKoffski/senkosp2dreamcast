@@ -24,6 +24,14 @@ branch point, three hardware timing legs). Story: `phase7-polishing.md`
 §T10b; spec `docs/superpowers/specs/2026-09-23-t10b-lz4-pak-load-design.md`
 (4 amendments); merge decision pending with the operator.
 
+**Widescreen spike (2026-10-07) — PARKED, not shipped.** 16:9 anamorphic
+rendering is a 3-word poke on Ninja2's screen struct (`0x8c1a1c48`, ax at
++0x1c = 0.75) and was emulator-verified by the operator, but the game's
+playfield rule (the 4:3 screen edge is the arena boundary) leaves an
+invisible wall in the revealed area; widening it is a gameplay change.
+Record, prior art (Dolphin Blue = 12-byte pointer redirect), probe recipe
+and resume path: `docs/kb/widescreen-spike.md`.
+
 **Tester-requested CD-R path (2026-09-24): `make cdi`, and `make
 release` now emits both zips ([GDI] + [CDI]).** Generic GDI→CDI
 conversion is impossible for this port (the shim streams the cart from
