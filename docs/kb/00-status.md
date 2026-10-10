@@ -61,9 +61,10 @@ sectors) between the FS region and the cart — the FS copy is scrambled
 `LOADER_FAD 13644` arm; no shim/loader code change, image 292 → 296 MB.
 Emulator-proven on the CDI (leg `softreset/cdi-wb2`: three game → menu
 → game cycles, 0 SHIMERR, menu frame md5-identical cold vs. after each
-warm boot). Hardware pending (GDEmu round; a burned CD-R is the final
-CDI verdict). `input-map.md` §Warm boot to the menu, CDI;
-`tooling.md` §CDI mastering, Layout.
+warm boot) and **hardware-verified (operator, 2026-10-11, GDEmu: "combo
+goes to the menu on the CDI too")**; a burned CD-R remains the final
+CDI verdict. `input-map.md` §Warm boot to the menu, CDI; `tooling.md`
+§CDI mastering, Layout.
 
 **Tester-requested CD-R path (2026-09-24): `make cdi`, and `make
 release` now emits both zips ([GDI] + [CDI]).** Generic GDI→CDI

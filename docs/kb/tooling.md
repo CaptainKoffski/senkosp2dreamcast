@@ -2716,7 +2716,9 @@ sector 16, root dir extent absolute LBA 11725, `1ST_READ` extent 11726,
 cart first sector byte-equal to `senkosp.dat` at data-track sector 1792
 — the plain copy shifts only the cart (now data-track sector 3520).
 New layout verified functionally: leg `softreset/cdi-wb2` warm-boots the
-loader from FAD 13644 three times (`input-map.md` §Warm boot, CDI).
+loader from FAD 13644 three times, and the operator's GDEmu round
+(2026-10-11) does the same on real hardware (`input-map.md` §Warm boot,
+CDI).
 
 **Round 1 (SUPERSEDED 2026-09-24, same day): data/data via `cdi4dc
 -d`** — MSINFO-0 data track in session 1 (cart FAD 1942), 300-sector

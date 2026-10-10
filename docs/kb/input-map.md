@@ -426,11 +426,13 @@ cartlog MMUCRWR ladder per cycle `8c0108d2` (loader) → `8c02d630` (game)
 (~3,700 each, in line with the GDI's 3,556), `SHIMERR` 0, `System reset`
 0. Menu RAWFB frame md5 `2610066e…` identical at t=18 s (cold) and
 t=63/108/153 s (after each warm boot); NAOMI splash frame identical
-cold vs warm. Hardware: pending (operator GDEmu round; per the standing
-CDI lesson a GDEmu pass ≠ burned-disc pass, so a CD-R burn is the final
-CDI verdict). Expectation for a real CD-R: the drive reads the 3.5 MB
-plain copy at ~1.8 MB/s (12× CAV peak), so the combo's black gap is
-~2 s there vs. GDEmu's ~0.5 s.
+cold vs warm. **Hardware (operator, 2026-10-11, real DC + GDEmu serving
+the clean `make cdi` image, md5 `d82112f0…`): PASS** — "works on
+hardware, combo goes to the menu on the CDI too". Not yet run from a
+burned CD-R (per the standing CDI lesson a GDEmu pass ≠ burned-disc
+pass); expectation there: the drive reads the 3.5 MB plain copy at
+~1.8 MB/s (12× CAV peak), so the combo's black gap is ~2 s vs. GDEmu's
+~0.5 s.
 
 **Open (not a blocker):** DreamShell / isoldr: untested — the syscall
 backend path is the same `gd_read` dispatch, and isoldr's resident
