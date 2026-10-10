@@ -127,11 +127,17 @@ endif
 ifeq ($(TESTSRV),1)
 DEFS += -DGD_TEST_SERVER=1 -DLOADER_TESTSRV=1
 endif
-# FORCE_CARVE=1 (fix round 2): apply the heap-carve tables even on the raw
-# backend -- one-variable isolation of the carve from backend selection.
-# Test-only, never shipped.
-ifeq ($(FORCE_CARVE),1)
-DEFS += -DFORCE_CARVE=1
+# FAKECOMBO=N / FAKESTART=MS (soft-reset-menu, 2026-10-10): emulator legs of
+# the pad reset combo -- the fork can't inject the combo, and its
+# FLYCAST_START_AT never fires on the FB-only menu. Shim fires the reset
+# path after N input polls (~60/s); loader presses START MS ms into the
+# menu. Test-only, never shipped. (FORCE_CARVE retired: the heap carve is
+# unconditional since soft-reset-menu.)
+ifneq ($(FAKECOMBO),)
+DEFS += -DSHIM_FAKE_COMBO=$(FAKECOMBO)
+endif
+ifneq ($(FAKESTART),)
+DEFS += -DLOADER_FAKE_START=$(FAKESTART)
 endif
 # PRESET_NOTE=1: loader renders the tester-facing DreamShell preset_note()
 # screen unconditionally at entry -- emulator screenshot leg only (the real

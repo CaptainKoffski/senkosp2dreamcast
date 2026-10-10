@@ -1610,11 +1610,26 @@ is byte-for-byte unaffected.
   syscall vector pair (`0x8c0000bc`/`c0`) just before handoff, so
   `gdstack.S`'s `gdc_call` trampoline gets a real callee. Emulator +
   hardware control legs only.
-- **`FORCE_CARVE=1`** → `-DFORCE_CARVE=1`. Applies the heap-carve tables
+- **`FORCE_CARVE=1`** → `-DFORCE_CARVE=1`. Applied the heap-carve tables
   even on the raw backend (`loader/main.c`'s gate: `if (backend ||
   FORCE_CARVE)`) — one-variable isolation of the carve from backend
-  selection, so a carve regression can be tested without also forcing the
-  syscall path. Test-only.
+  selection. **Retired 2026-10-10 (branch `soft-reset-menu`):** the carve
+  is unconditional now (the BIOS syscall-RAM snapshot lives in it,
+  `docs/kb/input-map.md` §Warm boot to the menu), so the knob is gone.
+- **`FAKECOMBO=N` / `FAKESTART=MS` (soft-reset-menu, 2026-10-10)** →
+  `-DSHIM_FAKE_COMBO=N` / `-DLOADER_FAKE_START=MS`. Emulator legs of the
+  pad reset combo: the fork cannot inject the combo, and its
+  `FLYCAST_START_AT` counts `MainFrameCount` (TA frames only,
+  `core/ui/mainui.cpp:65`) so it never fires on the FB-only menu. The shim
+  fires its reset path after N input polls (~60/s, `shims/src/main.c`
+  `mie_poll`); the loader presses START for ~100 ms, MS ms into the menu
+  (`loader/menu.c` `edge()`). Recipe that produced `captures/softreset/`:
+  `make objclean && FAKECOMBO=1800 FAKESTART=6000 make gdi SERIAL=1`, then
+  `scripts/capture_rawfb_leg.sh softreset/<leg> 165 4` (bounded
+  `capture_dc_leg.sh` wrapper: `pvr.rend=0`, serial console on, a RAWFB
+  dump every 4 s saved as `shot-<leg>-NNN-tTs.png`, SIGINT then SIGKILL by
+  PID). `make objclean` is required: a knob change alone does not
+  invalidate the objects. Never ship either knob.
 - **`GDDIAG=1`** → `-DSHIM_GD_DIAG=1`. On-screen GD-syscall tracer + private
   syscall-stack low-water mark (TV-debuggable, serial-silent by design — the
   DreamShell debugging instrument, since a real dongle owns SCIF). Never

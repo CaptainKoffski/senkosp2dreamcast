@@ -49,6 +49,14 @@ static uint32 buttons(int nth) {            /* nth enumerated pad; none = 0 */
 static uint32 held;
 static uint32 edge(void) {
     uint32 cur = buttons(0);
+#if LOADER_FAKE_START
+    /* Emulator-leg knob (FAKESTART=MS, top Makefile): press START for ~100 ms,
+     * LOADER_FAKE_START ms after the menu opens. The fork's FLYCAST_START_AT
+     * counts TA frames only and never fires on this FB-only screen. Never ship. */
+    { static uint64 t0; uint64 now = timer_ms_gettime64();
+      if (!t0) t0 = now;
+      else if (now - t0 > LOADER_FAKE_START && now - t0 < LOADER_FAKE_START + 100u) cur |= CONT_START; }
+#endif
     if ((cur & CONT_RESET_BUTTONS) == CONT_RESET_BUTTONS ||
         (buttons(1) & CONT_RESET_BUTTONS) == CONT_RESET_BUTTONS)
         arch_reboot();

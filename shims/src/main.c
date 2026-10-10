@@ -170,6 +170,20 @@ static void __attribute__((noreturn)) pad_reboot(void) {
     int  gd_read(unsigned fad, void *dst, unsigned secs);        /* src/gd.c, backend dispatch */
     void handoff(const void *records_p2, u32 entry);             /* ../loader/handoff.S (PIC) */
     extern u8 handoff_end[];
+    /* Silence FIRST. Operator hardware round 2026-10-10: with the ARM held
+     * only after the disc read, the AICA looped its stale buffers for the
+     * ~0.5 s read = an audible stutter. KOS spu_disable + spu_reset_chans in
+     * their order (tools/kos/kernel/arch/dreamcast/hardware/spu.c:253-300):
+     * master volume 0, ARM held, every channel keyed off (0x8000 = KYONEX
+     * with KYONB clear); FIFO_STATUS AICA|G2 clear before each G2 write
+     * (g2bus.c:162-166, dc/fifo.h). KOS spu_init leaves the master volume
+     * at 0 on every boot and the game restores it itself, so this is the
+     * already-proven boot state, not a new one. */
+#define G2W(a, v) do { while (*(volatile u32 *)0xa05f688c & 0x11u) ; *(volatile u32 *)(a) = (v); } while (0)
+    G2W(0xa0702800u, *(volatile u32 *)0xa0702800u & ~0xfu);
+    G2W(0xa0702c00u, *(volatile u32 *)0xa0702c00u | 1u);
+    for (u32 c = 0; c < 64u; c++) G2W(0xa0700000u + c * 0x80u, 0x8000u);
+#undef G2W
     for (u32 s = 0; s < LOADER_SECS; s += 256u) {                /* 512 KB per read */
         u32 n = LOADER_SECS - s < 256u ? LOADER_SECS - s : 256u;
         if (gd_read(LOADER_FAD + s, (void *)P2ADDR(WARM_IMG + s * 2048u), n) < 0) cold_reboot();
@@ -181,11 +195,10 @@ static void __attribute__((noreturn)) pad_reboot(void) {
     rec[6] = 0; rec[7] = 0; rec[8] = 0;
     /* Hardware BIOS-fresh enough for KOS, mirroring loader/main.c's handoff
      * block: MMU off (the game runs AT=1), TA reset, interrupt latches
-     * cleared; plus the AICA ARM held so the game's music stops now. */
+     * cleared. */
     *(volatile u32 *)0xff000010 = 0;
     *(volatile u32 *)0xa05f8008 = 3; (void)*(volatile u32 *)0xa05f8008; *(volatile u32 *)0xa05f8008 = 0;
     *(volatile u32 *)0xa05f6900 = 0xffffffffu; *(volatile u32 *)0xa05f690c = 0xffffffffu;
-    *(volatile u32 *)0xa0702c00 |= 1u;
     scif_puts("WARMBOOT\n");
     ((void (*)(const void *, u32))P2ADDR(WARM_STUB))((const void *)P2ADDR(WARM_REC), SHIM_BASE);
 #endif
@@ -248,6 +261,11 @@ static void mie_poll(u32 rcv) {
      * byte from the loader-staged word (0 Tournament / 1 Old). */
     u32 p1 = maple_getcond(0), p2 = maple_getcond(1);
     if (dc_reset_combo(p1) || dc_reset_combo(p2)) pad_reboot();  /* either pad, as retail */
+#if SHIM_FAKE_COMBO
+    /* Emulator-leg knob (FAKECOMBO=N, top Makefile): the fork can't inject
+     * the combo, so fire the reset path after N polls (~60/s). Never ship. */
+    { static u32 fake_n = 1; if (++fake_n > (u32)SHIM_FAKE_COMBO) pad_reboot(); }
+#endif
     u32 sel = UW(SHIM_STATE + 4 * SHIM_STATE_PAD_LAYOUT);
     u32 l1 = jvs_pick_layout(devinfo_caps[0], sel & 0xffu);
     u32 l2 = jvs_pick_layout(devinfo_caps[1], (sel >> 8) & 0xffu);

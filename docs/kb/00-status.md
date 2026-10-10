@@ -45,8 +45,11 @@ in-game combo means "back to the launcher". Emulator (leg) and real
 discs re-boot into our menu.
 **Branch `soft-reset-menu` (2026-10-10, unmerged): the in-game combo
 warm-boots the loader and lands in our menu** — emulator-proven (three
-and five consecutive game → menu → game cycles, `captures/softreset/`),
-hardware round pending. Mechanism: the loader snapshots the DC BIOS
+and five consecutive game → menu → game cycles, `captures/softreset/`)
+and **hardware-verified round 1** (operator, GDEmu: "combo goes to the
+menu"); the one finding, a music stutter during the disc read, is fixed
+by silencing the AICA first (KOS `spu_disable` order), hardware round 2
+pending. Mechanism: the loader snapshots the DC BIOS
 syscall RAM into a 64 KB heap carve before handoff; the shim reads the
 loader back from disc into dead-game RAM and re-places both with the
 handoff stub. GDI only so far. Story in `docs/kb/input-map.md` §Warm boot

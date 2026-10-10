@@ -347,13 +347,29 @@ record 2 places the image at `SHIM_BASE` (= KOS `_start`, over the shim
 itself), then the stub's CCR write invalidates both caches and jumps to
 `0x8c010000`. Before the jump the shim mirrors the loader's own handoff
 block: IRQs masked (SR.IMASK=15), `MMUCR = 0` (the game runs AT=1), TA
-reset, interrupt latches cleared, plus the AICA ARM held so the music
-stops at once (`shims/src/main.c` `pad_reboot`). Hooks never nest, so no
-GD or maple DMA is in flight when `mie_poll` sees the combo. A failed disc
-read falls back to the old cold reboot. KOS then boots exactly as from the
-BIOS: `startup.s` sets its own SR/stack, `arch_main` clears `.bss`
-(`tools/kos/kernel/arch/dreamcast/kernel/init.c:299`), `cdrom_init`
-re-inits the restored GD syscalls.
+reset, interrupt latches cleared (`shims/src/main.c` `pad_reboot`). Hooks
+never nest, so no GD or maple DMA is in flight when `mie_poll` sees the
+combo. A failed disc read falls back to the old cold reboot. KOS then
+boots exactly as from the BIOS: `startup.s` sets its own SR/stack,
+`arch_main` clears `.bss` (`tools/kos/kernel/arch/dreamcast/kernel/
+init.c:299`), `cdrom_init` re-inits the restored GD syscalls.
+
+**Sound is silenced FIRST, before the disc read.** The first hardware
+build held the AICA ARM only after the read, and the operator heard the
+music stutter for the ~0.5 s the 3.5 MB read takes (the AICA kept looping
+its stale buffers with nobody feeding it). The fix is KOS's own
+`spu_disable` + `spu_reset_chans` sequence, in their order
+(`tools/kos/kernel/arch/dreamcast/hardware/spu.c:253-300`): master volume
+`0x2800 &= ~0xf`, ARM held (`0x2c00 |= 1`), every channel keyed off
+(`0x8000` = KYONEX with KYONB clear, 64 channels), each G2 write preceded
+by a FIFO wait on `0xa05f688c` AICA|G2 (`g2bus.c:162-166`, `dc/fifo.h`).
+Safe by construction: KOS `spu_init` leaves the master volume at 0 on
+every boot (`spu.c:357`) and the game restores it itself, so the warm boot
+hands the game the same silent AICA a BIOS boot does. Emulator regression
+of the reorder: leg `wb6` (menu on, `FAKECOMBO=1800 FAKESTART=6000`,
+165 s) — three game → menu → game cycles, 3,556 frames each, `SHIMERR` 0,
+post-warm-boot menu dumps md5-identical to the first boot (`wb5` was the
+host-side dynarec VMEM `Verify Failed` launch flake, entry1's twin; kept).
 
 **Emulator evidence (Flycast fork, `captures/softreset/`, 2026-10-10):**
 the fork cannot inject the combo, and its `FLYCAST_START_AT` hook advances
@@ -376,15 +392,21 @@ in-game) and loader `LOADER_FAKE_START=6000` (START 6 s into the menu).
 - `wb1` crashed at launch on the known Vulkan flake (`pvr.rend=0`,
   `docs/kb/tooling.md` §RAWFB); kept per the never-delete-a-leg rule.
 
-**Open before this can ship:** (1) operator hardware round on GDEmu —
-combo mid-match → menu → START → plays; (2) CDI: the FS copy of
-`1ST_READ.BIN` is scrambled, so `LOADER_FAD` is defined for the GDI
-geometry only (`shim_iface.h`) and a CDI build keeps the cold reboot until
-a plain copy is appended past the cart like the LZ4 blob; (3) DreamShell
-/ isoldr: untested — the syscall backend path is the same `gd_read`
-dispatch, and isoldr's resident driver at `0x8cff0000` is outside both
-destinations; (4) the top Makefile's `FORCE_CARVE` knob is now a no-op
-(the carve is unconditional) — retire it with the keep decision.
+**Hardware round 1 (operator, 2026-10-10, real DC + GDEmu): PASS** —
+"yes it works on hardware, combo goes to the menu"; one finding, the
+music stutter above, fixed the same day (silence-first build; hardware
+re-check pending as round 2).
+
+**Open before this can ship:** (1) hardware round 2 — the silence-first
+build: combo mid-match, music must cut instantly, menu, START plays again;
+(2) CDI: the FS copy of `1ST_READ.BIN` is scrambled, so `LOADER_FAD` is
+defined for the GDI geometry only (`shim_iface.h`) and a CDI build keeps
+the cold reboot until a plain copy is appended past the cart like the LZ4
+blob; (3) DreamShell / isoldr: untested — the syscall backend path is the
+same `gd_read` dispatch, and isoldr's resident driver at `0x8cff0000` is
+outside both destinations. The `FORCE_CARVE` knob is retired
+(`docs/kb/tooling.md` §Phase 7 build knobs); the two leg knobs
+`FAKECOMBO`/`FAKESTART` are recorded there.
 
 ## OverDrive wire
 
