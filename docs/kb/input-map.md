@@ -258,6 +258,72 @@ animation. GDEmu then treats it as a normal boot and loads its first image,
 so the player lands back in **GDMenu**. It works from both port A and
 port B.
 
+**Loader menu (2026-10-07):** the combo is live in the pre-game menu too
+(`loader/menu.c` `edge()`): held on either of the first two enumerated pads
+→ KOS `arch_reboot()`, the same reset-vector jump. Checked on the held
+mask, not the edge, because five buttons rarely land in one 60 Hz frame.
+START therefore starts the game on *release*: a START that lands a frame
+before A+B+X+Y would otherwise launch the game instead of rebooting.
+Before this the menu simply never looked at the combo — it polls the pad
+itself, and this KOS installs no default combo handler
+(`cont_btn_callback` has no caller under `tools/kos/kernel`). Emulator
+evidence (the fork can't inject pad input — tooling.md §RAWFB): leg
+`captures/menu-reset/rt1`, a throwaway build that OR-ed the combo into
+`cur` once `timer_ms_gettime64()` passed 8 s, RAWFB dumps every 2 s for
+70 s — four cycles of menu → ~8 s black (BIOS boot; the swirl's TA frames
+don't land in the FB-only dump) → Naomi splash → menu, i.e. `arch_reboot`
+from the menu re-boots the disc into the loader. Throwaway reverted same
+session; the clean rebuild is byte-identical to the pre-diag loader
+(`1ST_READ.BIN` md5 `f5b48e17…`). **Hardware-verified 2026-10-10**
+(operator, real DC + GDEmu: "yes it works"; protocol asked: combo in the
+menu → reboot, plain START → game, START-then-A+B+X+Y → reboot, not
+start).
+
+#### Why the in-game combo reboots instead of returning to the pre-game menu
+
+The obvious ask — in-game combo → our menu, menu combo → console reset —
+is half a tweak and half a feature. After handoff there is nothing to
+return to:
+
+- **The loader is gone.** KOS links it at `0x8c010000` (~838 KB), which is
+  exactly where the shim window, the 0x60000 blob and the game image land;
+  the handoff stub copies them over it (`loader/main.c` §staging layout,
+  `loader/handoff.S` header). Menu code, assets and the KOS runtime no
+  longer exist in RAM once the game runs.
+- **The BIOS is gone too.** The Naomi kernel slice sits on
+  `0x8c000600-0x8c003800`, the BIOS's own syscall RAM (`shims/src/gd.c`
+  header; `pad_reboot` comment, `shims/src/main.c`), so neither `arch_menu`
+  nor any GD syscall can re-launch anything. Only the reset vector
+  survives, and that is a full cold boot.
+- **Warm-booting the loader ourselves would need, at minimum:** (1) the
+  shim re-reading `1ST_READ.BIN` through its own GD backend into high RAM,
+  then a relocated stub to place it at `0x8c010000` and jump (the shim
+  lives there, so it can't copy over itself); the GDI copy is plain
+  (`scripts/make_gdi.py` BOOT_LBA), the CDI copy is scrambled
+  (`scripts/make_cdi.py` §FS copy), so a descrambler or a second plain
+  copy; (2) quiescing what the game leaves running — interrupts, Maple +
+  G1 DMA, TA, the AICA ARM; (3) a KOS that boots without a BIOS:
+  `INIT_DEFAULT` includes `INIT_CDROM`, whose `cdrom_init()` calls
+  `syscall_gdrom_init()` (`tools/kos/kernel/arch/dreamcast/hardware/
+  cdrom.c:800`) — a dead vector on stock BIOS/GDEmu — so opt out and move
+  the loader's cart read from `cdrom_read_sectors` to the raw-ATA
+  `gd_read_fad` it already rehearses with, isoldr syscall fallback
+  fingerprinted first (probe exists, `loader/main.c` rehearsal block);
+  video is safe (`vid_set_mode` reads only the cable register,
+  `hardware/video.c:231`); (4) hardware rounds on GDEmu and isoldr, where
+  every miss is a black screen debugged over serial. Estimate: a few
+  sessions plus two or three hardware rounds. Not started.
+- **Cheap middle ground — holds everywhere except GDEmu.** The reboot comes
+  back through the BIOS into our loader and menu on the emulator (leg
+  above) and, by the ordinary disc-boot path, on a real GD-R / CD-R (not
+  hardware-tested for this port). On GDEmu it never does — **operator
+  hardware test 2026-10-10:** GDEMU.ini `reset_goto = 1` → GDMenu,
+  `reset_goto = 0` → the DC BIOS menu (i.e. no bootable disc presented
+  after the reset; GDEmu does not re-boot the running image either way).
+  So for GDEmu users the in-game combo means "back to the launcher", and
+  our menu is one image boot away. Accepted; in-game return to our menu
+  stays parked.
+
 ## OverDrive wire
 
 Capture-time binding: D → `DC_BTN_Z` ("Button 6" per Flycast's own

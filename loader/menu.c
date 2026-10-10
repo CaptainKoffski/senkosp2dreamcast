@@ -32,15 +32,28 @@ static void blit(mrect_t src, int dx, int dy) {
                sheet + (src.y + row) * MENU_SHEET_W + src.x, src.w * 2);
 }
 
-/* One ~60 Hz poll; returns newly-pressed buttons (edge detect). A missing /
- * unplugged pad reads as 0 -- the menu just waits. */
-static uint32 edge(void) {
-    static uint32 prev;
-    maple_device_t *c = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
+static uint32 buttons(int nth) {            /* nth enumerated pad; none = 0 */
+    maple_device_t *c = maple_enum_type(nth, MAPLE_FUNC_CONTROLLER);
     cont_state_t *st = c ? (cont_state_t *)maple_dev_status(c) : NULL;
-    uint32 cur = st ? (uint32)st->buttons : 0;
-    uint32 e = cur & ~prev;
-    prev = cur;
+    return st ? (uint32)st->buttons : 0;
+}
+
+/* One ~60 Hz poll; returns newly-pressed buttons (edge detect). A missing /
+ * unplugged pad reads as 0 -- the menu just waits. `held` = pad 1's buttons
+ * down after the poll (menu_run's START-release rule).
+ * Retail soft-reset combo (KOS CONT_RESET_BUTTONS, dc/maple/controller.h)
+ * HELD on either of the first two pads reboots the console: KOS arch_reboot,
+ * the same reset-vector jump the shim's pad_reboot makes in-game. Held, not
+ * edge -- five buttons rarely land in one frame. Lives here so it's live on
+ * every menu screen. */
+static uint32 held;
+static uint32 edge(void) {
+    uint32 cur = buttons(0);
+    if ((cur & CONT_RESET_BUTTONS) == CONT_RESET_BUTTONS ||
+        (buttons(1) & CONT_RESET_BUTTONS) == CONT_RESET_BUTTONS)
+        arch_reboot();
+    uint32 e = cur & ~held;
+    held = cur;
     thd_sleep(16);
     return e;
 }
@@ -182,7 +195,13 @@ void menu_run(void) {
     draw_top(cur);
     for (;;) {
         uint32 e = edge();
-        if (e & CONT_START) break;               /* start from anywhere */
+        /* Start from anywhere -- on RELEASE: a START landing a frame before
+         * A+B+X+Y must reboot (edge() sees the combo while we wait), not
+         * start the game. */
+        if (e & CONT_START) {
+            while (held & CONT_START) edge();
+            break;
+        }
         if (e & CONT_DPAD_UP)   { cur = (cur + 2) % 3; draw_top(cur); }
         if (e & CONT_DPAD_DOWN) { cur = (cur + 1) % 3; draw_top(cur); }
         if (e & CONT_A) {

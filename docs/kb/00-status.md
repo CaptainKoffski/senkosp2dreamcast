@@ -32,6 +32,18 @@ invisible wall in the revealed area; widening it is a gameplay change.
 Record, prior art (Dolphin Blue = 12-byte pointer redirect), probe recipe
 and resume path: `docs/kb/widescreen-spike.md`.
 
+**Soft reset in the pre-game menu — SHIPPED, tag `0.17.1`
+(hardware-verified 2026-10-10).** A+B+X+Y+Start held in the loader menu
+reboots the console (KOS `arch_reboot`, either pad; START starts the game
+on release so a START-first press can't launch instead of rebooting).
+In-game the combo keeps rebooting: returning to our menu from the game is
+a feature, not a tweak (loader and BIOS are both gone after handoff) —
+priced and parked in `docs/kb/input-map.md` §Pad reset combo. GDEmu
+operator test: `reset_goto = 1` → GDMenu, `reset_goto = 0` → DC BIOS
+menu; a console reset never re-boots the running image, so on GDEmu the
+in-game combo means "back to the launcher". Emulator (leg) and real
+discs re-boot into our menu.
+
 **Tester-requested CD-R path (2026-09-24): `make cdi`, and `make
 release` now emits both zips ([GDI] + [CDI]).** Generic GDI→CDI
 conversion is impossible for this port (the shim streams the cart from
