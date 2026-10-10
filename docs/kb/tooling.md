@@ -1628,7 +1628,13 @@ is byte-for-byte unaffected.
   `scripts/capture_rawfb_leg.sh softreset/<leg> 165 4` (bounded
   `capture_dc_leg.sh` wrapper: `pvr.rend=0`, serial console on, a RAWFB
   dump every 4 s saved as `shot-<leg>-NNN-tTs.png`, SIGINT then SIGKILL by
-  PID). `make objclean` is required: a knob change alone does not
+  PID). CDI variant (branch `soft-reset-cdi`): `make objclean &&
+  FAKECOMBO=1800 FAKESTART=6000 make cdi SERIAL=1`, then
+  `scripts/capture_rawfb_leg.sh softreset/<leg> 170 4 build/cdi/disc.cdi
+  12` — the fifth arg delays the FIRST USR2: a poke before the fork
+  installs its handler kills Flycast (default signal action), and the
+  296 MB CDI loads slower than the GDI (leg `cdi-wb1` died exactly so at
+  t=5 s). `make objclean` is required: a knob change alone does not
   invalidate the objects. Never ship either knob.
 - **`GDDIAG=1`** → `-DSHIM_GD_DIAG=1`. On-screen GD-syscall tracer + private
   syscall-stack low-water mark (TV-debuggable, serial-silent by design — the
@@ -2690,14 +2696,27 @@ mode-2 data track at **LBA 11702** = our ISO (`mkisofs -C 0,11702` —
 all FS extents absolute): LBA 11702–11717 IP.BIN, then the ISO9660 FS
 holding scrambled `1ST_READ.BIN`, zero-padded to a fixed 1792-sector
 region (the CD analogue of the GDI donor's 3,538,944 B boot region),
-then the texpatched cart image and the optional `--lz4` blob, same
-append math as `make_gdi.py`. **Cart FAD = 150 + 11702 + 1792 =
-13644** (Makefile `CD_CART_FAD`, baked via `make cdi` → `CDI=1` →
-`-DCART_FAD`; `BLOB_FAD` derives from `CART_FAD` in `shim_iface.h`, so
-LZ4 tracks automatically). Verified against the built image: PVD at
-data-track sector 16, root dir extent absolute LBA 11725, `1ST_READ`
-extent 11726, cart first sector byte-equal to `senkosp.dat` at
-data-track sector 1792.
+then — since branch `soft-reset-cdi` (2026-10-10) — a **plain**
+`1ST_READ.BIN` zero-padded to 1728 sectors (`shim_iface.h`
+`LOADER_SECS`, the GDI boot region) that the soft-reset warm boot reads
+back (`LOADER_FAD` CDI arm = 150 + 11702 + 1792 = **13644**; the FS copy
+is scrambled, useless to the shim — `input-map.md` §Warm boot to the
+menu), then the texpatched cart image and the optional `--lz4` blob,
+same append math as `make_gdi.py`. **Cart FAD = 150 + 11702 + 1792 +
+1728 = 15372** (13644 through tag 0.18.0; Makefile `CD_CART_FAD`, baked
+via `make cdi` → `CDI=1` → `-DCART_FAD`; `BLOB_FAD` derives from
+`CART_FAD` in `shim_iface.h`, so LZ4 tracks automatically). The plain
+copy sits BEFORE the cart, not after it like the blob, so its FAD is a
+compile-time constant whether or not `--lz4` is on. `make_cdi.py`
+asserts the header's `#elif CART_FAD == 15372` → `LOADER_FAD 13644` arm
+and `LOADER_SECS == 1728`, and pins both region offsets with `f.tell()`
+asserts while writing; the image grew 292 → 296 MB. Pre-plain-copy
+layout verified against the built image (2026-09-24): PVD at data-track
+sector 16, root dir extent absolute LBA 11725, `1ST_READ` extent 11726,
+cart first sector byte-equal to `senkosp.dat` at data-track sector 1792
+— the plain copy shifts only the cart (now data-track sector 3520).
+New layout verified functionally: leg `softreset/cdi-wb2` warm-boots the
+loader from FAD 13644 three times (`input-map.md` §Warm boot, CDI).
 
 **Round 1 (SUPERSEDED 2026-09-24, same day): data/data via `cdi4dc
 -d`** — MSINFO-0 data track in session 1 (cart FAD 1942), 300-sector

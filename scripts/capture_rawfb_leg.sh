@@ -4,11 +4,13 @@
 # never sees (docs/kb/tooling.md §RAWFB). Wraps capture_dc_leg.sh; kills by
 # PID (operator-leg protocol), SIGINT first so the fork's buffered stdout
 # flushes, SIGKILL as the backstop.
-#   capture_rawfb_leg.sh <leg-name> [seconds=160] [every=4] [gdi=build/disc.gdi]
+#   capture_rawfb_leg.sh <leg-name> [seconds=160] [every=4] [disc=build/disc.gdi] [first=every]
+# first: seconds before the FIRST USR2 -- a poke before the fork installs its
+# handler kills Flycast (default action); a 296 MB CDI loads slower than the GDI.
 # Dumps land next to the log as shot-<leg>-NNN-t<T>s.png.
 set -u
 leg="${1:?usage: capture_rawfb_leg.sh <leg-name> [seconds] [every] [gdi]}"
-dur="${2:-160}"; every="${3:-4}"
+dur="${2:-160}"; every="${3:-4}"; first="${5:-$every}"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 gdi="${4:-$repo/build/disc.gdi}"
 shots="$repo/captures/$(dirname "$leg")"; mkdir -p "$shots"
@@ -23,7 +25,7 @@ FPID=$!    # capture_dc_leg.sh execs Flycast, so this IS Flycast
 echo "flycast pid=$FPID"
 t=0; n=0
 while [ "$t" -lt "$dur" ] && kill -0 "$FPID" 2>/dev/null; do
-  sleep "$every"; t=$((t+every))
+  if [ "$n" -eq 0 ]; then sleep "$first"; t=$((t+first)); else sleep "$every"; t=$((t+every)); fi
   kill -USR2 "$FPID" 2>/dev/null; sleep 1; t=$((t+1))
   n=$((n+1))
   [ -f "$raw" ] && cp "$raw" "$shots/shot-$base-$(printf %03d "$n")-t${t}s.png"

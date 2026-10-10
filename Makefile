@@ -163,12 +163,14 @@ endif
 # the cart at the CD-R FAD instead of the GDI donor FAD. Audio/data MIL-CD
 # (the mature cdi4dc mode; its beta data/data mode failed on GDEMU --
 # tooling.md §CDI mastering): session-2 data track at LBA 11702, fixed
-# 1792-sector FS+loader region at its head, cart right after:
-# FAD = 150 + 11702 + 1792. Keep in sync with scripts/make_cdi.py
-# FS_SECTORS/SESSION2_LBA (it cross-checks the loader binary).
+# 1792-sector FS+loader region at its head, then a 1728-sector PLAIN loader
+# copy (the soft-reset warm boot reads it -- shim_iface.h LOADER_FAD; the FS
+# copy is scrambled), cart right after: FAD = 150 + 11702 + 1792 + 1728.
+# Keep in sync with scripts/make_cdi.py FS_SECTORS/PLAIN_SECTORS/SESSION2_LBA
+# (it cross-checks the loader binary) and shim_iface.h's `#elif CART_FAD`.
 # Knob-flip stale-object trap applies (tooling.md) -- only use via `make
 # cdi`, which brackets the build with objclean.
-CD_CART_FAD = 13644
+CD_CART_FAD = 15372
 ifeq ($(CDI),1)
 DEFS += -DCART_FAD=$(CD_CART_FAD)
 endif

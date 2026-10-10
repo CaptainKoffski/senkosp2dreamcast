@@ -43,17 +43,27 @@ operator test: `reset_goto = 1` → GDMenu, `reset_goto = 0` → DC BIOS
 menu; a console reset never re-boots the running image, so on GDEmu the
 in-game combo means "back to the launcher". Emulator (leg) and real
 discs re-boot into our menu.
-**Branch `soft-reset-menu` (2026-10-10, unmerged): the in-game combo
-warm-boots the loader and lands in our menu** — emulator-proven (three
-and five consecutive game → menu → game cycles, `captures/softreset/`)
-and **hardware-verified, two operator rounds** (GDEmu: "combo goes to
-the menu"; round 1's music stutter during the disc read fixed by
-silencing the AICA first, KOS `spu_disable` order — "music cuts clean
-now"). Mechanism: the loader snapshots the DC BIOS
+**Soft reset to our menu — SHIPPED, tag `0.18.0` (2026-10-10): the
+in-game combo warm-boots the loader and lands in our menu** —
+emulator-proven (three and five consecutive game → menu → game cycles,
+`captures/softreset/`) and **hardware-verified, two operator rounds**
+(GDEmu: "combo goes to the menu"; round 1's music stutter during the
+disc read fixed by silencing the AICA first, KOS `spu_disable` order —
+"music cuts clean now"). Mechanism: the loader snapshots the DC BIOS
 syscall RAM into a 64 KB heap carve before handoff; the shim reads the
 loader back from disc into dead-game RAM and re-places both with the
-handoff stub. GDI only so far. Story in `docs/kb/input-map.md` §Warm boot
-to the menu.
+handoff stub. GDI only at 0.18.0. Story in `docs/kb/input-map.md` §Warm
+boot to the menu.
+**Branch `soft-reset-cdi` (2026-10-10, unmerged): the same warm boot on
+the CDI.** `make_cdi.py` writes a plain `1ST_READ.BIN` copy (1728
+sectors) between the FS region and the cart — the FS copy is scrambled
+— so the CDI cart FAD moves 13644 → 15372 and `shim_iface.h` gains a CDI
+`LOADER_FAD 13644` arm; no shim/loader code change, image 292 → 296 MB.
+Emulator-proven on the CDI (leg `softreset/cdi-wb2`: three game → menu
+→ game cycles, 0 SHIMERR, menu frame md5-identical cold vs. after each
+warm boot). Hardware pending (GDEmu round; a burned CD-R is the final
+CDI verdict). `input-map.md` §Warm boot to the menu, CDI;
+`tooling.md` §CDI mastering, Layout.
 
 **Tester-requested CD-R path (2026-09-24): `make cdi`, and `make
 release` now emits both zips ([GDI] + [CDI]).** Generic GDI→CDI

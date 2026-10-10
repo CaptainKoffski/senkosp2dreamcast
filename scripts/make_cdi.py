@@ -21,16 +21,24 @@ handling is a documented quirk class; tooling.md §CDI mastering).
     LBA 11702..11717        IP.BIN (mkdcdisc-generated CD bootstrap,
                             device string CD-ROM1/1, GDI-matching branding
                             + MR logo -- see the IP block in main())
-    ..11702+FS_SECTORS      ISO9660 FS (mkisofs -C 0,11702) holding
-                            1ST_READ.BIN, zero-padded to the fixed region --
-                            the CD analogue of the GDI donor's 3,538,944 B
-                            boot region
-    LBA 13494..             senkosp.dat cart image (texpatched), then the
+    ..11702+FS_SECTORS      ISO9660 FS (mkisofs -C 0,11702) holding the
+                            SCRAMBLED 1ST_READ.BIN, zero-padded to the fixed
+                            region -- the CD analogue of the GDI donor's
+                            3,538,944 B boot region
+    LBA 13494..             PLAIN 1ST_READ.BIN, zero-padded to PLAIN_SECTORS
+                            (= the GDI boot region, shim_iface.h LOADER_SECS):
+                            the soft-reset warm boot re-reads the loader from
+                            here (the FS copy is scrambled; docs/kb/
+                            input-map.md §Warm boot). FAD 13644 = LOADER_FAD.
+    LBA 15222..             senkosp.dat cart image (texpatched), then the
                             optional --lz4 blob, same layout as GDI track04
 
-CART_FAD on CD = 150 + 11702 + FS_SECTORS = 13644; the Makefile bakes it
-into shim + loader via `make cdi` (CDI=1 -> -DCART_FAD). BLOB_FAD derives
-from CART_FAD in shim_iface.h, so the LZ4 math tracks automatically.
+CART_FAD on CD = 150 + 11702 + FS_SECTORS + PLAIN_SECTORS = 15372; the
+Makefile bakes it into shim + loader via `make cdi` (CDI=1 -> -DCART_FAD).
+BLOB_FAD derives from CART_FAD in shim_iface.h, so the LZ4 math tracks
+automatically; LOADER_FAD is the header's `#elif CART_FAD == 15372` arm,
+cross-checked below. The plain copy sits BEFORE the cart (not after, like
+the blob) so its FAD is a compile-time constant whether or not --lz4 is on.
 
 The loader passed in MUST be the CD-FAD build: this script byte-scans it for
 the CD FAD constant and refuses a GDI-FAD loader (the knob-flip stale-object
@@ -39,15 +47,27 @@ trap, docs/kb/tooling.md). Always build via `make cdi`, not by hand.
 Status: emulator-verified only (Flycast + real BIOS boot leg); first tester
 CD-R burn is the hardware verdict. docs/kb/tooling.md §CDI mastering.
 """
-import argparse, json, pathlib, subprocess, sys
+import argparse, json, pathlib, re, subprocess, sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import make_gdi  # donor cache, IP branding, texpatch, CART_SIZE + asserts
 
 SECTOR = 2048
 FS_SECTORS = 1792                    # keep in sync with Makefile CD_CART_FAD
+PLAIN_SECTORS = make_gdi.BOOT_REGION // SECTOR   # 1728 = shim_iface.h LOADER_SECS
 SESSION2_LBA = 11702                 # audio/data: session-2 data track start
-CART_FAD_CD = 150 + SESSION2_LBA + FS_SECTORS   # 13644
+LOADER_FAD_CD = 150 + SESSION2_LBA + FS_SECTORS                 # 13644
+CART_FAD_CD = LOADER_FAD_CD + PLAIN_SECTORS                     # 15372
+
+# Same discipline as make_gdi's CART_FAD check: the shim reads the plain
+# loader copy from its compiled-in LOADER_FAD, so the header's CDI arm must
+# name exactly the FAD this script writes it at, and the region length must
+# be the LOADER_SECS the warm boot copies.
+_iface = pathlib.Path("shims/include/shim_iface.h").read_text()
+assert re.search(rf"#elif\s+CART_FAD\s*==\s*{CART_FAD_CD}\s*\n\s*#define\s+LOADER_FAD\s+{LOADER_FAD_CD}\b",
+                 _iface), f"shim_iface.h has no `#elif CART_FAD == {CART_FAD_CD}` -> LOADER_FAD {LOADER_FAD_CD} arm"
+assert int(re.search(r"#define\s+LOADER_SECS\s+(\d+)", _iface).group(1)) == PLAIN_SECTORS, \
+    "shim_iface.h LOADER_SECS != the plain-copy region written here"
 CDI4DC = pathlib.Path("tools/img4dc/build/cdi4dc/cdi4dc")
 MKDCDISC = pathlib.Path("tools/mkdcdisc/build/mkdcdisc")
 SCRAMBLE = pathlib.Path("tools/kos/utils/scramble/scramble")
@@ -160,10 +180,18 @@ def main():
         rom = make_gdi.apply_texpatch(rom)
         assert len(rom) == make_gdi.CART_SIZE
 
+    assert len(ldr) <= PLAIN_SECTORS * SECTOR, \
+        f"loader {len(ldr)} B exceeds the {PLAIN_SECTORS}-sector plain-copy region"
     iso = out / "disc.iso"
     with open(iso, "wb") as f:
         f.write(fs)
         f.write(b"\0" * (FS_SECTORS * SECTOR - len(fs)))
+        # plain copy for the soft-reset warm boot (shim LOADER_FAD), the raw
+        # cart region is not a BIOS file load either -- neither gets scrambled
+        assert f.tell() == (LOADER_FAD_CD - 150 - SESSION2_LBA) * SECTOR
+        f.write(ldr)
+        f.write(b"\0" * (PLAIN_SECTORS * SECTOR - len(ldr)))
+        assert f.tell() == (CART_FAD_CD - 150 - SESSION2_LBA) * SECTOR
         f.write(rom)
         if a.lz4:
             mj = json.loads((build / "lz4pak_map.json").read_text())
@@ -188,8 +216,8 @@ def main():
     base.unlink()
     (out / "README.txt").write_text(README)
     print(f"OK disc.cdi (audio/data MIL-CD: data track at LBA {SESSION2_LBA}, "
-          f"FS region {FS_SECTORS} sectors, cart at FAD {CART_FAD_CD}; "
-          f"burn notes in {out}/README.txt)")
+          f"FS region {FS_SECTORS} sectors, plain loader at FAD {LOADER_FAD_CD}, "
+          f"cart at FAD {CART_FAD_CD}; burn notes in {out}/README.txt)")
 
 
 if __name__ == "__main__":

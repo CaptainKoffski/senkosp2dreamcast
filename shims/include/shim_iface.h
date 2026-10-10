@@ -131,10 +131,12 @@
 #define BIOSRAM_SNAP    0x8cfe0000
 #define BIOSRAM_LEN     0x00010000
 #if CART_FAD == 320150
-#define LOADER_FAD      450150      /* GDI only: plain 1ST_READ.BIN = make_gdi.py BOOT_LBA 450000 + 150.
-                                     * CDI's FS copy is scrambled -- no LOADER_FAD there, the
-                                     * combo stays a cold reboot until a plain copy is appended. */
-#endif
+#define LOADER_FAD      450150      /* GDI: plain 1ST_READ.BIN = make_gdi.py BOOT_LBA 450000 + 150 */
+#elif CART_FAD == 15372
+#define LOADER_FAD      13644       /* CDI: the FS copy is scrambled (CD boot ROM descrambles it), so
+                                     * make_cdi.py writes a PLAIN copy in the LOADER_SECS sectors right
+                                     * before the cart: 150 + 11702 + 1792. make_cdi.py cross-checks. */
+#endif                              /* any other CART_FAD: no LOADER_FAD -> the combo cold-reboots */
 #define LOADER_SECS     1728        /* make_gdi.py BOOT_REGION 3,538,944 B / 2048, whole region */
 /* Warm-boot scratch -- all dead-game RAM (the game is being abandoned):
  * image staging, the relocated handoff stub, its copy records. None overlaps

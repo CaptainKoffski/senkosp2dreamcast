@@ -338,7 +338,9 @@ console (the retail two-stage soft reset). Two facts make it cheap:
   at `WARM_IMG = 0x8c800000`: the shim's own dual-backend `gd_read`
   (`shims/src/gd.c`, raw ATA or isoldr syscall) reads the GDI's plain
   `1ST_READ.BIN` at `LOADER_FAD = 450150` (`make_gdi.py` BOOT_LBA + 150),
-  the whole 1728-sector donor boot region, in 512 KB chunks.
+  the whole 1728-sector donor boot region, in 512 KB chunks. On the CDI
+  the same read targets `LOADER_FAD = 13644`, a plain copy `make_cdi.py`
+  writes right before the cart (see §CDI below).
 
 Placement reuses `loader/handoff.S` unchanged — the PIC copy-record walker
 is linked into the shim too (`shims/Makefile`), relocated to `WARM_STUB`
@@ -397,13 +399,42 @@ Round 1: "yes it works on hardware, combo goes to the menu"; one finding,
 the music stutter above. Round 2, silence-first build (c6e79bf): "music
 cuts clean now, works on hardware".
 
-**Open (not blockers for GDI):** (1) CDI: the FS copy of `1ST_READ.BIN`
-is scrambled, so `LOADER_FAD` is defined for the GDI geometry only
-(`shim_iface.h`) and a CDI build keeps the cold reboot — by construction,
-the `#ifdef LOADER_FAD` path is compiled out — until a plain copy is
-appended past the cart like the LZ4 blob; (2) DreamShell / isoldr:
-untested — the syscall backend path is the same `gd_read` dispatch, and
-isoldr's resident driver at `0x8cff0000` is outside both destinations.
+**CDI — branch `soft-reset-cdi` (2026-10-10, emulator-proven).** The
+CDI's FS copy of `1ST_READ.BIN` is scrambled (the CD boot ROM descrambles
+it; `tooling.md` §CDI mastering), useless to the shim, so through tag
+0.18.0 the CDI compiled the `#ifdef LOADER_FAD` path out and kept the
+cold reboot. Fix: `make_cdi.py` writes a **plain** copy of the loader,
+zero-padded to `LOADER_SECS` (1728 sectors), between the FS region and
+the cart, and the cart moves 1728 sectors up: `shim_iface.h` gets an
+`#elif CART_FAD == 15372` arm defining `LOADER_FAD 13644`
+(= 150 + 11702 + 1792), Makefile `CD_CART_FAD` 13644 → 15372. No shim or
+loader code change — the warm boot is the same `gd_read` of the same
+region length at a different FAD. The copy goes BEFORE the cart rather
+than after it (where the optional LZ4 blob lives, its presence varying
+per build) so the FAD stays a compile-time constant; descrambling in the
+shim was priced and rejected (the permutation + a 256 KB index table +
+an ISO directory parse for the exact file size that seeds its LFSR,
+`tools/kos/utils/scramble/scramble.c`, vs. three lines of mastering and
+3.4 MB on a 700 MB disc). Evidence, leg `softreset/cdi-wb2` (170 s,
+`FAKECOMBO=1800 FAKESTART=6000`, `make cdi SERIAL=1`,
+`capture_rawfb_leg.sh … build/cdi/disc.cdi 12`): BIOS → scrambled
+loader → menu → START → game → combo → `WARMBOOT` → plain-copy read at
+FAD `0x354c` → loader (`heap carved`, `MENUEE`) → menu → … **three
+game → menu → game cycles**, four `heap carved`, three `WARMBOOT`,
+cartlog MMUCRWR ladder per cycle `8c0108d2` (loader) → `8c02d630` (game)
+→ `8c0100fc` (shim, warm boot), 14,816 TAEND frames over four game runs
+(~3,700 each, in line with the GDI's 3,556), `SHIMERR` 0, `System reset`
+0. Menu RAWFB frame md5 `2610066e…` identical at t=18 s (cold) and
+t=63/108/153 s (after each warm boot); NAOMI splash frame identical
+cold vs warm. Hardware: pending (operator GDEmu round; per the standing
+CDI lesson a GDEmu pass ≠ burned-disc pass, so a CD-R burn is the final
+CDI verdict). Expectation for a real CD-R: the drive reads the 3.5 MB
+plain copy at ~1.8 MB/s (12× CAV peak), so the combo's black gap is
+~2 s there vs. GDEmu's ~0.5 s.
+
+**Open (not a blocker):** DreamShell / isoldr: untested — the syscall
+backend path is the same `gd_read` dispatch, and isoldr's resident
+driver at `0x8cff0000` is outside both destinations.
 The `FORCE_CARVE` knob is retired (`docs/kb/tooling.md` §Phase 7 build
 knobs); the two leg knobs `FAKECOMBO`/`FAKESTART` are recorded there.
 
