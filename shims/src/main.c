@@ -136,17 +136,60 @@ extern u32 devinfo_caps[2];                              /* src/maple.c */
 unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel); /* src/jvs.c, controls spec 2026-09-27 */
 int      dc_reset_combo(unsigned dc_buttons);           /* src/jvs.c */
 
-/* Pad reset combo -> cold boot through the BIOS reset vector, exactly as KOS
- * arch_reboot does (tools/kos/kernel/arch/dreamcast/kernel/init.c:438-449:
- * IRQs masked, then call P2 0xa0000000; the mask is KOS arch_irq_disable,
- * include/arch/irq.h:244-250). Not KOS arch_menu (BIOS-menu syscall): every
- * BIOS syscall is dead after handoff -- the Naomi kernel slice sits on the
- * BIOS's low RAM (src/gd.c header). */
+/* Cold boot through the BIOS reset vector, exactly as KOS arch_reboot does
+ * (tools/kos/kernel/arch/dreamcast/kernel/init.c:438-449: IRQs masked, then
+ * call P2 0xa0000000). Not KOS arch_menu (BIOS-menu syscall): every BIOS
+ * syscall is dead after handoff -- the Naomi kernel slice sits on the BIOS's
+ * low RAM (src/gd.c header). Caller masks IRQs. */
+static void __attribute__((noreturn)) cold_reboot(void) {
+    ((void (*)(void))0xa0000000u)();
+    __builtin_unreachable();
+}
+
+/* Pad reset combo (soft-reset-menu, 2026-10-10): warm-boot the LOADER, so the
+ * combo lands in the pre-game menu, where the same combo reboots the console
+ * (loader/menu.c) -- the retail two-stage soft reset. Nothing of the loader
+ * or the DC BIOS survives handoff (docs/kb/input-map.md §Why the in-game combo
+ * reboots), so both come back from what does:
+ *   1. the loader image, read back from disc (the plain GDI 1ST_READ.BIN at
+ *      LOADER_FAD, the whole donor boot region) into dead-game RAM;
+ *   2. the BIOS syscall RAM, from the loader's pre-handoff snapshot in the
+ *      heap carve (BIOSRAM_SNAP).
+ * Both are final-placed by the loader's own PIC handoff stub (loader/
+ * handoff.S, linked into this shim too), relocated into dead-game RAM and run
+ * through P2: copy, invalidate both caches, jump to KOS's entry = SHIM_BASE.
+ * The game is being abandoned, so all of its RAM is scratch; the only live
+ * code is this shim (inside destination 2, hence the stub) and the stub.
+ * Hooks never nest, so no GD or maple DMA is in flight here. IRQ mask as
+ * KOS arch_irq_disable (include/arch/irq.h:244-250). A disc-read failure
+ * falls back to the cold reboot. */
 static void __attribute__((noreturn)) pad_reboot(void) {
     u32 sr; __asm__ volatile ("stc sr,%0" : "=r"(sr));
     __asm__ volatile ("ldc %0,sr" : : "r"((sr & 0xefffff0fu) | 0xf0u));
-    ((void (*)(void))0xa0000000u)();
-    __builtin_unreachable();
+#ifdef LOADER_FAD
+    int  gd_read(unsigned fad, void *dst, unsigned secs);        /* src/gd.c, backend dispatch */
+    void handoff(const void *records_p2, u32 entry);             /* ../loader/handoff.S (PIC) */
+    extern u8 handoff_end[];
+    for (u32 s = 0; s < LOADER_SECS; s += 256u) {                /* 512 KB per read */
+        u32 n = LOADER_SECS - s < 256u ? LOADER_SECS - s : 256u;
+        if (gd_read(LOADER_FAD + s, (void *)P2ADDR(WARM_IMG + s * 2048u), n) < 0) cold_reboot();
+    }
+    xmemcpy((void *)P2ADDR(WARM_STUB), (const void *)handoff, (u32)(handoff_end - (u8 *)handoff));
+    volatile u32 *rec = P2(WARM_REC);                            /* {src_p2, dst_p2, len}, len 0 ends */
+    rec[0] = P2ADDR(BIOSRAM_SNAP); rec[1] = P2ADDR(0x8c000000u); rec[2] = BIOSRAM_LEN;
+    rec[3] = P2ADDR(WARM_IMG);     rec[4] = P2ADDR(SHIM_BASE);   rec[5] = LOADER_SECS * 2048u;
+    rec[6] = 0; rec[7] = 0; rec[8] = 0;
+    /* Hardware BIOS-fresh enough for KOS, mirroring loader/main.c's handoff
+     * block: MMU off (the game runs AT=1), TA reset, interrupt latches
+     * cleared; plus the AICA ARM held so the game's music stops now. */
+    *(volatile u32 *)0xff000010 = 0;
+    *(volatile u32 *)0xa05f8008 = 3; (void)*(volatile u32 *)0xa05f8008; *(volatile u32 *)0xa05f8008 = 0;
+    *(volatile u32 *)0xa05f6900 = 0xffffffffu; *(volatile u32 *)0xa05f690c = 0xffffffffu;
+    *(volatile u32 *)0xa0702c00 |= 1u;
+    scif_puts("WARMBOOT\n");
+    ((void (*)(const void *, u32))P2ADDR(WARM_STUB))((const void *)P2ADDR(WARM_REC), SHIM_BASE);
+#endif
+    cold_reboot();
 }
 
 #define MMIR(o) (*(volatile u32 *)P2ADDR(MAPLE_MIRROR + (o)))   /* mirror cell */

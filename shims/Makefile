@@ -14,7 +14,11 @@ B = build
 # shim_iface.h); gdstack.S is dead weight only when the syscall backend is
 # never probed into, which the dispatch task (Task 6) still owes.
 SRCS = src/main.c src/scif.c src/util.c src/gd.c src/gd_sys.c src/gd_testsrv.c \
-       src/cart.c src/maple.c src/jvs.c src/mtramp.S src/gdstack.S $(B)/mie_blobs.c
+       src/cart.c src/maple.c src/jvs.c src/mtramp.S src/gdstack.S $(B)/mie_blobs.c \
+       ../loader/handoff.S
+# ../loader/handoff.S (soft-reset-menu): the loader's PIC copy-record walker,
+# linked into the shim too -- the pad-combo warm boot final-places the
+# re-read loader image + BIOS syscall-RAM snapshot with it (src/main.c).
 # gd_testsrv.c is always compiled (unconditionally in SRCS) but its whole
 # body is `#if GD_TEST_SERVER` -- an empty translation unit on every normal
 # build, live only under the top Makefile's TESTSRV=1 (fix round 2,

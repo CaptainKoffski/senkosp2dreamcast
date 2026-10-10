@@ -270,9 +270,14 @@ def carve(dat_off, pristine_hex, new_hex, comment=""):
     _carves.append((dat_off, img_of(dat_off), bytes(old), new, comment))
 
 
-carve(0x65b4e, "00e08ecb28401840", "8de01840ff702840",
-      "HEAP-CARVE main: top 0x8d000000 -> 0x8cff0000 (isoldr syscall preset)")
-carve(0x1af892, "00e08ecb28401840", "8de01840ff702840",
+# soft-reset-menu (2026-10-10): UNCONDITIONAL and 64 KB deeper. New top
+# 0x8cfe0000: `mov #-0x73,r0; shll8; add #-2; shll16` (was add #-1 ->
+# 0x8cff0000). [0x8cfe0000,0x8cff0000) = BIOSRAM_SNAP (shim_iface.h), the
+# loader's pre-handoff copy of the DC BIOS syscall RAM that the shim's
+# pad-combo warm boot restores; [0x8cff0000,0x8d000000) stays isoldr's.
+carve(0x65b4e, "00e08ecb28401840", "8de01840fe702840",
+      "HEAP-CARVE main: top 0x8d000000 -> 0x8cfe0000 (BIOSRAM_SNAP + isoldr preset)")
+carve(0x1af892, "00e08ecb28401840", "8de01840fe702840",
       "HEAP-CARVE test: twin window, same bytes")
 
 # ---- CART-* (Task 10, docs/kb/phase4-conversion.md §Cart-patch sites) -----

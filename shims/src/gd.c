@@ -586,8 +586,10 @@ gd_epilogue:
 int gd_sys_read_sectors(void *dst, unsigned fad, unsigned n);
 /* Phase 7 T1 dispatch: backend chosen once by the loader's rehearsal probe
  * (main.c), 0 = raw ATA / 1 = BIOS-syscall (DreamShell isoldr). The raw
- * path below this line is untouched. */
-static int gd_read(unsigned fad, void *dst, unsigned secs) {
+ * path below this line is untouched. Non-static since soft-reset-menu:
+ * main.c's pad-combo warm boot reads the loader image back through it. */
+int gd_read(unsigned fad, void *dst, unsigned secs);
+int gd_read(unsigned fad, void *dst, unsigned secs) {
     if (P2(SHIM_STATE)[SHIM_STATE_GD_BACKEND])
         return gd_sys_read_sectors(dst, fad, secs);
     return gd_read_fad(fad, dst, secs);

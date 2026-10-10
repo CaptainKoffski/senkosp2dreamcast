@@ -128,7 +128,8 @@ for name, pat in CARVE_RE.items():
     # old is the POST-reloc state (0x8d, not the pristine 0x8e) -- carve()'s
     # overlay rule, not a raw dat read (task-3b-report.md FIX ROUND 1).
     assert old[2] == 0x8D, f"{name}: old byte[2] = {old[2]:#x}, expected 0x8d (post-reloc)"
-    assert new == bytes.fromhex("8de01840ff702840"), f"{name}: new = {new.hex()}"
+    # soft-reset-menu: add #-2 -> top 0x8cfe0000 (BIOSRAM_SNAP under isoldr's 64 KB)
+    assert new == bytes.fromhex("8de01840fe702840"), f"{name}: new = {new.hex()}"
 print("OK HEAP-CARVE: both tables 1 entry, old embeds post-reloc 0x8d, new matches spec")
 
 # ---- old-byte verification must reject a deliberately wrong `old` ----------

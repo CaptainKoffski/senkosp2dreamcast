@@ -115,15 +115,6 @@ int dbgio_init(void) { return 0; }   /* strong override of KOS weak symbol */
 #define LOADER_TESTSRV 0
 #endif
 
-/* FORCE_CARVE=1 (top Makefile, fix round 2): apply the heap-carve tables
- * even on the raw backend -- one-variable isolation of the carve mechanism
- * from backend selection (does the carved heap top break a normal raw-ATA
- * boot, independent of whether the syscall backend ever runs). Test-only,
- * never shipped. */
-#ifndef FORCE_CARVE
-#define FORCE_CARVE 0
-#endif
-
 /* PRESET_NOTE=1 (top Makefile): render the tester-facing preset_note()
  * screen unconditionally at entry -- emulator screenshot leg only (the real
  * trigger needs a low-placed isoldr, which Flycast can't host). Test-only,
@@ -437,22 +428,18 @@ int main(void) {
     say("patches OK");
     spin_tick();
 
-    /* Phase 7 T1 heap carve (task-3b-report.md): applied on the syscall
-     * backend, and only AFTER the unconditional table above (its `old`
-     * encodes the post-reloc state -- task-3b-report.md FIX ROUND 1).
-     * `backend` defaults to 0 and is set to 1 nowhere except the syscall
-     * branch above, so a real-BIOS/raw-ATA boot never reaches this block on
-     * its own -- the raw path is provably un-carved UNLESS FORCE_CARVE=1
-     * (fix round 2 test knob) explicitly asks for it anyway, to isolate the
-     * carve from backend selection. */
-    if (backend || FORCE_CARVE) {
-        if (apply_patches(stage,
-                          test_boot ? senkosp_carve_test : senkosp_carve_main,
-                          test_boot ? N_CARVE_TEST : N_CARVE_MAIN,
-                          img_off))
-            halt("CARVE ABORT");
-        say("heap carved for isoldr");
-    }
+    /* Heap-top carve, AFTER the unconditional table above (its `old` encodes
+     * the post-reloc state -- task-3b-report.md FIX ROUND 1). Phase 7 T1
+     * applied it only on the syscall backend (isoldr's home); soft-reset-menu
+     * applies it always and 64 KB deeper, for BIOSRAM_SNAP (shim_iface.h).
+     * The old FORCE_CARVE knob already showed a carved raw-ATA boot is clean
+     * (phase7-polishing.md forcecarve-attract leg). */
+    if (apply_patches(stage,
+                      test_boot ? senkosp_carve_test : senkosp_carve_main,
+                      test_boot ? N_CARVE_TEST : N_CARVE_MAIN,
+                      img_off))
+        halt("CARVE ABORT");
+    say("heap carved");
 
     /* ---- staging (Task 10) ----------------------------------------------
      * Nothing below is written to its FINAL home: see the STAGE_* block at the
@@ -563,6 +550,15 @@ int main(void) {
     uint32 ho_len = (uint32)((uint8 *)handoff_end - (uint8 *)handoff);
     memcpy((void *)HANDOFF_SCRATCH, (void *)handoff, ho_len);
     spin_tick();                             /* last tick before purges + jump */
+
+    /* Soft reset (shim_iface.h BIOSRAM_SNAP): the DC BIOS's syscall RAM is
+     * about to be destroyed (kernel slice at KERNEL_DST, the game's stack
+     * under 0x8c00f000). Keep a copy in the heap carve so the shim's pad-combo
+     * warm boot can restore it before re-entering this loader. Taken LAST,
+     * after every deep call above, so this loader's own stack (top of RAM,
+     * downward) cannot have scribbled it in between. */
+    memcpy((void *)BIOSRAM_SNAP, (const void *)0x8c000000u, BIOSRAM_LEN);
+    dcache_purge_range(BIOSRAM_SNAP, BIOSRAM_LEN);
 
     /* Write-back every CPU store above to RAM: the stub reads records and
      * sources through P2 (uncached), so anything still sitting dirty in the

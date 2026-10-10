@@ -118,6 +118,32 @@
                                  * ship 1 (doubles hit-path disc traffic). */
 #endif
 
+/* Soft reset -> loader warm boot (branch soft-reset-menu, 2026-10-10).
+ * After handoff neither the loader nor the DC BIOS's syscall RAM exists
+ * (docs/kb/input-map.md §Why the in-game combo reboots). The pad combo
+ * rebuilds both from what does survive: the loader image is read back from
+ * disc, the syscall RAM [0x8c000000, 0x8c010000) from a snapshot the loader
+ * takes just before handoff into BIOSRAM_SNAP -- carved off the game heap's
+ * TOP (build_patch_table.py HEAP-CARVE, now unconditional: seed 0x8d000000
+ * -> 0x8cfe0000). isoldr's preset [0x8cff0000, 0x8d000000) sits above it,
+ * untouched. Heap slack after both carves: ~280 KB of the measured ~410 KB
+ * (docs/kb/relocation-map.md §Arithmetic check). */
+#define BIOSRAM_SNAP    0x8cfe0000
+#define BIOSRAM_LEN     0x00010000
+#if CART_FAD == 320150
+#define LOADER_FAD      450150      /* GDI only: plain 1ST_READ.BIN = make_gdi.py BOOT_LBA 450000 + 150.
+                                     * CDI's FS copy is scrambled -- no LOADER_FAD there, the
+                                     * combo stays a cold reboot until a plain copy is appended. */
+#endif
+#define LOADER_SECS     1728        /* make_gdi.py BOOT_REGION 3,538,944 B / 2048, whole region */
+/* Warm-boot scratch -- all dead-game RAM (the game is being abandoned):
+ * image staging, the relocated handoff stub, its copy records. None overlaps
+ * a destination ([0x8c000000,0x8c010000) + [SHIM_BASE, +LOADER_SECS*2048 =
+ * 0x8c370000)) or BIOSRAM_SNAP. */
+#define WARM_IMG        0x8c800000  /* ends 0x8cb60000 */
+#define WARM_STUB       0x8c7f0000
+#define WARM_REC        0x8c7f1000
+
 #define P2ADDR(a)       ((a) | 0xa0000000)
 #ifndef HOST_TEST
 #define P2(a)           ((volatile unsigned int *)P2ADDR(a))

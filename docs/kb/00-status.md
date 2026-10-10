@@ -43,6 +43,14 @@ operator test: `reset_goto = 1` → GDMenu, `reset_goto = 0` → DC BIOS
 menu; a console reset never re-boots the running image, so on GDEmu the
 in-game combo means "back to the launcher". Emulator (leg) and real
 discs re-boot into our menu.
+**Branch `soft-reset-menu` (2026-10-10, unmerged): the in-game combo
+warm-boots the loader and lands in our menu** — emulator-proven (three
+and five consecutive game → menu → game cycles, `captures/softreset/`),
+hardware round pending. Mechanism: the loader snapshots the DC BIOS
+syscall RAM into a 64 KB heap carve before handoff; the shim reads the
+loader back from disc into dead-game RAM and re-places both with the
+handoff stub. GDI only so far. Story in `docs/kb/input-map.md` §Warm boot
+to the menu.
 
 **Tester-requested CD-R path (2026-09-24): `make cdi`, and `make
 release` now emits both zips ([GDI] + [CDI]).** Generic GDI→CDI

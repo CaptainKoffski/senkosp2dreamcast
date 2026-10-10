@@ -295,24 +295,6 @@ return to:
   header; `pad_reboot` comment, `shims/src/main.c`), so neither `arch_menu`
   nor any GD syscall can re-launch anything. Only the reset vector
   survives, and that is a full cold boot.
-- **Warm-booting the loader ourselves would need, at minimum:** (1) the
-  shim re-reading `1ST_READ.BIN` through its own GD backend into high RAM,
-  then a relocated stub to place it at `0x8c010000` and jump (the shim
-  lives there, so it can't copy over itself); the GDI copy is plain
-  (`scripts/make_gdi.py` BOOT_LBA), the CDI copy is scrambled
-  (`scripts/make_cdi.py` §FS copy), so a descrambler or a second plain
-  copy; (2) quiescing what the game leaves running — interrupts, Maple +
-  G1 DMA, TA, the AICA ARM; (3) a KOS that boots without a BIOS:
-  `INIT_DEFAULT` includes `INIT_CDROM`, whose `cdrom_init()` calls
-  `syscall_gdrom_init()` (`tools/kos/kernel/arch/dreamcast/hardware/
-  cdrom.c:800`) — a dead vector on stock BIOS/GDEmu — so opt out and move
-  the loader's cart read from `cdrom_read_sectors` to the raw-ATA
-  `gd_read_fad` it already rehearses with, isoldr syscall fallback
-  fingerprinted first (probe exists, `loader/main.c` rehearsal block);
-  video is safe (`vid_set_mode` reads only the cable register,
-  `hardware/video.c:231`); (4) hardware rounds on GDEmu and isoldr, where
-  every miss is a black screen debugged over serial. Estimate: a few
-  sessions plus two or three hardware rounds. Not started.
 - **Cheap middle ground — holds everywhere except GDEmu.** The reboot comes
   back through the BIOS into our loader and menu on the emulator (leg
   above) and, by the ordinary disc-boot path, on a real GD-R / CD-R (not
@@ -321,8 +303,88 @@ return to:
   `reset_goto = 0` → the DC BIOS menu (i.e. no bootable disc presented
   after the reset; GDEmu does not re-boot the running image either way).
   So for GDEmu users the in-game combo means "back to the launcher", and
-  our menu is one image boot away. Accepted; in-game return to our menu
-  stays parked.
+  our menu is one image boot away. This is what tag `0.17.1` ships.
+
+The 2026-10-10 pricing above assumed the loader had to be rebuilt from
+disc AND KOS had to boot without a BIOS (opt out of `INIT_CDROM`, raw-ATA
+cart read, isoldr fingerprinting) — "a few sessions plus two or three
+hardware rounds". The branch below found the BIOS half avoidable.
+
+#### Warm boot to the menu — branch `soft-reset-menu` (2026-10-10, emulator-proven)
+
+The in-game combo now re-enters the loader instead of the reset vector,
+so the combo lands in the pre-game menu, where the same combo reboots the
+console (the retail two-stage soft reset). Two facts make it cheap:
+
+- **The DC BIOS's syscall RAM can be snapshotted, not rebuilt.** Everything
+  KOS needs from the BIOS at boot lives in `[0x8c000000, 0x8c010000)` (GD
+  syscalls, sysinfo, font vector) — the ROM is never touched by the game,
+  only this RAM copy is (kernel slice at `KERNEL_DST`, game stack under
+  `0x8c00f000`, `docs/kb/boot-binary.md` row 7). The loader copies the
+  64 KB into `BIOSRAM_SNAP = 0x8cfe0000` as its last act before the handoff
+  purges (`loader/main.c`, after the record build — last so its own KOS
+  stack, top of RAM downward, cannot have scribbled it). The region is a
+  heap-top carve: the Phase 7 T1 isoldr carve, now **unconditional and one
+  byte deeper** (`scripts/build_patch_table.py` HEAP-CARVE: `add #-2` →
+  top `0x8cfe0000`; `[0x8cff0000, 0x8d000000)` stays isoldr's). Heap slack
+  after both carves ≈ 280 KB of the measured ~410 KB
+  (`docs/kb/relocation-map.md` §Arithmetic check); a carved raw-ATA boot
+  was already shown clean by the FORCE_CARVE leg
+  (`docs/kb/phase7-polishing.md` forcecarve-attract).
+- **The game is dead at the combo, so all 14 MB of its RAM is scratch.** The
+  loader image is **3.5 MB** with the menu (the "~838 KB" above is the
+  MENU=0 figure; `_edata` `0x8c36f384`), far over the heap slack, so it
+  cannot be stashed — but it can be read back from disc into dead-game RAM
+  at `WARM_IMG = 0x8c800000`: the shim's own dual-backend `gd_read`
+  (`shims/src/gd.c`, raw ATA or isoldr syscall) reads the GDI's plain
+  `1ST_READ.BIN` at `LOADER_FAD = 450150` (`make_gdi.py` BOOT_LBA + 150),
+  the whole 1728-sector donor boot region, in 512 KB chunks.
+
+Placement reuses `loader/handoff.S` unchanged — the PIC copy-record walker
+is linked into the shim too (`shims/Makefile`), relocated to `WARM_STUB`
+and run through P2: record 1 restores the snapshot over the syscall RAM,
+record 2 places the image at `SHIM_BASE` (= KOS `_start`, over the shim
+itself), then the stub's CCR write invalidates both caches and jumps to
+`0x8c010000`. Before the jump the shim mirrors the loader's own handoff
+block: IRQs masked (SR.IMASK=15), `MMUCR = 0` (the game runs AT=1), TA
+reset, interrupt latches cleared, plus the AICA ARM held so the music
+stops at once (`shims/src/main.c` `pad_reboot`). Hooks never nest, so no
+GD or maple DMA is in flight when `mie_poll` sees the combo. A failed disc
+read falls back to the old cold reboot. KOS then boots exactly as from the
+BIOS: `startup.s` sets its own SR/stack, `arch_main` clears `.bss`
+(`tools/kos/kernel/arch/dreamcast/kernel/init.c:299`), `cdrom_init`
+re-inits the restored GD syscalls.
+
+**Emulator evidence (Flycast fork, `captures/softreset/`, 2026-10-10):**
+the fork cannot inject the combo, and its `FLYCAST_START_AT` hook advances
+only on TA-rendered frames (`core/ui/mainui.cpp:65` passes
+`MainFrameCount`), so it never fires on the FB-only menu — leg `wb3`
+stalled there. Both legs below used throwaway knobs, reverted before the
+clean rebuild: shim `SHIM_FAKE_COMBO=1800` (combo after 1800 polls ≈ 30 s
+in-game) and loader `LOADER_FAKE_START=6000` (START 6 s into the menu).
+- `wb2` (`MENU=0`, 170 s): five `WARMBOOT` → KOS banner → `GD init OK` →
+  `cart read OK (KOS)` + `(raw ATA)` → `patches OK` → `heap carved` →
+  `HANDOFF -> game` cycles; cartlog `TAEND` **3,556 frames in every
+  warm-boot segment** (deterministic), `SHIMERR` 0, `System reset` 0; the
+  `MMUCRWR` trail per cycle is shim `pc=8c0100c4` (warm boot) → loader
+  (handoff) → game `val=00040005` (AT on). RAWFB dumps right after each
+  warm boot show the NAOMI splash + boot-gap spinner.
+- `wb4` (menu on, 165 s): menu → START → game → combo → **menu** three
+  times; the menu dumps after every warm boot (t=60/105/150 s) are
+  md5-identical to the first-boot menu dump; 3,556 frames per segment,
+  `SHIMERR` 0.
+- `wb1` crashed at launch on the known Vulkan flake (`pvr.rend=0`,
+  `docs/kb/tooling.md` §RAWFB); kept per the never-delete-a-leg rule.
+
+**Open before this can ship:** (1) operator hardware round on GDEmu —
+combo mid-match → menu → START → plays; (2) CDI: the FS copy of
+`1ST_READ.BIN` is scrambled, so `LOADER_FAD` is defined for the GDI
+geometry only (`shim_iface.h`) and a CDI build keeps the cold reboot until
+a plain copy is appended past the cart like the LZ4 blob; (3) DreamShell
+/ isoldr: untested — the syscall backend path is the same `gd_read`
+dispatch, and isoldr's resident driver at `0x8cff0000` is outside both
+destinations; (4) the top Makefile's `FORCE_CARVE` knob is now a no-op
+(the carve is unconditional) — retire it with the keep decision.
 
 ## OverDrive wire
 
