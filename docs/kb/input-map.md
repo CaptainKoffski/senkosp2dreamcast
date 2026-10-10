@@ -392,21 +392,20 @@ in-game) and loader `LOADER_FAKE_START=6000` (START 6 s into the menu).
 - `wb1` crashed at launch on the known Vulkan flake (`pvr.rend=0`,
   `docs/kb/tooling.md` §RAWFB); kept per the never-delete-a-leg rule.
 
-**Hardware round 1 (operator, 2026-10-10, real DC + GDEmu): PASS** —
-"yes it works on hardware, combo goes to the menu"; one finding, the
-music stutter above, fixed the same day (silence-first build; hardware
-re-check pending as round 2).
+**Hardware (operator, 2026-10-10, real DC + GDEmu): PASS, two rounds.**
+Round 1: "yes it works on hardware, combo goes to the menu"; one finding,
+the music stutter above. Round 2, silence-first build (c6e79bf): "music
+cuts clean now, works on hardware".
 
-**Open before this can ship:** (1) hardware round 2 — the silence-first
-build: combo mid-match, music must cut instantly, menu, START plays again;
-(2) CDI: the FS copy of `1ST_READ.BIN` is scrambled, so `LOADER_FAD` is
-defined for the GDI geometry only (`shim_iface.h`) and a CDI build keeps
-the cold reboot until a plain copy is appended past the cart like the LZ4
-blob; (3) DreamShell / isoldr: untested — the syscall backend path is the
-same `gd_read` dispatch, and isoldr's resident driver at `0x8cff0000` is
-outside both destinations. The `FORCE_CARVE` knob is retired
-(`docs/kb/tooling.md` §Phase 7 build knobs); the two leg knobs
-`FAKECOMBO`/`FAKESTART` are recorded there.
+**Open (not blockers for GDI):** (1) CDI: the FS copy of `1ST_READ.BIN`
+is scrambled, so `LOADER_FAD` is defined for the GDI geometry only
+(`shim_iface.h`) and a CDI build keeps the cold reboot — by construction,
+the `#ifdef LOADER_FAD` path is compiled out — until a plain copy is
+appended past the cart like the LZ4 blob; (2) DreamShell / isoldr:
+untested — the syscall backend path is the same `gd_read` dispatch, and
+isoldr's resident driver at `0x8cff0000` is outside both destinations.
+The `FORCE_CARVE` knob is retired (`docs/kb/tooling.md` §Phase 7 build
+knobs); the two leg knobs `FAKECOMBO`/`FAKESTART` are recorded there.
 
 ## OverDrive wire
 
