@@ -163,27 +163,42 @@ static void ctl_cursor(int b, int on) {
         }
 }
 
-/* CUSTOM editor (2026-10-15): entered with A on a pad row showing CUSTOM.
- * UP/DOWN walk the six chips in page order (CTL_EDIT_ORDER), LEFT/RIGHT
- * cycle that button through every function word (B.O.S.S. and NONE
- * included), B returns to the rows. Same edge() poll, so the reset combo
- * stays live here too. */
+/* CUSTOM editor (2026-10-15; cursor rework 2026-10-22): entered with A on a
+ * pad row showing CUSTOM. The d-pad moves the cursor to the neighbouring
+ * chip in that direction (CTL_EDIT_NAV: follows the page, no wrap -- RIGHT
+ * on the L trigger lands on the R trigger). A opens value mode: the chip
+ * becomes an amber band (CTL_WORD_HI) and LEFT/RIGHT cycle every function
+ * word (B.O.S.S. and NONE included); A keeps the value, B restores the one
+ * it had. B outside value mode returns to the rows. MOVE and START carry
+ * no chip. Same edge() poll, so the reset combo stays live here too. */
+static void ctl_chip(int port, int b, int hi) {
+    const mrect_t *w = hi ? CTL_WORD_HI : CTL_WORD;
+    blit(w[menu_custom[port][b]], CTL_PAD_ANCHOR[b][0], CTL_PAD_ANCHOR[b][1]);
+}
 static void ctl_edit(int port) {
-    int k = 0;                                   /* index into CTL_EDIT_ORDER */
-    ctl_cursor(CTL_EDIT_ORDER[k], 1);
+    int b = CTL_EDIT_FIRST, editing = 0;
+    unsigned char saved = 0;
+    ctl_cursor(b, 1);
     for (;;) {
         uint32 e = edge();
-        int b = CTL_EDIT_ORDER[k];
-        if (e & CONT_B) { ctl_cursor(b, 0); return; }
-        if (e & (CONT_DPAD_UP | CONT_DPAD_DOWN)) {
-            ctl_cursor(b, 0);
-            k = (k + ((e & CONT_DPAD_DOWN) ? 1 : CTL_N_BUTTONS - 1)) % CTL_N_BUTTONS;
-            ctl_cursor(CTL_EDIT_ORDER[k], 1);
+        unsigned char *f = &menu_custom[port][b];
+        if (editing) {
+            if (e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) {
+                *f = (unsigned char)((*f + ((e & CONT_DPAD_RIGHT) ? 1 : CTL_N_FUNC - 1)) % CTL_N_FUNC);
+                ctl_chip(port, b, 1);
+            }
+            if (e & CONT_B) *f = saved;                       /* discard */
+            if (e & (CONT_A | CONT_B)) { editing = 0; ctl_chip(port, b, 0); }
+            continue;
         }
-        if (e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) {
-            unsigned char *f = &menu_custom[port][b];
-            *f = (unsigned char)((*f + ((e & CONT_DPAD_RIGHT) ? 1 : CTL_N_FUNC - 1)) % CTL_N_FUNC);
-            blit(CTL_WORD[*f], CTL_PAD_ANCHOR[b][0], CTL_PAD_ANCHOR[b][1]);
+        if (e & CONT_B) { ctl_cursor(b, 0); return; }
+        if (e & CONT_A) { saved = *f; editing = 1; ctl_chip(port, b, 1); continue; }
+        int d = (e & CONT_DPAD_UP) ? 0 : (e & CONT_DPAD_DOWN) ? 1
+              : (e & CONT_DPAD_LEFT) ? 2 : (e & CONT_DPAD_RIGHT) ? 3 : -1;
+        if (d >= 0 && CTL_EDIT_NAV[b][d] != CTL_NAV_NONE) {
+            ctl_cursor(b, 0);
+            b = CTL_EDIT_NAV[b][d];
+            ctl_cursor(b, 1);
         }
     }
 }

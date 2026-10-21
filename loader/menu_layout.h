@@ -104,9 +104,21 @@ static const mrect_t MENU_SET_FOOTER = {0,696,640,24};
 #define CTL_N_FUNC 7   /* function ids; NONE = CTL_N_FUNC - 1 */
 #define CTL_PAD_CUSTOM 2   /* CTL_PAD_VALUE index = preset byte value */
 #define CTL_CUSTOM_DEFAULT {0, 1, 2, 3, 4, 3}   /* TOURNAMENT */
-/* Edit-mode cursor walk: PAD_BUTTONS indices top-to-bottom, left-to-right on the page. */
-static const unsigned char CTL_EDIT_ORDER[6] = {4, 5, 3, 1, 0, 2};   /* LTRIG, RTRIG, Y, B, A, X */
+/* Edit-mode cursor: CTL_EDIT_NAV[chip][UP, DOWN, LEFT, RIGHT] = the
+ * neighbouring chip (PAD_BUTTONS index) or CTL_NAV_NONE. Derived from
+ * the anchors (gen_menu_assets.edit_nav), no wrap. */
+#define CTL_EDIT_FIRST 4   /* LTRIG: top-left chip */
+#define CTL_NAV_NONE 0xff
+static const unsigned char CTL_EDIT_NAV[6][4] = {
+  {1, 2, 4, CTL_NAV_NONE},   /* A: B, X, LTRIG, - */
+  {3, 0, 4, CTL_NAV_NONE},   /* B: Y, A, LTRIG, - */
+  {0, CTL_NAV_NONE, 4, CTL_NAV_NONE},   /* X: A, -, LTRIG, - */
+  {5, 1, 4, CTL_NAV_NONE},   /* Y: RTRIG, B, LTRIG, - */
+  {CTL_NAV_NONE, CTL_NAV_NONE, CTL_NAV_NONE, 5},   /* LTRIG: -, -, -, RTRIG */
+  {CTL_NAV_NONE, 3, 4, CTL_NAV_NONE},   /* RTRIG: -, Y, LTRIG, - */
+};
 static const mrect_t CTL_WORD[7] = {{0,720,126,24}, {126,720,126,24}, {252,720,126,24}, {378,720,126,24}, {504,720,126,24}, {0,744,126,24}, {126,744,126,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, B.O.S.S., NONE */
+static const mrect_t CTL_WORD_HI[7] = {{288,884,126,24}, {414,884,126,24}, {0,912,126,24}, {126,912,126,24}, {252,912,126,24}, {378,912,126,24}, {504,912,126,24}};   /* value mode: amber band */
 
 static const unsigned char CTL_PAD_FUNC[2][6] = {
   {0, 1, 2, 3, 4, 3},   /* TOURNAMENT */

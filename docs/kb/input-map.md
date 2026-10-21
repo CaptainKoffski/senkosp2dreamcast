@@ -255,14 +255,29 @@ test menu only needs Start/A.
 port's custom layout starts as a copy of Tournament (`CTL_CUSTOM_DEFAULT`,
 generated from `menu_def.CTL_CUSTOM_DEFAULT`) so CUSTOM is never empty. On a
 row showing CUSTOM, **A enters edit mode** (`loader/menu.c` `ctl_edit()`):
-an amber 2-px frame (`MENU_HI_COLOR`) around one chip; UP/DOWN walk the six
-chips in page order, top-to-bottom then left-to-right (`CTL_EDIT_ORDER`,
-generated from the anchors: L, R, Y, B, A, X); LEFT/RIGHT cycle that button
-through all seven function words; B returns to the rows. The frame sits
-just outside the chip cell and is erased by restoring the page's own pixels
-from `ctl_pad_bin` (a leader line ends right under it — a flat fill would
-nick it). The footer is unchanged: the "A edits CUSTOM" affordance has no
-on-screen hint yet (tester-facing lab feature). Session-only like every
+an amber 2-px frame (`MENU_HI_COLOR`) around one chip, starting at the
+top-left one (`CTL_EDIT_FIRST` = L). **Cursor rework 2026-10-22** (operator:
+UP/DOWN-only walking was counter-intuitive — on the L chip you press RIGHT
+to reach R, not DOWN): the d-pad moves the frame to the neighbouring chip
+in that direction, `CTL_EDIT_NAV[chip][UP, DOWN, LEFT, RIGHT]`, generated
+from the chip anchors by `gen_menu_assets.edit_nav()` — the nearest chip
+inside the direction's 90° cone (lateral offset ≤ forward offset, so DOWN
+on the lone left-column chip never hops across the page), no wrap. On the
+shipped page: L ↔ R by LEFT/RIGHT, UP/DOWN walk the right column R, Y, B,
+A, X, and LEFT from any right-column chip lands on L. MOVE and START carry
+no chip and are unreachable by design. **A opens value mode**: the chip
+turns into an amber band with black text (`CTL_WORD_HI` — the selected
+settings row's look, so "amber band = LEFT/RIGHT changes this" reads the
+same everywhere in the menu) and LEFT/RIGHT cycle that button through all
+seven function words; **A keeps the value, B restores the one it had**,
+either returns to the frame. B outside value mode returns to the rows. The
+frame sits just outside the chip cell and is erased by restoring the page's
+own pixels from `ctl_pad_bin` (a leader line ends right under it — a flat
+fill would nick it). The table and the cone rule have a host self-check,
+`scripts/test_gen_menu_nav.py` (in `make test`), and the generator asserts
+every chip is reachable from the first, so an anchor redesign that strands
+a chip fails at generation time. The footer is unchanged: the "A edits
+CUSTOM" affordance has no on-screen hint yet (tester-facing lab feature). Session-only like every
 menu setting — nothing is written to a VMU; power-off reverts to Tournament.
 Both ports are edited from the first enumerated pad, as the presets are.
 
@@ -283,9 +298,20 @@ renders on the regenerated sheet (RAWFB dump at t=15 s, kept as
 1,374 `GDDMA` transfers, cart streamed to +194 MB. Two earlier launch
 attempts died inside the emulator before any boot (leftover Vulkan
 renderer setting; the SH4 vmem `Verify Failed` flake) — both known
-host-side traps, `tooling.md` §Legs: customlayout. **Operator legs pending:** (1)
-emulator walkthrough — CUSTOM on both pad rows, edit-mode cursor and
-cycling, B back, START; (2) in-game: B.O.S.S. on a face button with a full
+host-side traps, `tooling.md` §Legs: customlayout. Cursor rework
+(2026-10-22): `scripts/test_gen_menu_nav.py` PASS (watched failing first);
+previews `build/preview_pad_custom_cursor.png` / `preview_pad_custom_editing.png`
+viewed; emulator boot smoke `captures/customlayout/nav-smoke2` **PASS** (top
+menu renders on the regenerated sheet at t=15 s; 160 s: 0 `SHIMERR`,
+0 `System reset`, 18,592 `TAEND`, cart to +194 MB; `nav-smoke1` never
+launched — leftover emulator process, `tooling.md` §Legs:
+customlayout/nav-smoke). **Operator verdict 2026-10-22: "It works
+perfectly"** — leg (1) below done on the reworked editor (target not
+stated; recorded as operator-verified). Shipped as `0.20.0`; (2) and (3)
+remain open. **Operator legs:** (1)
+emulator walkthrough — CUSTOM on both pad rows, d-pad cursor following the
+page (RIGHT on L → R, LEFT from the right column → L, no wrap), A → amber
+band, LEFT/RIGHT cycling, A keeps / B restores, B back, START; (2) in-game: B.O.S.S. on a face button with a full
 gauge activates B.O.S.S. mode — also the first measurement that senkosp
 accepts the simultaneous three-bit press (tester's claim, unmeasured so far);
 (3) the hardware round, standing Flycast≠hardware rule.

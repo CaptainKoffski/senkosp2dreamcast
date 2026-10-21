@@ -91,6 +91,9 @@ CTL_ROW_ITEMS = ["P1 PAD LAYOUT", "P2 PAD LAYOUT", "STICK LAYOUT"]
 # CTL_CUSTOM_DEFAULT so it is never empty; the menu edits from there.
 CTL_PAD_VALUES = ["TOURNAMENT", "OLD", "CUSTOM"]
 CTL_CUSTOM_DEFAULT = "TOURNAMENT"
+# Preview-only layout a CUSTOM row can produce (B.O.S.S. and NONE chips).
+CUSTOM_DEMO = {"A": "ACTION", "B": "B.O.S.S.", "X": "BARRAGE", "Y": "OVERDRIVE",
+               "LTRIG": "MAIN", "RTRIG": "NONE"}
 CTL_STICK_VALUE = "ARCADE (FIXED)"
 CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 

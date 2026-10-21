@@ -140,6 +140,35 @@ def box_of(rect):
     return (x, y, x + w, y + h)
 
 
+def edit_nav(anchors, buttons):
+    """CUSTOM editor cursor (2026-10-22): for each chip, the nearest chip in
+    each of UP, DOWN, LEFT, RIGHT -- index into `buttons`, None = no move.
+    A candidate must lie in the direction's 90-degree cone (lateral offset
+    <= forward offset), so DOWN on the lone left-column chip never hops to
+    the right column; nearest by Manhattan distance. No wrap: the cursor
+    follows the page, it does not loop. scripts/test_gen_menu_nav.py."""
+    axes = [(0, -1), (0, 1), (-1, 0), (1, 0)]    # UP, DOWN, LEFT, RIGHT
+    nav = []
+    for src in buttons:
+        sx, sy = anchors[src]
+        row = []
+        for ax, ay in axes:
+            best = None
+            for j, dst in enumerate(buttons):
+                if dst == src:
+                    continue
+                dx, dy = anchors[dst][0] - sx, anchors[dst][1] - sy
+                fwd = dx * ax + dy * ay
+                lat = abs(dy) if ax else abs(dx)
+                if fwd <= 0 or lat > fwd:
+                    continue
+                if best is None or fwd + lat < best[0]:
+                    best = (fwd + lat, j)
+            row.append(None if best is None else best[1])
+        nav.append(row)
+    return nav
+
+
 # Controls pages. The art is the operator's AI-generated device diagrams,
 # VECTORIZED (round 4, 2026-09-30): the original JPEGs' compression noise was
 # unfixable by filtering (rounds 1-2) and a from-scratch code-drawn schematic
@@ -532,6 +561,16 @@ def main():
     ctl_pad_value_rects = [get_chip(f"< {v} >") for v in M.CTL_PAD_VALUES]
     ctl_stick_value_rect = get_chip(M.CTL_STICK_VALUE)
 
+    # Edit-mode chip: the word on an amber band, black text -- the same look
+    # as the selected settings row, so "amber band = LEFT/RIGHT changes this"
+    # reads the same everywhere. Placed last: existing rects stay put.
+    ctl_word_hi_rects = []
+    for word in M.FUNC_WORDS:
+        r = shelf.place(CHIP_W, CHIP_H)
+        fill_rect(draw, r, AMBER)
+        put_left(draw, r, word, F_ROW, BLACK, pad=2)
+        ctl_word_hi_rects.append(r)
+
     assert shelf.bottom <= M.SHEET_H, \
         f"sheet content {shelf.bottom}px exceeds {M.SHEET_H}px budget"
     # Canvas was allocated at the full sheet size up front and pre-filled with
@@ -602,11 +641,17 @@ def main():
     build_dir = os.path.join(REPO, "build")
     os.makedirs(build_dir, exist_ok=True)
 
-    def preview(name, page, anchors, buttons, layout, row_hi, values):
+    def preview(name, page, anchors, buttons, layout, row_hi, values,
+                cursor=None, editing=False):
         pv = page.copy()
         for b in buttons:               # every button, NONE included -- as menu.c blits
-            pv.paste(sheet.crop(box_of(ctl_word_rects[M.FUNC_WORDS.index(layout[b])])),
+            rects = ctl_word_hi_rects if (editing and b == cursor) else ctl_word_rects
+            pv.paste(sheet.crop(box_of(rects[M.FUNC_WORDS.index(layout[b])])),
                      anchors[b])
+        if cursor is not None:          # menu.c ctl_cursor(): 2-px amber frame outside the chip
+            ax, ay = anchors[cursor]
+            ImageDraw.Draw(pv).rectangle([ax - 2, ay - 2, ax + CHIP_W + 1, ay + CHIP_H + 1],
+                                         outline=AMBER, width=2)
         for i, (r_norm, r_hi) in enumerate(ctl_row_rects):
             pv.paste(sheet.crop(box_of(r_hi if i == row_hi else r_norm)),
                      (CTL_ROW_LABEL_X, CTL_ROW_Y(i)))
@@ -620,11 +665,16 @@ def main():
                 lay, 0, [ctl_pad_value_rects[lid], ctl_pad_value_rects[1 - lid],
                          ctl_stick_value_rect])
     # CUSTOM row + a layout only the editor can produce (B.O.S.S., NONE chips)
-    preview("pad_custom_demo", pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS,
-            {"A": "ACTION", "B": "B.O.S.S.", "X": "BARRAGE", "Y": "OVERDRIVE",
-             "LTRIG": "MAIN", "RTRIG": "NONE"},
+    preview("pad_custom_demo", pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS, M.CUSTOM_DEMO,
             0, [ctl_pad_value_rects[M.CTL_PAD_VALUES.index("CUSTOM")],
                 ctl_pad_value_rects[0], ctl_stick_value_rect])
+    # editor states: cursor on the first chip; value mode on RTRIG (amber band)
+    custom_vals = [ctl_pad_value_rects[M.CTL_PAD_VALUES.index("CUSTOM")],
+                   ctl_pad_value_rects[0], ctl_stick_value_rect]
+    for pname, cur, ed in [("pad_custom_cursor", "LTRIG", False),
+                           ("pad_custom_editing", "RTRIG", True)]:
+        preview(pname, pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS, M.CUSTOM_DEMO,
+                0, custom_vals, cursor=cur, editing=ed)
     preview("stick", stick_page, {}, [],   # labels baked -- nothing to blit
             M.STICK_LAYOUT, 2, ctl_pad_value_rects + [ctl_stick_value_rect])
 
@@ -723,15 +773,32 @@ def main():
     dflt = dict(M.PAD_LAYOUTS)[M.CTL_CUSTOM_DEFAULT]
     lines.append("#define CTL_CUSTOM_DEFAULT {" + ", ".join(str(M.FUNC_WORDS.index(dflt[b]))
                  for b in M.PAD_BUTTONS) + f"}}   /* {M.CTL_CUSTOM_DEFAULT} */")
-    order = sorted(range(len(M.PAD_BUTTONS)),
-                   key=lambda i: M.PAD_ANCHORS[M.PAD_BUTTONS[i]][::-1])   # (y, x)
-    lines.append("/* Edit-mode cursor walk: PAD_BUTTONS indices top-to-bottom, left-to-right on the page. */")
-    lines.append(f"static const unsigned char CTL_EDIT_ORDER[{len(order)}] = {{"
-                 + ", ".join(str(i) for i in order) + "};   /* "
-                 + ", ".join(M.PAD_BUTTONS[i] for i in order) + " */")
+    nb = len(M.PAD_BUTTONS)
+    first = min(range(nb), key=lambda i: M.PAD_ANCHORS[M.PAD_BUTTONS[i]][::-1])   # (y, x)
+    nav = edit_nav(M.PAD_ANCHORS, M.PAD_BUTTONS)
+    seen, stack = {first}, [first]          # every chip reachable, or a redesign stranded one
+    while stack:
+        for j in nav[stack.pop()]:
+            if j is not None and j not in seen:
+                seen.add(j)
+                stack.append(j)
+    assert seen == set(range(nb)), f"editor cursor cannot reach {set(range(nb)) - seen}"
+    lines.append("/* Edit-mode cursor: CTL_EDIT_NAV[chip][UP, DOWN, LEFT, RIGHT] = the")
+    lines.append(" * neighbouring chip (PAD_BUTTONS index) or CTL_NAV_NONE. Derived from")
+    lines.append(" * the anchors (gen_menu_assets.edit_nav), no wrap. */")
+    lines.append(f"#define CTL_EDIT_FIRST {first}   /* {M.PAD_BUTTONS[first]}: top-left chip */")
+    lines.append("#define CTL_NAV_NONE 0xff")
+    lines.append(f"static const unsigned char CTL_EDIT_NAV[{nb}][4] = {{")
+    for i, row in enumerate(nav):
+        lines.append("  {" + ", ".join("CTL_NAV_NONE" if j is None else str(j) for j in row)
+                     + "},   /* %s: %s */" % (M.PAD_BUTTONS[i], ", ".join(
+                         "-" if j is None else M.PAD_BUTTONS[j] for j in row)))
+    lines.append("};")
     lines.append(f"static const mrect_t CTL_WORD[{len(M.FUNC_WORDS)}] = {{"
                  + ", ".join(R(r) for r in ctl_word_rects) + "};   /* "
                  + ", ".join(M.FUNC_WORDS) + " */")
+    lines.append(f"static const mrect_t CTL_WORD_HI[{len(M.FUNC_WORDS)}] = {{"
+                 + ", ".join(R(r) for r in ctl_word_hi_rects) + "};   /* value mode: amber band */")
     lines.append("")
     lines.append(f"static const unsigned char CTL_PAD_FUNC[2][{len(M.PAD_BUTTONS)}] = {{")
     for name, lay in M.PAD_LAYOUTS:

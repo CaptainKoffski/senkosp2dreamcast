@@ -3406,8 +3406,9 @@ Full mechanism + verification state: `input-map.md` §Custom pad layout.
 CUSTOM row value, CTL_CUSTOM_DEFAULT) → regenerated `shims/src/layouts.h`
 (`JVS_FUNC_*`, `JVS_FUNC_MASK[]`, `JVS_PAD_BUTTON[]`, `PAD_SEL_CUSTOM`,
 `LAYOUT_PAD_CUSTOM`), `loader/menu_layout.h` (`CTL_PAD_CUSTOM`,
-`CTL_N_FUNC`, `CTL_CUSTOM_DEFAULT`, `CTL_EDIT_ORDER`, `MENU_HI_COLOR`) and
-`loader/menu_sheet.png` (two new chips); `shims/src/jvs.c`
+`CTL_N_FUNC`, `CTL_CUSTOM_DEFAULT`, `CTL_EDIT_FIRST` + `CTL_EDIT_NAV`,
+`CTL_WORD_HI`, `MENU_HI_COLOR`) and `loader/menu_sheet.png` (two new
+chips, then seven amber value-mode chips); `shims/src/jvs.c`
 `dc_to_jvs_custom()` + `dc_to_jvs_port()` (common Start/8-way factored
 into `jvs_common()`), `jvs_pick_layout()` returns CUSTOM for preset byte 2;
 `shims/include/shim_iface.h` `SHIM_STATE_PAD_CUSTOM` = words [3],[4];
@@ -3416,6 +3417,21 @@ into `jvs_common()`), `jvs_pick_layout()` returns CUSTOM for preset byte 2;
 + `ctl_cursor()`. TDD: every shim-side behaviour has a host assert that
 was watched failing first (`shims/test/test_host.c`).
 
+**Cursor rework (operator, 2026-10-22, after the first commit `6ae9fb1`):**
+UP/DOWN-only chip walking with LEFT/RIGHT changing the value was
+counter-intuitive (on the L chip you press RIGHT to reach R). Now the d-pad
+moves the frame spatially (`CTL_EDIT_NAV`, derived from the anchors —
+`gen_menu_assets.edit_nav()`, cone rule, no wrap; `scripts/test_gen_menu_nav.py`
+watched failing first, now in `make test`), A opens value mode (chip becomes
+an amber band, `CTL_WORD_HI`), LEFT/RIGHT change, A keeps, B restores. MOVE
+and START stay fixed (no chip). Mechanism + page walk: `input-map.md`
+§Custom pad layout. Previews viewed: `build/preview_pad_custom_cursor.png`,
+`build/preview_pad_custom_editing.png`. Emulator boot smoke
+`customlayout/nav-smoke2` **PASS** (`tooling.md` §Legs: customlayout/nav-smoke);
+release images rebuilt without the knob. **Operator verdict 2026-10-22:
+"It works perfectly"** — walked through by the operator (target not stated;
+recorded as operator-verified). Released: ff-merge to `main`, tag `0.20.0`.
+
 **Verification so far:** `make test` all PASS; `make loader` clean;
 `make gdi` + `make cdi` master (CDI region assert green); generator
 preview viewed. Emulator boot smoke `customlayout/boot-smoke3`: **PASS**
@@ -3423,9 +3439,11 @@ preview viewed. Emulator boot smoke `customlayout/boot-smoke3`: **PASS**
 0 SHIMERR / 0 System reset / cart streamed to +194 MB; legs 1–2 were
 emulator launch flakes, `tooling.md` §Legs: customlayout). Release images
 rebuilt without the knob afterwards.
-Operator legs (menu walkthrough, in-game B.O.S.S. activation, hardware
-round) PENDING — the edit mode needs human input (no Lua on the Apple
-fork), and B.O.S.S. needs a full gauge.
+Operator legs: menu walkthrough **done 2026-10-22** ("It works perfectly",
+on the reworked cursor above). Still open: the in-game B.O.S.S. activation
+measurement (needs a full gauge) and a hardware round if the verdict was
+taken on the emulator — the edit mode needs human input (no Lua on the
+Apple fork).
 
 **Not done, deliberately:** no VMU save (session-only like all menu state —
 the cost driver if CUSTOM graduates from lab to feature); no custom stick

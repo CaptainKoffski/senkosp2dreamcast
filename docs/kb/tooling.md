@@ -3250,3 +3250,16 @@ human input (operator leg pending, `phase7-polishing.md` §T19).
 Lesson (also in the session memory): launch unattended legs through the
 wrapper, which bakes the renderer flag and the PID kill. Two of three
 launches were lost to known host traps, none to the build under test.
+
+### Legs: customlayout/nav-smoke1..2 (2026-10-22, T19 cursor rework)
+
+Same recipe (`FAKESTART=6000` build, `scripts/capture_rawfb_leg.sh`),
+covering the regenerated sheet (seven amber value-mode chips appended, every
+earlier rect unmoved) and the rebuilt loader on the default Tournament path;
+the editor itself still needs human input (operator leg pending,
+`phase7-polishing.md` §T19).
+
+| Leg | Result |
+|---|---|
+| `nav-smoke1` | never launched: the wrapper's `pgrep -x Flycast` guard found a leftover emulator process (gone by the time it was inspected — a straggler from an earlier killed leg). No log. |
+| `nav-smoke2` | **PASS**: RAWFB dump at t=15 s shows the top menu on the regenerated sheet (kept: `shot-nav-smoke2-003-t15s.png`; the black in-game dumps deleted post-verdict — GL renderer, normal), fake START launches the game; 160 s: 0 `SHIMERR`, 0 `System reset`, 18,592 `TAEND`, 1,374 `GDDMA`, last cart read `fad=000667b8` = +194 MB. Kept: `.log`, `.log.engine.bin`, `.log.ram.bin`, `.stdout.log`. Release GDI + CDI rebuilt without the knob afterwards (0 fake-START symbols in the loader objects). |
