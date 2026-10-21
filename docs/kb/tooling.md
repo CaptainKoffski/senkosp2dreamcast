@@ -3230,3 +3230,23 @@ on-screen captures of both colors' controls pages for the operator's pick.
   Fix emulator-verified via a second RAWFB leg; release rebuilt, `make
   test` green (18 OK/PASS). Working tree holds the blue change set,
   uncommitted.
+
+### Legs: customlayout/boot-smoke1..3 (2026-10-15, T19 custom pad layout)
+
+Unattended boot smoke of the `feat/custom-layout` build (`make objclean &&
+FAKESTART=6000 make gdi`; the knob presses START 6 s into the menu and is
+never shipped — both release images were rebuilt without it afterwards,
+`make objclean && make gdi && make cdi`). Exercises the new loader staging
+(`SHIM_STATE[3..4]`) and the shim's per-poll read + `dc_to_jvs_port()`
+routing on the default Tournament path; the CUSTOM editor itself needs
+human input (operator leg pending, `phase7-polishing.md` §T19).
+
+| Leg | Result |
+|---|---|
+| `boot-smoke1` | died at launch: `Vulkan init failed` → `SIGSEGV` in `VulkanRenderer::Init` — the leftover `pvr.rend = 4` trap (§RAWFB); a raw `capture_dc_leg.sh` call without `-config config:pvr.rend=0`. Log deleted. |
+| `boot-smoke2` | died at launch: SH4 dynarec `Verify Failed : &mem_b[0] == sq_buffer + sizeof(Sh4Context) + 0x0C000000` (`core/hw/sh4/dyna/driver.cpp:349`) — the host mmap landed non-contiguous (RAM `0x6d8c00000` vs base `0x149e20000`); the transient vmem flake already on record (§Phase 2 capture harness: relaunch). Log deleted. |
+| `boot-smoke3` | **PASS** via `scripts/capture_rawfb_leg.sh customlayout/boot-smoke3 160 4`: RAWFB dumps at t=15/20 s show the pre-game menu on the regenerated sheet (kept: `shot-boot-smoke3-003-t15s.png`; the 30 black in-game dumps deleted post-verdict — GL renderer, normal), fake START launches the game; 160 s: 0 `SHIMERR`, 0 `System reset`, 18,648 `TAEND`, 1,374 `GDDMA`, last cart read `fad=00066798` = +194 MB. Kept: `.log`, `.log.engine.bin`, `.log.ram.bin`, `.stdout.log`. |
+
+Lesson (also in the session memory): launch unattended legs through the
+wrapper, which bakes the renderer flag and the PID kill. Two of three
+launches were lost to known host traps, none to the build under test.

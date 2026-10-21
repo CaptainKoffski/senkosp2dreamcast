@@ -49,18 +49,46 @@
  * the face/trigger buttons (controls spec 2026-09-27: TOURNAMENT default /
  * OLD per-port pad presets, STICK fixed arcade layout). Callers pick the
  * layout with jvs_pick_layout() below. */
-unsigned dc_to_jvs(unsigned dc_buttons, unsigned layout) {
-    const jvs_map_t *m = (layout == LAYOUT_STICK) ? JVS_LAYOUT_STICK
-        : JVS_LAYOUT_PAD[layout == LAYOUT_PAD_OLD ? 1 : 0];
+static unsigned jvs_common(unsigned dc_buttons) {   /* Start + 8-way: every layout */
     unsigned w = 0;
     if (dc_buttons & CONT_START)         w |= JVS_START;
     if (dc_buttons & CONT_DPAD_UP)       w |= JVS_UP;
     if (dc_buttons & CONT_DPAD_DOWN)     w |= JVS_DOWN;
     if (dc_buttons & CONT_DPAD_LEFT)     w |= JVS_LEFT;
     if (dc_buttons & CONT_DPAD_RIGHT)    w |= JVS_RIGHT;
+    return w;
+}
+
+unsigned dc_to_jvs(unsigned dc_buttons, unsigned layout) {
+    const jvs_map_t *m = (layout == LAYOUT_STICK) ? JVS_LAYOUT_STICK
+        : JVS_LAYOUT_PAD[layout == LAYOUT_PAD_OLD ? 1 : 0];
+    unsigned w = jvs_common(dc_buttons);
     for (unsigned i = 0; i < JVS_LAYOUT_N; i++)
         if (dc_buttons & m[i].dc) w |= m[i].jvs;
     return w;
+}
+
+/* CUSTOM pad layout (tester ask 2026-10-15): `word` is the port's loader-
+ * staged SHIM_STATE_PAD_CUSTOM word -- six 4-bit function ids (layouts.h
+ * JVS_FUNC_*, menu_def.py FUNC_WORDS order) at nibble i = JVS_PAD_BUTTON[i].
+ * B.O.S.S. is a three-bit mask, so one DC button raises Main+Sub+Action in
+ * the same poll: the cabinet chord, with no human timing in it. Pure:
+ * host-tested. */
+unsigned dc_to_jvs_custom(unsigned dc_buttons, unsigned word) {
+    unsigned w = jvs_common(dc_buttons);
+    for (unsigned i = 0; i < JVS_LAYOUT_N; i++) {
+        unsigned id = (word >> (4 * i)) & 0xfu;
+        if (id < JVS_FUNC_N && (dc_buttons & JVS_PAD_BUTTON[i])) w |= JVS_FUNC_MASK[id];
+    }
+    return w;
+}
+
+/* Per-poll entry (shims/src/main.c): a port's pressed mask, its picked
+ * layout, and its custom word -- consulted only when the layout IS custom,
+ * so the layout ids stay private to this file. Pure: host-tested. */
+unsigned dc_to_jvs_port(unsigned dc_buttons, unsigned layout, unsigned custom_word) {
+    return (layout == LAYOUT_PAD_CUSTOM) ? dc_to_jvs_custom(dc_buttons, custom_word)
+                                         : dc_to_jvs(dc_buttons, layout);
 }
 
 /* The retail DC reset combo, A+B+X+Y+Start all held (KOS dc/maple/
@@ -165,14 +193,16 @@ unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned layout, unsigned *test_bit
  * 0xff070000 (maple_devs.cpp:292) vs standard pad 0xfe060f00 (:85); bit
  * meanings KOS dc/maple/controller.h:258-263 -- and always gets the fixed
  * arcade layout. Anything else is a pad and takes its port's preset byte
- * (SHIM_STATE_PAD_LAYOUT word, shim_iface.h): 1 = Old, anything else
- * (0 = default, junk) = Tournament. Pure: host-tested. */
+ * (SHIM_STATE_PAD_LAYOUT word, shim_iface.h): 1 = Old, 2 = Custom (the
+ * caller then maps through dc_to_jvs_custom with that port's custom word),
+ * anything else (0 = default, junk) = Tournament. Pure: host-tested. */
 unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel) {
     if (!(caps & (CONT_CAP_RTRIG | CONT_CAP_LTRIG |
                   CONT_CAP_ANALOG_X | CONT_CAP_ANALOG_Y)))
         return LAYOUT_STICK;
-    return (pad_sel == LAYOUT_PAD_OLD) ? LAYOUT_PAD_OLD
-                                           : LAYOUT_PAD_TOURNAMENT;
+    if (pad_sel == LAYOUT_PAD_OLD) return LAYOUT_PAD_OLD;
+    if (pad_sel == PAD_SEL_CUSTOM) return LAYOUT_PAD_CUSTOM;
+    return LAYOUT_PAD_TOURNAMENT;
 }
 
 #define DC_TRIG_ON  128     /* R trigger digital threshold, 0-255 */

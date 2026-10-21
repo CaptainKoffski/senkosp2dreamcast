@@ -50,10 +50,16 @@ SETTINGS = [
 # and the controls page's label chips/anchors (menu_layout.h). Button names
 # match jvs.c's CONT_* constants (KOS controller.h bit numbering); function
 # names index FUNC_WORDS / FUNC_JVS.
-FUNC_WORDS = ["MAIN", "SUB", "BARRAGE", "ACTION", "OVERDRIVE", "NONE"]
-FUNC_JVS = {            # function -> jvs.c constant (NONE = unmapped)
+# B.O.S.S. (tester ask 2026-10-15): a macro -- one DC button raises Main, Sub
+# and Action in the same poll, the three-button chord the cabinet needs for
+# B.O.S.S. mode (the 360 Rev.X port exposes it as an assignable function).
+# List index = the 4-bit function id a CUSTOM layout stores (CTL_N_FUNC /
+# JVS_FUNC_N, <= 16); NONE stays last so LEFT/RIGHT cycling ends on "off".
+FUNC_WORDS = ["MAIN", "SUB", "BARRAGE", "ACTION", "OVERDRIVE", "B.O.S.S.", "NONE"]
+FUNC_JVS = {            # function -> jvs.c expression (NONE = unmapped)
     "MAIN": "JVS_M", "SUB": "JVS_S", "BARRAGE": "JVS_BARRAGE",
-    "ACTION": "JVS_A", "OVERDRIVE": "JVS_OD", "NONE": "0",
+    "ACTION": "JVS_A", "OVERDRIVE": "JVS_OD",
+    "B.O.S.S.": "(JVS_M | JVS_S | JVS_A)", "NONE": "0",
 }
 PAD_BUTTONS   = ["A", "B", "X", "Y", "LTRIG", "RTRIG"]  # runtime-labeled, fixed order
 STICK_BUTTONS = ["A", "B", "X", "Y", "Z", "C"]
@@ -78,7 +84,13 @@ STICK_LAYOUT = {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
 
 # ---- Controls page (controls spec 2026-09-27) ---------------------------
 CTL_ROW_ITEMS = ["P1 PAD LAYOUT", "P2 PAD LAYOUT", "STICK LAYOUT"]
-CTL_PAD_VALUES = ["TOURNAMENT", "OLD"]              # index = layout id
+# Index = the per-port preset byte: PAD_LAYOUTS ids first, then CUSTOM (the
+# editable per-port layout, 2026-10-15) -- its six function ids travel in
+# their own SHIM_STATE word (shim_iface.h SHIM_STATE_PAD_CUSTOM) and only
+# count when the preset byte says CUSTOM. A fresh CUSTOM starts as a copy of
+# CTL_CUSTOM_DEFAULT so it is never empty; the menu edits from there.
+CTL_PAD_VALUES = ["TOURNAMENT", "OLD", "CUSTOM"]
+CTL_CUSTOM_DEFAULT = "TOURNAMENT"
 CTL_STICK_VALUE = "ARCADE (FIXED)"
 CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 

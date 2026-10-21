@@ -6,6 +6,7 @@ typedef struct { unsigned short x, y, w, h; } mrect_t;
 
 #define MENU_SHEET_W 640
 #define MENU_BG_COLOR 0xe71c
+#define MENU_HI_COLOR 0xe504   /* edit-mode chip cursor */
 /* logo_strip.pal8 rect: 256 x RGB565-LE palette then 8bpp indices */
 #define MENU_LOGO_W 424
 #define MENU_LOGO_H 246
@@ -100,7 +101,12 @@ static const mrect_t MENU_SET_FOOTER = {0,696,640,24};
  * the page. The stick page is fully baked (fixed layout) and
  * needs no tables; the footer is baked into both pages. */
 #define CTL_N_BUTTONS 6
-static const mrect_t CTL_WORD[6] = {{0,720,126,24}, {126,720,126,24}, {252,720,126,24}, {378,720,126,24}, {504,720,126,24}, {0,744,126,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, NONE */
+#define CTL_N_FUNC 7   /* function ids; NONE = CTL_N_FUNC - 1 */
+#define CTL_PAD_CUSTOM 2   /* CTL_PAD_VALUE index = preset byte value */
+#define CTL_CUSTOM_DEFAULT {0, 1, 2, 3, 4, 3}   /* TOURNAMENT */
+/* Edit-mode cursor walk: PAD_BUTTONS indices top-to-bottom, left-to-right on the page. */
+static const unsigned char CTL_EDIT_ORDER[6] = {4, 5, 3, 1, 0, 2};   /* LTRIG, RTRIG, Y, B, A, X */
+static const mrect_t CTL_WORD[7] = {{0,720,126,24}, {126,720,126,24}, {252,720,126,24}, {378,720,126,24}, {504,720,126,24}, {0,744,126,24}, {126,744,126,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, B.O.S.S., NONE */
 
 static const unsigned char CTL_PAD_FUNC[2][6] = {
   {0, 1, 2, 3, 4, 3},   /* TOURNAMENT */
@@ -117,12 +123,12 @@ static const unsigned short CTL_PAD_ANCHOR[6][2] = {
 };
 
 static const mrect_t CTL_ROW_LABEL[3][2] = {
-  {{126,744,288,28}, {0,772,288,28}},
+  {{252,744,288,28}, {0,772,288,28}},
   {{288,772,288,28}, {0,800,288,28}},
   {{288,800,288,28}, {0,828,288,28}},
 };
-static const mrect_t CTL_PAD_VALUE[2] = {{288,828,288,28}, {0,856,288,28}};
-static const mrect_t CTL_STICK_VALUE = {288,856,288,28};
+static const mrect_t CTL_PAD_VALUE[3] = {{288,828,288,28}, {0,856,288,28}, {288,856,288,28}};
+static const mrect_t CTL_STICK_VALUE = {0,884,288,28};
 
 #define CTL_ROW_LABEL_X 48
 #define CTL_ROW_VALUE_X 344

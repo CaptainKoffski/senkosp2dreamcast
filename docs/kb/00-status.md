@@ -66,6 +66,19 @@ goes to the menu on the CDI too")**; a burned CD-R remains the final
 CDI verdict. `input-map.md` §Warm boot to the menu, CDI; `tooling.md`
 §CDI mastering, Layout.
 
+**Custom pad layout + B.O.S.S. macro — branch `feat/custom-layout`
+(2026-10-15, unmerged; operator legs pending).** The controls tester asked
+for a single-button B.O.S.S. (the cabinet's Main+Sub+Action chord) and
+shared a reference 360 layout but no DC placement, so the pad rows gained a
+per-port **CUSTOM** layout: LEFT/RIGHT now cycles TOURNAMENT → OLD → CUSTOM,
+A on a CUSTOM row opens an in-place chip editor (UP/DOWN chip, LEFT/RIGHT
+function, B back) with B.O.S.S. and NONE among the seven functions. B.O.S.S.
+is a three-bit JVS mask raised in one poll. Presets untouched; session-only
+(no VMU). Host-tested (TDD), generator preview viewed, both masters build;
+emulator boot smoke + operator legs: `phase7-polishing.md` §T19,
+mechanism `input-map.md` §Custom pad layout, tester message
+`CONTROLS_TASK.MD` §Round 2.
+
 **Tester-requested CD-R path (2026-09-24): `make cdi`, and `make
 release` now emits both zips ([GDI] + [CDI]).** Generic GDI→CDI
 conversion is impossible for this port (the shim streams the cart from

@@ -8,9 +8,24 @@
 #define LAYOUT_PAD_TOURNAMENT 0
 #define LAYOUT_PAD_OLD        1
 #define LAYOUT_STICK          2
+#define LAYOUT_PAD_CUSTOM     3   /* per-port word: shim_iface.h SHIM_STATE_PAD_CUSTOM */
+#define PAD_SEL_CUSTOM        2   /* preset byte value meaning CUSTOM */
 #define JVS_LAYOUT_N 6
+#define JVS_FUNC_N   7   /* 4-bit function ids, menu_def.py FUNC_WORDS order */
+#define JVS_FUNC_MAIN      0
+#define JVS_FUNC_SUB       1
+#define JVS_FUNC_BARRAGE   2
+#define JVS_FUNC_ACTION    3
+#define JVS_FUNC_OVERDRIVE 4
+#define JVS_FUNC_BOSS      5
+#define JVS_FUNC_NONE      6
 
 typedef struct { unsigned dc, jvs; } jvs_map_t;
+
+/* Custom layouts: function id -> JVS mask; an id >= JVS_FUNC_N maps to nothing. */
+static const unsigned JVS_FUNC_MASK[7] = { JVS_M, JVS_S, JVS_BARRAGE, JVS_A, JVS_OD, (JVS_M | JVS_S | JVS_A), 0 };
+/* Custom-word nibble i -> DC button (menu_def.py PAD_BUTTONS order). */
+static const unsigned JVS_PAD_BUTTON[6] = { CONT_A, CONT_B, CONT_X, CONT_Y, CONT_LTRIG, CONT_RTRIG };
 
 static const jvs_map_t JVS_LAYOUT_PAD[2][6] = {
   { {CONT_A, JVS_M}, {CONT_B, JVS_S}, {CONT_X, JVS_BARRAGE}, {CONT_Y, JVS_A}, {CONT_LTRIG, JVS_OD}, {CONT_RTRIG, JVS_A} },   /* TOURNAMENT */

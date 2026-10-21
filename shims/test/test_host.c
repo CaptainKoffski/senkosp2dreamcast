@@ -61,6 +61,40 @@ int main(void) {
     /* per-port independence is just two calls with different sel bytes */
     assert(jvs_pick_layout(0xfe060f00u, 1) != jvs_pick_layout(0xfe060f00u, 0));
 
+    /* Custom pad layout + B.O.S.S. macro (tester ask 2026-10-15, branch
+       feat/custom-layout). The loader stages one word per port: six 4-bit
+       function ids (menu_def.py FUNC_WORDS index) at nibble i = PAD_BUTTONS[i]
+       (A B X Y L R). Read only when that port's preset byte says CUSTOM. */
+    assert(jvs_pick_layout(0xfe060f00u, PAD_SEL_CUSTOM) == LAYOUT_PAD_CUSTOM);
+    assert(jvs_pick_layout(0xff070000u, PAD_SEL_CUSTOM) == LAYOUT_STICK);  /* stick still wins */
+    assert(JVS_FUNC_MASK[JVS_FUNC_BOSS] == (JVS_M | JVS_S | JVS_A));      /* the macro: 3 bits, 1 poll */
+    assert(JVS_FUNC_MASK[JVS_FUNC_NONE] == 0);
+    {
+        /* Tournament packed as a custom word must behave as the Tournament table */
+        const unsigned T = 0u | (1u << 4) | (2u << 8) | (3u << 12) | (4u << 16) | (3u << 20);
+        const unsigned btns[6] = {CONT_A, CONT_B, CONT_X, CONT_Y, CONT_LTRIG, CONT_RTRIG};
+        for (int i = 0; i < 6; i++)
+            assert(dc_to_jvs_custom(btns[i], T) == dc_to_jvs(btns[i], LAYOUT_PAD_TOURNAMENT));
+        /* B.O.S.S. on B (nibble 1) */
+        assert(dc_to_jvs_custom(CONT_B, (T & ~(0xfu << 4)) | ((unsigned)JVS_FUNC_BOSS << 4))
+               == (JVS_M | JVS_S | JVS_A));
+        /* NONE on R (nibble 5): a dead button, no stray bit */
+        assert(dc_to_jvs_custom(CONT_RTRIG, (T & ~(0xfu << 20)) | ((unsigned)JVS_FUNC_NONE << 20)) == 0);
+        /* junk nibble (menu never writes it) -> nothing */
+        assert(dc_to_jvs_custom(CONT_A, 0xfu) == 0);
+        /* Start + 8-way are layout-blind here too */
+        assert(dc_to_jvs_custom(CONT_START | CONT_DPAD_LEFT | CONT_A, T)
+               == (JVS_START | JVS_LEFT | JVS_M));
+        /* two custom buttons held OR together, as the preset tables do */
+        assert(dc_to_jvs_custom(CONT_A | CONT_X, T) == (JVS_M | JVS_BARRAGE));
+        /* the per-poll entry shims/src/main.c calls: CUSTOM routes through the
+           word, every other layout ignores it (so main.c never sees the ids) */
+        const unsigned BW = (T & ~(0xfu << 4)) | ((unsigned)JVS_FUNC_BOSS << 4);
+        assert(dc_to_jvs_port(CONT_B, LAYOUT_PAD_CUSTOM, BW) == (JVS_M | JVS_S | JVS_A));
+        assert(dc_to_jvs_port(CONT_B, LAYOUT_PAD_TOURNAMENT, BW) == JVS_S);
+        assert(dc_to_jvs_port(CONT_B, LAYOUT_STICK, BW) == 0);
+    }
+
     /* dc_cond_to_pressed: raw GetCondition words 2/3 -> the pressed mask above.
        w2 = buttons | rtrig<<16 | ltrig<<24 (buttons ACTIVE-LOW), w3 = joyx |
        joyy<<8 | ... (0-255, 128 centred, low = up/left). caps = the DEVINFO

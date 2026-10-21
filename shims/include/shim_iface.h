@@ -30,6 +30,12 @@
  * per poll from DEVINFO caps (src/jvs.c jvs_pick_layout). Loader writes it
  * at staging (loader/main.c, Task 4). */
 #define SHIM_STATE_PAD_LAYOUT 2
+/* CUSTOM pad layouts (tester ask 2026-10-15): words [3] = port A, [4] = port
+ * B. Six 4-bit function ids (layouts.h JVS_FUNC_*, menu_def.py FUNC_WORDS
+ * order) at nibble i = PAD_BUTTONS[i] (A B X Y L R). A port's word is read
+ * only when its SHIM_STATE_PAD_LAYOUT byte is PAD_SEL_CUSTOM (2); the
+ * zero-fill (menu off / never visited) is therefore never consulted. */
+#define SHIM_STATE_PAD_CUSTOM 3
 /* Canary at the bottom of the private syscall stack (gdstack.S swaps r15 to
  * GD_STACK_TOP; isoldr's FatFs+SPI runs on it -- Cleopatra measured >2 KB,
  * we reserve 8 KB and VERIFY instead of hoping; spec decision 5). Seeded by

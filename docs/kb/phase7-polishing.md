@@ -3392,3 +3392,42 @@ grab is gray — both already-recorded lessons, tooling.md.) Operator leg
 event-mode behavior visible in game, flip to OFF still works — all PASS.
 
 **T18 CLOSED 2026-09-30** (operator PASS, same day as the ask).
+
+## T19 — custom pad layout + B.O.S.S. macro (tester ask 2026-10-15, branch `feat/custom-layout`)
+
+**Origin:** the controls tester's third message (verbatim `CONTROLS_TASK.MD`
+§Round 2): a single-button B.O.S.S. (the cabinet's Main+Sub+Action chord)
+and a reference 360 layout, but no concrete DC placement. Rather than guess
+a preset, the pad rows gained a per-port CUSTOM layout with B.O.S.S. as a
+selectable function; the tester's eventual layout can be baked as a preset.
+Full mechanism + verification state: `input-map.md` §Custom pad layout.
+
+**What changed:** `scripts/menu_def.py` (B.O.S.S. function word + mask,
+CUSTOM row value, CTL_CUSTOM_DEFAULT) → regenerated `shims/src/layouts.h`
+(`JVS_FUNC_*`, `JVS_FUNC_MASK[]`, `JVS_PAD_BUTTON[]`, `PAD_SEL_CUSTOM`,
+`LAYOUT_PAD_CUSTOM`), `loader/menu_layout.h` (`CTL_PAD_CUSTOM`,
+`CTL_N_FUNC`, `CTL_CUSTOM_DEFAULT`, `CTL_EDIT_ORDER`, `MENU_HI_COLOR`) and
+`loader/menu_sheet.png` (two new chips); `shims/src/jvs.c`
+`dc_to_jvs_custom()` + `dc_to_jvs_port()` (common Start/8-way factored
+into `jvs_common()`), `jvs_pick_layout()` returns CUSTOM for preset byte 2;
+`shims/include/shim_iface.h` `SHIM_STATE_PAD_CUSTOM` = words [3],[4];
+`shims/src/main.c` reads them per poll; `loader/main.c` stages them;
+`loader/menu.c` `menu_custom[2][6]`, three-value row cycle, `ctl_edit()`
++ `ctl_cursor()`. TDD: every shim-side behaviour has a host assert that
+was watched failing first (`shims/test/test_host.c`).
+
+**Verification so far:** `make test` all PASS; `make loader` clean;
+`make gdi` + `make cdi` master (CDI region assert green); generator
+preview viewed. Emulator boot smoke `customlayout/boot-smoke3`: **PASS**
+(menu renders on the new sheet, fake START into the game, 160 s with
+0 SHIMERR / 0 System reset / cart streamed to +194 MB; legs 1–2 were
+emulator launch flakes, `tooling.md` §Legs: customlayout). Release images
+rebuilt without the knob afterwards.
+Operator legs (menu walkthrough, in-game B.O.S.S. activation, hardware
+round) PENDING — the edit mode needs human input (no Lua on the Apple
+fork), and B.O.S.S. needs a full gauge.
+
+**Not done, deliberately:** no VMU save (session-only like all menu state —
+the cost driver if CUSTOM graduates from lab to feature); no custom stick
+layout (baked labels, forced classifier); no on-screen "A: EDIT" hint; no
+VO preset (the tester reports his layout first).

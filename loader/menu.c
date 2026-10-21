@@ -24,6 +24,12 @@ unsigned char menu_game_record[16] = MENU_DEFAULT_RECORD;
  * (VMU save-all-settings will serialize it later); consumed by main.c's
  * SHIM_STATE staging write. Sticks ignore it (shim classifies from DEVINFO). */
 unsigned char menu_pad_layout[2] = { 0, 0 };
+/* CUSTOM layouts (tester ask 2026-10-15): per-port function ids (CTL_WORD /
+ * menu_def.py FUNC_WORDS index) per pad button, A B X Y L R. Start as a copy
+ * of CTL_CUSTOM_DEFAULT so a fresh CUSTOM row is never empty; ctl_edit()
+ * changes them in place; main.c packs each port into its
+ * SHIM_STATE_PAD_CUSTOM word (4 bits per button). Session-only, as above. */
+unsigned char menu_custom[2][6] = { CTL_CUSTOM_DEFAULT, CTL_CUSTOM_DEFAULT };
 
 static void blit(mrect_t src, int dx, int dy) {
     const uint16 *sheet = (const uint16 *)menu_sheet_bin;
@@ -131,9 +137,55 @@ static void settings_screen(void) {
  * rule; row/label changes re-blit fixed cells. */
 static void ctl_draw_labels(int cur) {
     if (cur == 2) return;              /* stick page: fixed, fully baked */
+    const unsigned char *f = (menu_pad_layout[cur] == CTL_PAD_CUSTOM)
+        ? menu_custom[cur] : CTL_PAD_FUNC[menu_pad_layout[cur]];
     for (int i = 0; i < 6; i++)
-        blit(CTL_WORD[CTL_PAD_FUNC[menu_pad_layout[cur]][i]],
-             CTL_PAD_ANCHOR[i][0], CTL_PAD_ANCHOR[i][1]);
+        blit(CTL_WORD[f[i]], CTL_PAD_ANCHOR[i][0], CTL_PAD_ANCHOR[i][1]);
+}
+
+/* Edit-mode cursor: a 2-px frame just OUTSIDE chip `b`'s cell, so re-blitting
+ * the chip never clips it. On = MENU_HI_COLOR; off restores the page's own
+ * pixels from ctl_pad_bin -- a leader line ends at the chip's edge, right
+ * under the frame, and a flat BG fill would nick it. The blob is read
+ * byte-wise (LE RGB565, as bmp2rgb565.py wrote it): an objcopy'd blob has
+ * no alignment guarantee and SH4 faults on a misaligned uint16 load (the
+ * draw_logo lesson). */
+static void ctl_cursor(int b, int on) {
+    const int x0 = CTL_PAD_ANCHOR[b][0] - 2, y0 = CTL_PAD_ANCHOR[b][1] - 2;
+    const int w = CTL_WORD[0].w + 4, h = CTL_WORD[0].h + 4;
+    for (int y = y0; y < y0 + h; y++)
+        for (int x = x0; x < x0 + w; x++) {
+            if (y >= y0 + 2 && y < y0 + h - 2 && x >= x0 + 2 && x < x0 + w - 2)
+                continue;                              /* inside: the chip itself */
+            const int i = y * 640 + x;
+            vram_s[i] = on ? MENU_HI_COLOR
+                           : (uint16)(ctl_pad_bin[2 * i] | (ctl_pad_bin[2 * i + 1] << 8));
+        }
+}
+
+/* CUSTOM editor (2026-10-15): entered with A on a pad row showing CUSTOM.
+ * UP/DOWN walk the six chips in page order (CTL_EDIT_ORDER), LEFT/RIGHT
+ * cycle that button through every function word (B.O.S.S. and NONE
+ * included), B returns to the rows. Same edge() poll, so the reset combo
+ * stays live here too. */
+static void ctl_edit(int port) {
+    int k = 0;                                   /* index into CTL_EDIT_ORDER */
+    ctl_cursor(CTL_EDIT_ORDER[k], 1);
+    for (;;) {
+        uint32 e = edge();
+        int b = CTL_EDIT_ORDER[k];
+        if (e & CONT_B) { ctl_cursor(b, 0); return; }
+        if (e & (CONT_DPAD_UP | CONT_DPAD_DOWN)) {
+            ctl_cursor(b, 0);
+            k = (k + ((e & CONT_DPAD_DOWN) ? 1 : CTL_N_BUTTONS - 1)) % CTL_N_BUTTONS;
+            ctl_cursor(CTL_EDIT_ORDER[k], 1);
+        }
+        if (e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) {
+            unsigned char *f = &menu_custom[port][b];
+            *f = (unsigned char)((*f + ((e & CONT_DPAD_RIGHT) ? 1 : CTL_N_FUNC - 1)) % CTL_N_FUNC);
+            blit(CTL_WORD[*f], CTL_PAD_ANCHOR[b][0], CTL_PAD_ANCHOR[b][1]);
+        }
+    }
 }
 
 static void ctl_draw_rows(int cur) {
@@ -174,10 +226,14 @@ static void controls_screen(void) {
             else { ctl_draw_labels(cur); ctl_draw_rows(cur); }
         }
         if ((e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) && cur < 2) {
-            menu_pad_layout[cur] ^= 1;       /* 0 Tournament <-> 1 Old */
+            const int n = CTL_PAD_CUSTOM + 1;    /* Tournament, Old, Custom */
+            menu_pad_layout[cur] = (unsigned char)
+                ((menu_pad_layout[cur] + ((e & CONT_DPAD_RIGHT) ? 1 : n - 1)) % n);
             ctl_draw_labels(cur);
             ctl_draw_rows(cur);
         }
+        if ((e & CONT_A) && cur < 2 && menu_pad_layout[cur] == CTL_PAD_CUSTOM)
+            ctl_edit(cur);
     }
 }
 

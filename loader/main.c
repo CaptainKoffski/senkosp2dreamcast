@@ -467,6 +467,14 @@ int main(void) {
      * with the menu off (MENU=0) the defaults {0,0} restate the zero-fill. */
     *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4 * SHIM_STATE_PAD_LAYOUT) =
         (uint32)menu_pad_layout[0] | ((uint32)menu_pad_layout[1] << 8);
+    /* SHIM_STATE[3..4] = per-port CUSTOM layout words (2026-10-15): six 4-bit
+     * function ids, nibble i = pad button i (A B X Y L R). The shim reads a
+     * port's word only when its preset byte above says CUSTOM. */
+    for (int p = 0; p < 2; p++) {
+        uint32 w = 0;
+        for (int i = 0; i < 6; i++) w |= (uint32)(menu_custom[p][i] & 0xfu) << (4 * i);
+        *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4 * (SHIM_STATE_PAD_CUSTOM + p)) = w;
+    }
     /* Canary under the private syscall stack (gd_sys.c checks per read). */
     *(uint32 *)(STAGE_SHIM + (GD_STACK_BOTTOM - SHIM_BASE)) = GD_STACK_CANARY;
 

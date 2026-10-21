@@ -214,6 +214,82 @@ preset fallback; one emulator boot-leg screenshot
 the operator's emulator walkthrough and hardware-leg matrix both PASS
 (2026-09-30 — see the verification notice at the top of this section).
 
+### Custom pad layout + B.O.S.S. macro (2026-10-15, branch `feat/custom-layout`)
+
+**Origin.** The same tester's third controls message (verbatim in
+`CONTROLS_TASK.MD` §Round 2): a single-button B.O.S.S. — on the cabinet,
+B.O.S.S. mode is the Main+Sub+Action chord (tester's statement; the 360
+Rev.X port exposes "B.O.S.S." as an assignable button, visible in his
+reference screenshot of Rev.X's Controller Setting screen) — plus a 360
+layout he admires but no concrete DC placement ("we can work something from
+here"). Nobody could say which DC button B.O.S.S. belongs on, so instead of
+guessing a preset, the pad rows gained a per-port **CUSTOM** layout the
+player edits in the menu; whatever he settles on can be baked as a preset.
+Old, Tournament and Stick are untouched (their `layouts.h` tables are
+byte-identical; the header only gained definitions).
+
+**Function ids.** `scripts/menu_def.py` `FUNC_WORDS` gained `B.O.S.S.`
+before `NONE`: ids 0 MAIN, 1 SUB, 2 BARRAGE, 3 ACTION, 4 OVERDRIVE,
+5 B.O.S.S., 6 NONE (generated `shims/src/layouts.h` `JVS_FUNC_*`,
+`JVS_FUNC_MASK[]`). B.O.S.S. is the mask `JVS_M | JVS_S | JVS_A` (0x0340):
+one DC button raises all three JVS bits in the same poll — a cleaner chord
+than any human press, and nothing the cabinet's own three buttons could not
+send.
+
+**State.** Preset byte value 2 (`PAD_SEL_CUSTOM`) in the existing
+`SHIM_STATE[2]` word means CUSTOM for that port; the layout itself is one
+word per port, `SHIM_STATE[3]` (port A) / `SHIM_STATE[4]` (port B)
+(`shims/include/shim_iface.h` `SHIM_STATE_PAD_CUSTOM`): six 4-bit function
+ids, nibble i = pad button i in `PAD_BUTTONS` order A, B, X, Y, L, R.
+`loader/main.c` stages both words next to the preset bytes, unconditionally.
+The shim reads them every poll (`shims/src/main.c` `c1`/`c2`) but consults a
+port's word only when `jvs_pick_layout()` returned `LAYOUT_PAD_CUSTOM` (3):
+`dc_to_jvs_port()` routes to `dc_to_jvs_custom()` then and to the table
+`dc_to_jvs()` otherwise (`shims/src/jvs.c`), so the menu-off zero-fill is
+never interpreted and a stick still wins the classifier. A junk nibble
+(≥ `JVS_FUNC_N`) maps to nothing. Test boot (`SHIM_STATE[0] == 1`) keeps the
+plain `dc_to_jvs_test()` path — a CUSTOM P1 falls to Tournament there; the
+test menu only needs Start/A.
+
+**Menu.** Pad rows cycle TOURNAMENT → OLD → CUSTOM with LEFT/RIGHT. Each
+port's custom layout starts as a copy of Tournament (`CTL_CUSTOM_DEFAULT`,
+generated from `menu_def.CTL_CUSTOM_DEFAULT`) so CUSTOM is never empty. On a
+row showing CUSTOM, **A enters edit mode** (`loader/menu.c` `ctl_edit()`):
+an amber 2-px frame (`MENU_HI_COLOR`) around one chip; UP/DOWN walk the six
+chips in page order, top-to-bottom then left-to-right (`CTL_EDIT_ORDER`,
+generated from the anchors: L, R, Y, B, A, X); LEFT/RIGHT cycle that button
+through all seven function words; B returns to the rows. The frame sits
+just outside the chip cell and is erased by restoring the page's own pixels
+from `ctl_pad_bin` (a leader line ends right under it — a flat fill would
+nick it). The footer is unchanged: the "A edits CUSTOM" affordance has no
+on-screen hint yet (tester-facing lab feature). Session-only like every
+menu setting — nothing is written to a VMU; power-off reverts to Tournament.
+Both ports are edited from the first enumerated pad, as the presets are.
+
+**Verification.** Host tests (`shims/test/test_host.c`): the classifier
+returns CUSTOM for preset byte 2 and STICK for a stick regardless; the
+B.O.S.S. mask is exactly the three bits; Tournament packed as a custom word
+equals the Tournament table for every button; NONE and junk nibbles yield
+nothing; Start/8-way stay layout-blind; two custom buttons OR;
+`dc_to_jvs_port` ignores the word off CUSTOM. Generator preview
+`build/preview_pad_custom_demo.png` (viewed): the CUSTOM row chip, the
+B.O.S.S. and NONE chips land on their buttons; `make cdi` still fits the
+fixed 1792-sector loader region. Emulator boot smoke
+`captures/customlayout/boot-smoke3` (FAKESTART build, default Tournament
+path through the new staging + read code): **PASS** — the pre-game menu
+renders on the regenerated sheet (RAWFB dump at t=15 s, kept as
+`shot-boot-smoke3-003-t15s.png`), the fake START launches the game, and
+160 s unattended end with 0 `SHIMERR`, 0 `System reset`, 18,648 `TAEND`,
+1,374 `GDDMA` transfers, cart streamed to +194 MB. Two earlier launch
+attempts died inside the emulator before any boot (leftover Vulkan
+renderer setting; the SH4 vmem `Verify Failed` flake) — both known
+host-side traps, `tooling.md` §Legs: customlayout. **Operator legs pending:** (1)
+emulator walkthrough — CUSTOM on both pad rows, edit-mode cursor and
+cycling, B back, START; (2) in-game: B.O.S.S. on a face button with a full
+gauge activates B.O.S.S. mode — also the first measurement that senkosp
+accepts the simultaneous three-bit press (tester's claim, unmeasured so far);
+(3) the hardware round, standing Flycast≠hardware rule.
+
 ### Non-standard controllers: axis bytes are capability-gated (2026-09-26)
 
 Tester report (Flycast, "Arcade Stick" driver): shield + OverDrive stuck

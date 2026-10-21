@@ -14,6 +14,7 @@ are the only check that an anchor actually lands beside its button.
     python3 scripts/gen_menu_assets.py
 """
 import os
+import re
 import sys
 
 from PIL import Image, ImageDraw, ImageFont
@@ -353,6 +354,11 @@ def build_page(name, spec, anchors):
     return page
 
 
+def cid(word):
+    """FUNC_WORDS entry -> C identifier fragment ("B.O.S.S." -> BOSS)."""
+    return re.sub(r"[^A-Z0-9]", "", word)
+
+
 def emit_layouts_h():
     # self-checks: a pad layout that can't reach every game function is a
     # shipping bug, not a preference (stick OverDrive gap was exactly this)
@@ -369,8 +375,11 @@ def emit_layouts_h():
     # jvs_pick_layout, CTL_PAD_VALUES, preview labels) -- pin PAD_LAYOUTS and
     # CTL_PAD_VALUES to the same order so a reorder in one can't silently
     # desync from the others.
-    assert [n for n, _ in M.PAD_LAYOUTS] == M.CTL_PAD_VALUES, \
-        "PAD_LAYOUTS order must match CTL_PAD_VALUES (layout id is positional)"
+    assert M.CTL_PAD_VALUES == [n for n, _ in M.PAD_LAYOUTS] + ["CUSTOM"], \
+        "CTL_PAD_VALUES must be PAD_LAYOUTS order (layout id is positional) + CUSTOM"
+    assert len(M.FUNC_WORDS) <= 16, "function ids are 4-bit nibbles (custom word)"
+    assert M.FUNC_WORDS[-1] == "NONE", "NONE last: LEFT/RIGHT cycling ends on off"
+    assert M.CTL_CUSTOM_DEFAULT in dict(M.PAD_LAYOUTS)
 
     n = len(M.PAD_BUTTONS)
     L = [
@@ -384,9 +393,22 @@ def emit_layouts_h():
         "#define LAYOUT_PAD_TOURNAMENT 0",
         "#define LAYOUT_PAD_OLD        1",
         "#define LAYOUT_STICK          2",
+        "#define LAYOUT_PAD_CUSTOM     3   /* per-port word: shim_iface.h SHIM_STATE_PAD_CUSTOM */",
+        f"#define PAD_SEL_CUSTOM        {len(M.PAD_LAYOUTS)}   /* preset byte value meaning CUSTOM */",
         f"#define JVS_LAYOUT_N {n}",
+        f"#define JVS_FUNC_N   {len(M.FUNC_WORDS)}   /* 4-bit function ids, menu_def.py FUNC_WORDS order */",
+    ] + [
+        f"#define JVS_FUNC_{cid(w):<9} {i}" for i, w in enumerate(M.FUNC_WORDS)
+    ] + [
         "",
         "typedef struct { unsigned dc, jvs; } jvs_map_t;",
+        "",
+        "/* Custom layouts: function id -> JVS mask; an id >= JVS_FUNC_N maps to nothing. */",
+        f"static const unsigned JVS_FUNC_MASK[{len(M.FUNC_WORDS)}] = {{ "
+        + ", ".join(M.FUNC_JVS[w] for w in M.FUNC_WORDS) + " };",
+        "/* Custom-word nibble i -> DC button (menu_def.py PAD_BUTTONS order). */",
+        f"static const unsigned JVS_PAD_BUTTON[{n}] = {{ "
+        + ", ".join(f"CONT_{b}" for b in M.PAD_BUTTONS) + " };",
         "",
         f"static const jvs_map_t JVS_LAYOUT_PAD[2][{n}] = {{",
     ]
@@ -582,9 +604,7 @@ def main():
 
     def preview(name, page, anchors, buttons, layout, row_hi, values):
         pv = page.copy()
-        for b in buttons:
-            if layout[b] == "NONE":     # mirror menu.c's CTL_FUNC_NONE skip
-                continue
+        for b in buttons:               # every button, NONE included -- as menu.c blits
             pv.paste(sheet.crop(box_of(ctl_word_rects[M.FUNC_WORDS.index(layout[b])])),
                      anchors[b])
         for i, (r_norm, r_hi) in enumerate(ctl_row_rects):
@@ -599,6 +619,12 @@ def main():
         preview(f"pad_{lname.lower()}", pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS,
                 lay, 0, [ctl_pad_value_rects[lid], ctl_pad_value_rects[1 - lid],
                          ctl_stick_value_rect])
+    # CUSTOM row + a layout only the editor can produce (B.O.S.S., NONE chips)
+    preview("pad_custom_demo", pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS,
+            {"A": "ACTION", "B": "B.O.S.S.", "X": "BARRAGE", "Y": "OVERDRIVE",
+             "LTRIG": "MAIN", "RTRIG": "NONE"},
+            0, [ctl_pad_value_rects[M.CTL_PAD_VALUES.index("CUSTOM")],
+                ctl_pad_value_rects[0], ctl_stick_value_rect])
     preview("stick", stick_page, {}, [],   # labels baked -- nothing to blit
             M.STICK_LAYOUT, 2, ctl_pad_value_rects + [ctl_stick_value_rect])
 
@@ -615,6 +641,7 @@ def main():
         "",
         f"#define MENU_SHEET_W {M.SHEET_W}",
         f"#define MENU_BG_COLOR 0x{rgb565(BG):04x}",
+        f"#define MENU_HI_COLOR 0x{rgb565(AMBER):04x}   /* edit-mode chip cursor */",
         "/* logo_strip.pal8 rect: 256 x RGB565-LE palette then 8bpp indices */",
         f"#define MENU_LOGO_W {LOGO_W}",
         f"#define MENU_LOGO_H {LOGO_H}",
@@ -691,6 +718,17 @@ def main():
                  "\n * the page. The stick page is fully baked (fixed layout) and"
                  "\n * needs no tables; the footer is baked into both pages. */")
     lines.append(f"#define CTL_N_BUTTONS {len(M.PAD_BUTTONS)}")
+    lines.append(f"#define CTL_N_FUNC {len(M.FUNC_WORDS)}   /* function ids; NONE = CTL_N_FUNC - 1 */")
+    lines.append(f"#define CTL_PAD_CUSTOM {len(M.PAD_LAYOUTS)}   /* CTL_PAD_VALUE index = preset byte value */")
+    dflt = dict(M.PAD_LAYOUTS)[M.CTL_CUSTOM_DEFAULT]
+    lines.append("#define CTL_CUSTOM_DEFAULT {" + ", ".join(str(M.FUNC_WORDS.index(dflt[b]))
+                 for b in M.PAD_BUTTONS) + f"}}   /* {M.CTL_CUSTOM_DEFAULT} */")
+    order = sorted(range(len(M.PAD_BUTTONS)),
+                   key=lambda i: M.PAD_ANCHORS[M.PAD_BUTTONS[i]][::-1])   # (y, x)
+    lines.append("/* Edit-mode cursor walk: PAD_BUTTONS indices top-to-bottom, left-to-right on the page. */")
+    lines.append(f"static const unsigned char CTL_EDIT_ORDER[{len(order)}] = {{"
+                 + ", ".join(str(i) for i in order) + "};   /* "
+                 + ", ".join(M.PAD_BUTTONS[i] for i in order) + " */")
     lines.append(f"static const mrect_t CTL_WORD[{len(M.FUNC_WORDS)}] = {{"
                  + ", ".join(R(r) for r in ctl_word_rects) + "};   /* "
                  + ", ".join(M.FUNC_WORDS) + " */")

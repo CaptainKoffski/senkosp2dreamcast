@@ -129,6 +129,7 @@ extern const unsigned char mie_jvsdflt[]; extern const unsigned int mie_jvsdflt_
  * owns the frame checksum. */
 unsigned int  maple_getcond(unsigned int port);         /* src/maple.c */
 unsigned      dc_to_jvs(unsigned dc_buttons, unsigned layout);           /* src/jvs.c */
+unsigned      dc_to_jvs_port(unsigned dc_buttons, unsigned layout, unsigned custom_word); /* src/jvs.c, custom layout 2026-10-15 */
 unsigned      dc_to_jvs_test(unsigned dc_buttons, unsigned layout, unsigned *test_bit); /* src/jvs.c, Task 13 */
 unsigned char jvs_checksum(const unsigned char *f);     /* src/jvs.c */
 void *xmemcpy(void *, const void *, u32);               /* src/util.c */
@@ -269,14 +270,20 @@ static void mie_poll(u32 rcv) {
     u32 sel = UW(SHIM_STATE + 4 * SHIM_STATE_PAD_LAYOUT);
     u32 l1 = jvs_pick_layout(devinfo_caps[0], sel & 0xffu);
     u32 l2 = jvs_pick_layout(devinfo_caps[1], (sel >> 8) & 0xffu);
-    if (UW(SHIM_STATE) == 1u) {         /* test boot: P1 Start->Test, A->Service */
+    /* CUSTOM (2026-10-15): the port's own six-nibble word, staged next to the
+     * preset bytes; only consulted when jvs_pick_layout said CUSTOM. */
+    u32 c1 = UW(SHIM_STATE + 4 * SHIM_STATE_PAD_CUSTOM);
+    u32 c2 = UW(SHIM_STATE + 4 * (SHIM_STATE_PAD_CUSTOM + 1));
+    if (UW(SHIM_STATE) == 1u) {         /* test boot: P1 Start->Test, A->Service
+                                         * (a CUSTOM P1 falls to Tournament here --
+                                         * the test menu only needs those two) */
         unsigned test_bit;
         j1 = dc_to_jvs_test(p1, l1, &test_bit);
         f[0x1f] = (u8)(test_bit ? 0x80 : 0x00);
     } else {
-        j1 = dc_to_jvs(p1, l1);         /* DC port A -> P1 */
+        j1 = dc_to_jvs_port(p1, l1, c1);    /* DC port A -> P1 */
     }
-    j2 = dc_to_jvs(p2, l2);             /* DC port B -> P2 (no pad -> 0 = idle) */
+    j2 = dc_to_jvs_port(p2, l2, c2);        /* DC port B -> P2 (no pad -> 0 = idle) */
     f[0x20] = (u8)(j1 >> 8); f[0x21] = (u8)j1;
     f[0x22] = (u8)(j2 >> 8); f[0x23] = (u8)j2;
     f[0x3a] = jvs_checksum(f);
