@@ -306,9 +306,9 @@ menu renders on the regenerated sheet at t=15 s; 160 s: 0 `SHIMERR`,
 0 `System reset`, 18,592 `TAEND`, cart to +194 MB; `nav-smoke1` never
 launched — leftover emulator process, `tooling.md` §Legs:
 customlayout/nav-smoke). **Operator verdict 2026-10-22: "It works
-perfectly"** — leg (1) below done on the reworked editor (target not
-stated; recorded as operator-verified). Shipped as `0.20.0`; (2) and (3)
-remain open. **Operator legs:** (1)
+perfectly"** — legs (1) and (3) below done on the reworked editor, **on
+hardware** (hardware-verified). Shipped as `0.20.0`; (2) remains open.
+**Operator legs:** (1)
 emulator walkthrough — CUSTOM on both pad rows, d-pad cursor following the
 page (RIGHT on L → R, LEFT from the right column → L, no wrap), A → amber
 band, LEFT/RIGHT cycling, A keeps / B restores, B back, START; (2) in-game: B.O.S.S. on a face button with a full

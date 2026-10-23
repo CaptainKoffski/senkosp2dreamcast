@@ -66,8 +66,9 @@ goes to the menu on the CDI too")**; a burned CD-R remains the final
 CDI verdict. `input-map.md` §Warm boot to the menu, CDI; `tooling.md`
 §CDI mastering, Layout.
 
-**Custom pad layout + B.O.S.S. macro — branch `feat/custom-layout`
-(2026-10-15; operator-verified and merged to `main` as `0.20.0` on 2026-10-22).** The controls tester asked
+**Custom pad layout + B.O.S.S. macro — `0.20.0`, ex-branch `feat/custom-layout`
+(2026-10-15; hardware-verified by the operator and merged to `main` as
+`0.20.0` on 2026-10-22).** The controls tester asked
 for a single-button B.O.S.S. (the cabinet's Main+Sub+Action chord) and
 shared a reference 360 layout but no DC placement, so the pad rows gained a
 per-port **CUSTOM** layout: LEFT/RIGHT now cycles TOURNAMENT → OLD → CUSTOM,

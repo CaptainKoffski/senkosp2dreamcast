@@ -3429,8 +3429,10 @@ and START stay fixed (no chip). Mechanism + page walk: `input-map.md`
 `build/preview_pad_custom_editing.png`. Emulator boot smoke
 `customlayout/nav-smoke2` **PASS** (`tooling.md` §Legs: customlayout/nav-smoke);
 release images rebuilt without the knob. **Operator verdict 2026-10-22:
-"It works perfectly"** — walked through by the operator (target not stated;
-recorded as operator-verified). Released: ff-merge to `main`, tag `0.20.0`.
+"It works perfectly"** — walked through by the operator **on hardware**
+(hardware-verified; the target was confirmed after the push, so the tag
+message still reads "operator verified"). Released: ff-merge to `main`,
+tag `0.20.0`.
 
 **Verification so far:** `make test` all PASS; `make loader` clean;
 `make gdi` + `make cdi` master (CDI region assert green); generator
@@ -3439,11 +3441,10 @@ preview viewed. Emulator boot smoke `customlayout/boot-smoke3`: **PASS**
 0 SHIMERR / 0 System reset / cart streamed to +194 MB; legs 1–2 were
 emulator launch flakes, `tooling.md` §Legs: customlayout). Release images
 rebuilt without the knob afterwards.
-Operator legs: menu walkthrough **done 2026-10-22** ("It works perfectly",
-on the reworked cursor above). Still open: the in-game B.O.S.S. activation
-measurement (needs a full gauge) and a hardware round if the verdict was
-taken on the emulator — the edit mode needs human input (no Lua on the
-Apple fork).
+Operator legs: menu walkthrough and hardware round **done 2026-10-22**
+("It works perfectly", on hardware, on the reworked cursor above). Still
+open: the in-game B.O.S.S. activation measurement (needs a full gauge) —
+the edit mode needs human input (no Lua on the Apple fork).
 
 **Not done, deliberately:** no VMU save (session-only like all menu state —
 the cost driver if CUSTOM graduates from lab to feature); no custom stick
