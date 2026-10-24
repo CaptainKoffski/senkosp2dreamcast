@@ -5,7 +5,7 @@
 typedef struct { unsigned short x, y, w, h; } mrect_t;
 
 #define MENU_SHEET_W 640
-#define MENU_SHEET_H 1024
+#define MENU_SHEET_H 1280
 #define MENU_BG_COLOR 0xe71c
 #define MENU_HI_COLOR 0xe504   /* edit-mode chip cursor */
 /* logo_strip.pal8 rect: 256 x RGB565-LE palette then 8bpp indices */
@@ -96,55 +96,103 @@ static const mrect_t MENU_SET_FOOTER = {0,696,640,24};
 #define MENU_DEFAULT_RECORD {0x23, 0x51, 0x17, 0x03, 0x01, 0x01, 0x01, 0x02, 0x02, 0x00, 0x46, 0x00, 0x96, 0x00, 0x46, 0x00}
 
 /* ---- CONTROLS pages (controls_pad.png / controls_stick.png) ----
- * CTL_PAD_FUNC indexes FUNC_WORDS/CTL_WORD; button order is
- * menu_def.py's PAD_BUTTONS, same order as shims/src/layouts.h's
- * JVS_LAYOUT_* rows. CTL_PAD_ANCHOR is the chip's top-left on
- * the page. The stick page is fully baked (fixed layout) and
- * needs no tables; the footer is baked into both pages. */
+ * [cls] = menu_def.py CTL_CLASSES order (0 pad, 1 stick); button
+ * index = that class's PAD_BUTTONS / STICK_BUTTONS order, the nibble
+ * order of shims/src/layouts.h's JVS_CLASS_BUTTON. Function ids index
+ * FUNC_WORDS / CTL_WORD. CTL_ANCHOR is a chip's top-left on the page.
+ * Rows are class-major: row i = class i / CTL_PORTS, port
+ * i % CTL_PORTS. A row shows CTL_STOCK_VALUE[cls][id] for a stock
+ * layout, CTL_CUSTOM_VALUE[slot] for a library slot. The footer is
+ * a per-state sheet strip, not baked into the pages. */
+#define CTL_PORTS 2
+#define CTL_N_CLASS 2
+#define CTL_N_CUSTOM 8
+#define CTL_N_ROWS 4
 #define CTL_N_BUTTONS 6
 #define CTL_N_FUNC 7   /* function ids; NONE = CTL_N_FUNC - 1 */
-#define CTL_PAD_CUSTOM 2   /* CTL_PAD_VALUE index = preset byte value */
-#define CTL_CUSTOM_DEFAULT {0, 1, 2, 3, 4, 3}   /* TOURNAMENT */
-/* Edit-mode cursor: CTL_EDIT_NAV[chip][UP, DOWN, LEFT, RIGHT] = the
- * neighbouring chip (PAD_BUTTONS index) or CTL_NAV_NONE. Derived from
- * the anchors (gen_menu_assets.edit_nav), no wrap. */
-#define CTL_EDIT_FIRST 4   /* LTRIG: top-left chip */
+#define CTL_MAX_STOCK 2
+static const unsigned char CTL_N_STOCK[2] = {2, 1};
+static const unsigned char CTL_STOCK_FUNC[2][2][6] = {
+  {   /* PAD */
+    {0, 1, 2, 3, 4, 3},   /* TOURNAMENT */
+    {0, 3, 1, 2, 3, 4},   /* OLD */
+  },
+  {   /* STICK */
+    {3, 6, 0, 1, 2, 4},   /* ARCADE */
+    {0, 0, 0, 0, 0, 0},
+  },
+};
+static const mrect_t CTL_STOCK_VALUE[2][2] = {
+  {{288,856,288,28}, {0,884,288,28}},   /* PAD: TOURNAMENT, OLD */
+  {{288,884,288,28}, {0,0,0,0}},   /* STICK: ARCADE */
+};
+static const mrect_t CTL_CUSTOM_VALUE[8] = {{0,912,288,28}, {288,912,288,28}, {0,940,288,28}, {288,940,288,28}, {0,968,288,28}, {288,968,288,28}, {0,996,288,28}, {288,996,288,28}};   /* CUSTOM 1.. */
+static const mrect_t CTL_DELETE_VALUE = {0,1024,288,28};   /* DELETE? (red) */
+
+static const mrect_t CTL_ROW_LABEL[4][2] = {
+  {{252,744,288,28}, {0,772,288,28}},   /* P1 PAD LAYOUT */
+  {{288,772,288,28}, {0,800,288,28}},   /* P2 PAD LAYOUT */
+  {{288,800,288,28}, {0,828,288,28}},   /* P1 STICK LAYOUT */
+  {{288,828,288,28}, {0,856,288,28}},   /* P2 STICK LAYOUT */
+};
+
+#define CTL_FOOT_ROWS_STOCK 0
+#define CTL_FOOT_ROWS_CUSTOM 1
+#define CTL_FOOT_EDIT 2
+#define CTL_FOOT_VALUE 3
+#define CTL_FOOT_CONFIRM 4
+#define CTL_FOOT_FULL 5
+static const mrect_t CTL_FOOTER[6] = {{0,1076,640,24}, {0,1100,640,24}, {0,1124,640,24}, {0,1148,640,24}, {0,1172,640,24}, {0,1196,640,24}};
+#define CTL_FOOTER_X 0
+#define CTL_FOOTER_Y 452
+
+static const unsigned short CTL_ANCHOR[2][6][2] = {
+  {   /* PAD */
+    {456, 165},   /* A */
+    {456, 133},   /* B */
+    {456, 197},   /* X */
+    {456, 101},   /* Y */
+    {10, 40},   /* LTRIG */
+    {456, 40},   /* RTRIG */
+  },
+  {   /* STICK */
+    {480, 161},   /* A */
+    {480, 136},   /* B */
+    {10, 18},   /* X */
+    {480, 53},   /* Y */
+    {480, 83},   /* Z */
+    {480, 111},   /* C */
+  },
+};
+/* Edit-mode cursor: CTL_EDIT_NAV[cls][chip][UP, DOWN, LEFT, RIGHT] = the
+ * neighbouring chip (button index) or CTL_NAV_NONE. Derived from the
+ * anchors (gen_menu_assets.edit_nav), no wrap. CTL_EDIT_FIRST = the
+ * top-left chip. */
 #define CTL_NAV_NONE 0xff
-static const unsigned char CTL_EDIT_NAV[6][4] = {
-  {1, 2, 4, CTL_NAV_NONE},   /* A: B, X, LTRIG, - */
-  {3, 0, 4, CTL_NAV_NONE},   /* B: Y, A, LTRIG, - */
-  {0, CTL_NAV_NONE, 4, CTL_NAV_NONE},   /* X: A, -, LTRIG, - */
-  {5, 1, 4, CTL_NAV_NONE},   /* Y: RTRIG, B, LTRIG, - */
-  {CTL_NAV_NONE, CTL_NAV_NONE, CTL_NAV_NONE, 5},   /* LTRIG: -, -, -, RTRIG */
-  {CTL_NAV_NONE, 3, 4, CTL_NAV_NONE},   /* RTRIG: -, Y, LTRIG, - */
+static const unsigned char CTL_EDIT_FIRST[2] = {4, 2};   /* PAD LTRIG, STICK X */
+static const unsigned char CTL_EDIT_NAV[2][6][4] = {
+  {   /* PAD */
+    {1, 2, 4, CTL_NAV_NONE},   /* A: B, X, LTRIG, - */
+    {3, 0, 4, CTL_NAV_NONE},   /* B: Y, A, LTRIG, - */
+    {0, CTL_NAV_NONE, 4, CTL_NAV_NONE},   /* X: A, -, LTRIG, - */
+    {5, 1, 4, CTL_NAV_NONE},   /* Y: RTRIG, B, LTRIG, - */
+    {CTL_NAV_NONE, CTL_NAV_NONE, CTL_NAV_NONE, 5},   /* LTRIG: -, -, -, RTRIG */
+    {CTL_NAV_NONE, 3, 4, CTL_NAV_NONE},   /* RTRIG: -, Y, LTRIG, - */
+  },
+  {   /* STICK */
+    {1, CTL_NAV_NONE, 2, CTL_NAV_NONE},   /* A: B, -, X, - */
+    {5, 0, 2, CTL_NAV_NONE},   /* B: C, A, X, - */
+    {CTL_NAV_NONE, CTL_NAV_NONE, CTL_NAV_NONE, 3},   /* X: -, -, -, Y */
+    {CTL_NAV_NONE, 4, 2, CTL_NAV_NONE},   /* Y: -, Z, X, - */
+    {3, 5, 2, CTL_NAV_NONE},   /* Z: Y, C, X, - */
+    {4, 1, 2, CTL_NAV_NONE},   /* C: Z, B, X, - */
+  },
 };
 static const mrect_t CTL_WORD[7] = {{0,720,126,24}, {126,720,126,24}, {252,720,126,24}, {378,720,126,24}, {504,720,126,24}, {0,744,126,24}, {126,744,126,24}};   /* MAIN, SUB, BARRAGE, ACTION, OVERDRIVE, B.O.S.S., NONE */
-static const mrect_t CTL_WORD_HI[7] = {{288,884,126,24}, {414,884,126,24}, {0,912,126,24}, {126,912,126,24}, {252,912,126,24}, {378,912,126,24}, {504,912,126,24}};   /* value mode: amber band */
-
-static const unsigned char CTL_PAD_FUNC[2][6] = {
-  {0, 1, 2, 3, 4, 3},   /* TOURNAMENT */
-  {0, 3, 1, 2, 3, 4},   /* OLD */
-};
-
-static const unsigned short CTL_PAD_ANCHOR[6][2] = {
-  {456, 165},   /* A */
-  {456, 133},   /* B */
-  {456, 197},   /* X */
-  {456, 101},   /* Y */
-  {10, 40},   /* LTRIG */
-  {456, 40},   /* RTRIG */
-};
-
-static const mrect_t CTL_ROW_LABEL[3][2] = {
-  {{252,744,288,28}, {0,772,288,28}},
-  {{288,772,288,28}, {0,800,288,28}},
-  {{288,800,288,28}, {0,828,288,28}},
-};
-static const mrect_t CTL_PAD_VALUE[3] = {{288,828,288,28}, {0,856,288,28}, {288,856,288,28}};
-static const mrect_t CTL_STICK_VALUE = {0,884,288,28};
+static const mrect_t CTL_WORD_HI[7] = {{288,1024,126,24}, {414,1024,126,24}, {0,1052,126,24}, {126,1052,126,24}, {252,1052,126,24}, {378,1052,126,24}, {504,1052,126,24}};   /* value mode: amber band */
 
 #define CTL_ROW_LABEL_X 48
 #define CTL_ROW_VALUE_X 344
-#define CTL_ROW_Y(i) (352 + (i) * 34)
+#define CTL_ROW_Y(i) (300 + (i) * 34 + ((i) / CTL_PORTS) * 12)
 
 #endif /* MENU_LAYOUT_H */

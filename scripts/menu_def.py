@@ -76,35 +76,43 @@ PAD_LAYOUTS = [
 ]
 # Arcade stick: the Naomi cabinet layout, entry 0 = the stock stick word
 # (JVS_WORD_ARCADE). B deliberately unmapped -- the tester's spec says "B =
-# none". No B row on the stick page (operator, round 5). Because this layout
-# never changes, the stick page's labels are fully baked (gen_menu_assets
-# STICK_PAGE tags, 2026-10-03) -- menu.c blits no chips on it, and B simply
-# has no baked row.
+# none"; since the controls library (2026-10-24) the stick page blits chips
+# like the pad page, so B gets a chip too and shows NONE here.
 STICK_LAYOUTS = [
     ("ARCADE", {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
                 "B": "NONE", "C": "OVERDRIVE"}),
 ]
 
-# ---- Controls page (controls spec 2026-09-27) ---------------------------
-CTL_ROW_ITEMS = ["P1 PAD LAYOUT", "P2 PAD LAYOUT", "STICK LAYOUT"]
-# Index = the per-port preset byte: PAD_LAYOUTS ids first, then CUSTOM (the
-# editable per-port layout, 2026-10-15) -- its six function ids travel in
-# their own SHIM_STATE word (shim_iface.h SHIM_STATE_PAD_CUSTOM) and only
-# count when the preset byte says CUSTOM. A fresh CUSTOM starts as a copy of
-# CTL_CUSTOM_DEFAULT so it is never empty; the menu edits from there.
-CTL_PAD_VALUES = ["TOURNAMENT", "OLD", "CUSTOM"]
-CTL_CUSTOM_DEFAULT = "TOURNAMENT"
+# ---- Controls page (controls library, spec 2026-10-24) -----------------
+# One shared library of CTL_N_CUSTOM custom layouts per device class; each
+# port picks a stock layout or a slot on its own row. Slot i is always named
+# CUSTOM i+1 (CTL_CUSTOM_NAMES); the row's value cell turns into the red
+# CTL_DELETE_CELL while a delete waits for its second X.
+CTL_PORTS = 2
+CTL_N_CUSTOM = 8
+CTL_CUSTOM_NAMES = [f"CUSTOM {i + 1}" for i in range(CTL_N_CUSTOM)]
+CTL_DELETE_CELL = "DELETE?"
 # Preview-only layout a CUSTOM row can produce (B.O.S.S. and NONE chips).
 CUSTOM_DEMO = {"A": "ACTION", "B": "B.O.S.S.", "X": "BARRAGE", "Y": "OVERDRIVE",
                "LTRIG": "MAIN", "RTRIG": "NONE"}
-CTL_STICK_VALUE = "ARCADE (FIXED)"
-CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
+# Footer strip per page state (dict order = CTL_FOOT_* index). check_fits is
+# the gate; a strip that clips loses "UP/DOWN: ROW" first (spec section 7) --
+# ROWS_STOCK did (644px with it, 624px max at F_ROW).
+CTL_FOOTERS = {
+    "ROWS_STOCK": "LEFT/RIGHT: LAYOUT   A: CUSTOMIZE   B: BACK",
+    "ROWS_CUSTOM": "LEFT/RIGHT: LAYOUT   A: EDIT   X: DELETE   B: BACK",
+    "EDIT": "D-PAD: BUTTON   A: CHANGE   B: DONE",
+    "VALUE": "LEFT/RIGHT: FUNCTION   A: KEEP   B: UNDO",
+    "CONFIRM": "X: DELETE   ANY OTHER BUTTON: CANCEL",
+    "FULL": "ALL 8 CUSTOM SLOTS USED: DELETE ONE FIRST",
+}
 
 # Label-chip anchors: top-left of the CHIP_W x 24 function chip per button, in
 # PAGE space. Redesign 2026-09-30 (operator rejected the first pass: chips sat
 # ON the art with white plates and no button identity). Rules now:
 #   - every chip lives OUTSIDE the device art's bounding box, in one of two
-#     label columns -- left x10, right x456 (gen_menu_assets.COL_L/COL_R);
+#     label columns -- left x10, right x456 (stick x480; gen_menu_assets
+#     COL_L/COL_R/SCOL_R);
 #     the generator asserts chip-vs-art-box separation;
 #   - the chip is the bare function word -- no "<button> --" prefix since
 #     2026-10-03 (operator: the art letters every face button already, and
@@ -120,9 +128,18 @@ CTL_FOOTER = "UP/DOWN: ROW   LEFT/RIGHT: CHANGE   B: BACK"
 # stubs didn't read as pointing at the triggers underneath).
 PAD_ANCHORS   = {"A": (456, 165), "B": (456, 133), "X": (456, 197),
                  "Y": (456, 101), "LTRIG": (10, 40), "RTRIG": (456, 40)}
-# No STICK_ANCHORS: the stick layout is fixed, so its labels are baked tags
-# owned by gen_menu_assets.STICK_PAGE (2026-10-03 re-route -- operator found
-# the chip-grid routes overcomplicated; baking frees each row to sit at its
-# button's own height, where most leaders become straight lines).
+# Stick chips sit exactly where the 2026-10-03 baked tags sat (anchor y =
+# tag y - 12), so the tags' straight leaders keep their routes; the right
+# column is x480 (gen_menu_assets.SCOL_R). B is new: its row sits between
+# OVERDRIVE and ACTION so the column still reads top-down.
+STICK_ANCHORS = {"X": (10, 18), "Y": (480, 53), "Z": (480, 83), "C": (480, 111),
+                 "B": (480, 136), "A": (480, 161)}
 
-SHEET_W, SHEET_H = 640, 1024    # fixed; generator asserts everything fits
+# Rows: class-major (P1 PAD, P2 PAD, P1 STICK, P2 STICK); row i is class
+# i // CTL_PORTS, port i % CTL_PORTS.
+CTL_CLASSES = [("PAD", PAD_BUTTONS, PAD_LAYOUTS, PAD_ANCHORS),
+               ("STICK", STICK_BUTTONS, STICK_LAYOUTS, STICK_ANCHORS)]
+CTL_ROW_ITEMS = [f"P{p + 1} {name} LAYOUT" for name, *_ in CTL_CLASSES
+                 for p in range(CTL_PORTS)]
+
+SHEET_W, SHEET_H = 640, 1280    # fixed; generator asserts everything fits

@@ -33,6 +33,24 @@ def test_real_pad_page():
         assert nav[b(name)] == row, f"{name}: {nav[b(name)]} != {row}"
 
 
+def test_real_stick_page():
+    # Stick page (build/preview_stick_*.png): MAIN (X) alone top-left, the
+    # right column top-to-bottom SUB (Y), BARRAGE (Z), OVERDRIVE (C), B,
+    # ACTION (A). LEFT from any right-column chip lands on X.
+    nav = g.edit_nav(M.STICK_ANCHORS, M.STICK_BUTTONS)
+    b = M.STICK_BUTTONS.index
+    want = {
+        "X": [None, None, None, b("Y")],
+        "Y": [None, b("Z"), b("X"), None],
+        "Z": [b("Y"), b("C"), b("X"), None],
+        "C": [b("Z"), b("B"), b("X"), None],
+        "B": [b("C"), b("A"), b("X"), None],
+        "A": [b("B"), None, b("X"), None],
+    }
+    for name, row in want.items():
+        assert nav[b(name)] == row, f"{name}: {nav[b(name)]} != {row}"
+
+
 def test_nearest_not_first():
     # Two chips to the right at the same x: pick the one on the same row.
     anchors = {"L": (0, 100), "R1": (500, 0), "R2": (500, 100)}
@@ -44,5 +62,6 @@ def test_nearest_not_first():
 
 if __name__ == "__main__":
     test_real_pad_page()
+    test_real_stick_page()
     test_nearest_not_first()
     print("test_gen_menu_nav: PASS")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """T9 offline asset generator (Pillow -- NOT a build dependency; outputs are
-committed). Renders loader/menu_sheet.pal8 (640x1024 8bpp palettized sprite
+committed). Renders loader/menu_sheet.pal8 (640x1280 8bpp palettized sprite
 sheet) + its decoded preview menu_sheet.png and the two controls pages,
 loader/controls_pad.png / controls_stick.png (640x480), and
 emits loader/menu_layout.h (sheet rects + dest coordinates + the settings byte
@@ -40,6 +40,8 @@ BLACK = (0, 0, 0)
 AMBER = (0xe0, 0xa0, 0x20)    # highlight bands (black text on top)
 AMBER_TXT = (0xa8, 0x70, 0x00)  # amber as TEXT needs more contrast on white
 GREY = (0x70, 0x70, 0x70)
+RED = (0xc0, 0x38, 0x28)      # DELETE? cell fill; RED/WHITE sit on the RGB565
+WHITE = (0xf8, 0xfc, 0xf8)    # grid, so the sheet's 565 snap leaves them alone
 
 F_TOP = ImageFont.truetype(FONT_PATH, 28)      # top-menu labels
 F_ROW = ImageFont.truetype(FONT_PATH, 20)      # settings rows/footers/values
@@ -109,6 +111,7 @@ LOGO_X, LOGO_Y = (640 - LOGO_W) // 2, 16   # menu_layout.h is stable even when
                                 # moved to 275+ to clear it, see top_dest_y.
 CTL_ROW_LABEL_X = 48
 CTL_ROW_VALUE_X = 344
+CTL_FOOTER_Y = 452              # same line as the top/settings footers
 
 # The two controls-page label columns. chip_x is where menu.c blits the
 # function chip (== menu_def's anchor x); chips are bare function words since
@@ -122,18 +125,17 @@ TEXT_GAP = 8
 COL_L = dict(chip_x=10, lead_x=192, inv_x=12)
 COL_R = dict(chip_x=456, lead_x=450, inv_x=458)
 # Stick-page right column: the centered stick art (2026-10-03) carries shell
-# ink out to x~465, past COL_R's text line, so its tags sit further right --
-# x482 (operator: x470 hugged the shell; "OVERDRIVE" still ends at 600,
-# inside the left column's own 12px margin). Tag-only, hence no chip_x.
-SCOL_R = dict(lead_x=476, inv_x=482)
-
-
-def col_of(anchor_x):
-    return COL_L if anchor_x < 320 else COL_R
+# ink out to x~465, past COL_R's text line, so its text line sits further
+# right -- x482 (operator: x470 hugged the shell; "OVERDRIVE" still ends at
+# 600, inside the left column's own 12px margin). Chips since the controls
+# library (2026-10-24): chip_x 480 puts the word on that same x482 line.
+SCOL_R = dict(chip_x=480, lead_x=476, inv_x=482)
 
 
 def CTL_ROW_Y(i):
-    return 352 + i * 34
+    """Four rows, class-major; a 12px gap between the pad pair and the
+    stick pair. Same formula as menu_layout.h's CTL_ROW_Y."""
+    return 300 + i * 34 + (i // M.CTL_PORTS) * 12
 
 
 def box_of(rect):
@@ -184,22 +186,20 @@ def edit_nav(anchors, buttons):
 #                      (1024x1024), used to assert each leader lands on its
 #                      button and to keep the hand-routed page-space leads
 #                      honest if the art or the scale ever moves.
+#   col_r              the page's right label column (COL_R / SCOL_R); a
+#                      chip anchored at x < 320 is in COL_L.
 #   leads              button -> leader polyline in PAGE space, WITHOUT its
 #                      first point: that is always (column lead_x, row centre),
 #                      so a leader can never drift off its own label row.
 #   tags               invariant labels: (column, row centre y, text, polyline
-#                      tail[, button]). Same deal, but the leader starts just
-#                      past the baked text since there is no chip cell to
-#                      leave from. A 5th element names the button the tag
-#                      points at, opting it into the leader-end assert (the
-#                      stick page's rows are all tags -- its layout is fixed,
-#                      so nothing is blitted at runtime, see STICK_PAGE).
+#                      tail). Same deal, but the leader starts just past the
+#                      baked text since there is no chip cell to leave from.
 # Routing rules the hand-picked polylines follow: orthogonal only, one elbow
 # where the art allows it, no two leaders crossing, and no leader crossing a
 # button it does not belong to (2026-10-03 re-route: corners only where a
 # straight shot is geometrically impossible).
 PAD_PAGE = dict(
-    art_h=240, art_x=203, art_y=34,
+    art_h=240, art_x=203, art_y=34, col_r=COL_R,
     buttons={"Y": (822, 345, 38), "X": (742, 426, 38),
              "B": (897, 426, 38), "A": (822, 507, 38)},
     leads={"LTRIG": [(230, 52), (230, 76)],         # J-drop onto the shoulder
@@ -217,13 +217,11 @@ PAD_PAGE = dict(
                                                     # operator round: the old
                                                     # split 1px before the tip
                                                     # read as stick-only)
-# No "B" row on the stick page (operator, round 5): B maps to NONE, and a
-# labeled leader pointing at an unmapped button is noise.
-# Every label here is a baked TAG, not a chip row: the stick layout is fixed
-# ("ARCADE (FIXED)"), so menu.c blits nothing on this page (2026-10-03,
-# operator: the chip-grid routes were overcomplicated). Freed from the chip
-# columns, each row sits at its button's own height and the leaders are as
-# straight as the art allows:
+# Stick page (controls library, 2026-10-24): runtime chips like the pad page.
+# The chip cells sit where the 2026-10-03 baked tags sat (menu_def
+# STICK_ANCHORS: anchor y = tag y - 12), so every tag's leader kept its route
+# -- each row sits at its button's own height and the leaders are as straight
+# as the art allows:
 #   Z/C   horizontals at the button centre heights (y83/y123), kissing the
 #         cluster's east rims (rim east points x427.7). BARRAGE's text row
 #         sits lower, y95, stepping up to y83 mid-run at x450 (operator:
@@ -233,33 +231,39 @@ PAD_PAGE = dict(
 #         and the shell edge verticals at 455-457/464);
 #   Y     rides the button panel's top edge line (y65 -- the corridor the
 #         old 3-corner route jogged into), one drop onto Y's crown;
-#   X     top-left tag: over the dome (y30 clears the art box entirely),
+#   X     top-left row: over the dome (y30 clears the art box entirely),
 #         one drop down the canyon between the VMU (right edge x338) and
 #         the START button (left edge x361), landing on X's crown;
+#   B     new row at y148, between OVERDRIVE and ACTION. B shares C's centre
+#         height, so a straight line would cross C: the horizontal runs under
+#         C (rim bottom ~y138) and rises onto B's south rim dead under its
+#         centre -- one elbow, the same shape as A's. B's art centre
+#         (705,461) r50 was measured on stick_diagram.png (outer ring ink
+#         x655-756, y411-512);
 #   A     one elbow, its vertical rising onto A's south rim dead under the
 #         button centre (x348; operator 2026-10-03: the old logo-edge x365
 #         landed on the SE arc and read as off-centre). The horizontal at
 #         y173 clears the "Dreamcast" logo top (ink from y~180) with its
 #         halo; the vertical stays above the logo's y-range entirely;
-#   START one drop onto the button crown (centre ~(368,54) r7; the old hook
-#         cut through the vent panel's left slope).
+#   START baked tag (no function), one drop onto the button crown (centre
+#         ~(368,54) r7; the old hook cut through the vent panel's left slope).
 # art_x 131 -> 172 (2026-10-03): ink centered at x320 like the pad page's
 # (operator). Every page-space x in the routes and the measurements above
 # moved +41 with it; the right column is SCOL_R, see its comment.
 STICK_PAGE = dict(
-    art_h=224, art_x=172, art_y=34,
+    art_h=224, art_x=172, art_y=34, col_r=SCOL_R,
     buttons={"X": (605, 397, 50), "Y": (705, 327, 50), "Z": (827, 327, 50),
-             "A": (606, 524, 50), "C": (828, 461, 50)},
-    leads={},
-    tags=[(COL_L, 30, "MAIN", [(347, 30), (347, 88)], "X"),
-          (COL_L, 123, "MOVE", [(230, 123)]),       # lever ball west point:
+             "A": (606, 524, 50), "B": (705, 461, 50), "C": (828, 461, 50)},
+    leads={"X": [(347, 30), (347, 88)],
+           "Y": [(377, 65), (377, 67)],
+           "Z": [(450, 95), (450, 83), (429, 83)],
+           "C": [(429, 123)],
+           "B": [(377, 148), (377, 138)],
+           "A": [(348, 173), (348, 157)]},
+    tags=[(COL_L, 123, "MOVE", [(230, 123)]),       # lever ball west point:
                                                     # ball x231-261 y108-138,
                                                     # kiss at centre height
-          (SCOL_R, 37, "START", [(368, 37), (368, 48)]),
-          (SCOL_R, 65, "SUB", [(377, 65), (377, 67)], "Y"),
-          (SCOL_R, 95, "BARRAGE", [(450, 95), (450, 83), (429, 83)], "Z"),
-          (SCOL_R, 123, "OVERDRIVE", [(429, 123)], "C"),
-          (SCOL_R, 173, "ACTION", [(348, 173), (348, 157)], "A")])
+          (SCOL_R, 37, "START", [(368, 37), (368, 48)])])
 
 
 def label(draw, x, cy, text, anchor="lm"):
@@ -271,8 +275,9 @@ def label(draw, x, cy, text, anchor="lm"):
 
 def build_page(name, spec, anchors):
     """640x480 controls page: vector-traced art autocropped, scaled to
-    spec["art_h"] and pasted at (art_x, art_y), then the baked leader lines,
-    invariant labels and footer -- all outside the art.
+    spec["art_h"] and pasted at (art_x, art_y), then the baked leader lines
+    and invariant labels -- all outside the art. No footer: the footer
+    area stays BG, menu.c blits a per-state CTL_FOOTER strip there.
     No de-noise/quantize steps: the input is a flat-color (<=32) render of
     the traced SVG, so there is no JPEG noise left to clean."""
     art = os.path.join(LOADER_DIR, f"{name}_diagram.png")
@@ -318,7 +323,7 @@ def build_page(name, spec, anchors):
     page = Image.new("RGB", (640, 480), BG)
     ox, oy = spec["art_x"], spec["art_y"]
     artbox = (ox, oy, ox + dw, oy + dh)
-    assert 0 <= ox and ox + dw <= 640 and oy + dh <= 340, \
+    assert 0 <= ox and ox + dw <= 640 and oy + dh <= CTL_ROW_Y(0), \
         f"{name}: art {dw}x{dh} at ({ox},{oy}) leaves the art region"
     page.paste(img, (ox, oy))
 
@@ -328,11 +333,11 @@ def build_page(name, spec, anchors):
     # every label row: (leader polyline, then what to draw in the margin)
     polys, texts = [], []
     for b, tail in spec["leads"].items():
-        col = col_of(anchors[b][0])
+        col = COL_L if anchors[b][0] < 320 else spec["col_r"]
         cy = anchors[b][1] + CHIP_H // 2
         polys.append([(col["lead_x"], cy)] + tail)
     for tag in spec["tags"]:
-        col, cy, text, tail = tag[:4]
+        col, cy, text, tail = tag
         tw = ImageDraw.Draw(page).textlength(text, font=F_ROW)
         # right column iff the leader exits LEFT of the text (lead_x < inv_x);
         # a left column's leader exits just past the text's right end.
@@ -364,9 +369,6 @@ def build_page(name, spec, anchors):
             or chip[3] <= artbox[1] or artbox[3] <= chip[1], \
             f"{name} {b}: chip {chip} overlaps the art box {artbox}"
     lead_end = {b: tail[-1] for b, tail in spec["leads"].items()}
-    for tag in spec["tags"]:
-        if len(tag) == 5:
-            lead_end[tag[4]] = tag[3][-1]
     for b, (sx, sy, sr) in spec["buttons"].items():
         bx, by = to_page(sx, sy)
         ex, ey = lead_end[b]
@@ -375,8 +377,6 @@ def build_page(name, spec, anchors):
             f"{name} {b}: leader ends at ({ex},{ey}), {dist:.1f}px from the " \
             f"button at ({bx},{by}) r{sr * scale:.1f}"
 
-    check_fits(d, 640, 24, M.CTL_FOOTER, F_ROW)
-    d.text((320, 464), M.CTL_FOOTER, font=F_ROW, fill=GREY, anchor="mm")
     print(f"gen_menu_assets: controls_{name}.png art {dw}x{dh} at ({ox},{oy}) "
           f"scale {scale:.4f}, buttons "
           + " ".join(f"{b}{to_page(*v[:2])}" for b, v in
@@ -411,13 +411,8 @@ def emit_layouts_h():
     assert len(M.PAD_BUTTONS) == len(M.STICK_BUTTONS), "tables share JVS_LAYOUT_N"
     for f in list(M.FUNC_JVS) + M.FUNC_WORDS:
         assert f in M.FUNC_WORDS and f in M.FUNC_JVS, f"function list drift: {f}"
-    # CTL_PAD_VALUES is positional against PAD_LAYOUTS (menu preset byte) --
-    # pin the order so a reorder in one can't silently desync from the other.
-    assert M.CTL_PAD_VALUES == [n for n, _ in M.PAD_LAYOUTS] + ["CUSTOM"], \
-        "CTL_PAD_VALUES must be PAD_LAYOUTS order (layout id is positional) + CUSTOM"
     assert len(M.FUNC_WORDS) <= 16, "function ids are 4-bit nibbles (layout word)"
     assert M.FUNC_WORDS[-1] == "NONE", "NONE last: LEFT/RIGHT cycling ends on off"
-    assert M.CTL_CUSTOM_DEFAULT in dict(M.PAD_LAYOUTS)
 
     n = len(M.PAD_BUTTONS)
     # the stock words: entry 0 of each class list is that class's default
@@ -510,16 +505,20 @@ def main():
     # for both round-time rows) -- ponytail: 41 raw (row, value) pairs but
     # only 22 distinct strings; at 288x28 each, 41 unique chips would not
     # fit the fixed 640x768 sheet (41*288*28 alone exceeds the whole canvas
-    # area), 22 comfortably does. Dedup by exact label text.
+    # area), 22 comfortably does. Dedup by exact label text and colours (the
+    # red DELETE? cell is its own chip).
     value_cache = {}
 
-    def get_chip(text):
-        if text in value_cache:
-            return value_cache[text]
+    def get_chip(text, fill=None, color=FG):
+        key = (text, fill, color)
+        if key in value_cache:
+            return value_cache[key]
         r = shelf.place(288, 28)
+        if fill:
+            fill_rect(draw, r, fill)
         check_fits(draw, 288, 28, text, F_ROW)
-        put_centered(draw, r, text, F_ROW, FG)
-        value_cache[text] = r
+        put_centered(draw, r, text, F_ROW, color)
+        value_cache[key] = r
         return r
 
     set_label_rects = []
@@ -565,14 +564,16 @@ def main():
         put_left(draw, r_hi, item, F_ROW, BLACK)
         ctl_row_rects.append((r_norm, r_hi))
 
-    # "< X >", not bare "X": the angle brackets are baked into BOTH pad chips
-    # and mark the row as changeable with LEFT/RIGHT (operator request, round
-    # 2). Not a selection cursor -- they show on P1 and P2 at all times. The
-    # stick row is fixed, so its chip stays arrow-less; that contrast is the
-    # whole point. Same 288-wide centred cell as every other value chip, so
-    # the value column's alignment is unchanged.
-    ctl_pad_value_rects = [get_chip(f"< {v} >") for v in M.CTL_PAD_VALUES]
-    ctl_stick_value_rect = get_chip(M.CTL_STICK_VALUE)
+    # "< X >", not bare "X": the angle brackets are baked into every value
+    # chip and mark the row as changeable with LEFT/RIGHT (operator request,
+    # round 2). Not a selection cursor -- they show on every row at all
+    # times. Same 288-wide centred cell as every other value chip, so the
+    # value column's alignment is unchanged. CUSTOM n chips are shared by
+    # both classes (each class has its own slots, same names).
+    ctl_stock_value_rects = [[get_chip(f"< {n} >") for n, _ in layouts]
+                             for _, _, layouts, _ in M.CTL_CLASSES]
+    ctl_custom_value_rects = [get_chip(f"< {n} >") for n in M.CTL_CUSTOM_NAMES]
+    ctl_delete_rect = get_chip(M.CTL_DELETE_CELL, fill=RED, color=WHITE)
 
     # Edit-mode chip: the word on an amber band, black text -- the same look
     # as the selected settings row, so "amber band = LEFT/RIGHT changes this"
@@ -583,6 +584,15 @@ def main():
         fill_rect(draw, r, AMBER)
         put_left(draw, r, word, F_ROW, BLACK, pad=2)
         ctl_word_hi_rects.append(r)
+
+    # Controls footer strips, one per page state (menu_def CTL_FOOTERS order
+    # = CTL_FOOT_*); blitted at CTL_FOOTER_Y over the pages' plain-BG footer.
+    ctl_footer_rects = []
+    for text in M.CTL_FOOTERS.values():
+        r = shelf.place(640, 24)
+        check_fits(draw, 640, 24, text, F_ROW)
+        put_centered(draw, r, text, F_ROW, GREY)
+        ctl_footer_rects.append(r)
 
     assert shelf.bottom <= M.SHEET_H, \
         f"sheet content {shelf.bottom}px exceeds {M.SHEET_H}px budget"
@@ -595,14 +605,15 @@ def main():
     # DECODED preview of that blob (exactly what ships), and every preview
     # below crops from it. No dithering: flat fills + anti-aliased text.
     # The sheet is first snapped to the RGB565 grid (truncation, what
-    # rgb565() does): it has ~590 distinct 888 colours but ~140 at 565, so
+    # rgb565() does): it has ~670 distinct 888 colours but ~200 at 565, so
     # quantize(256) then loses nothing -- the blob decodes to exactly the
-    # old RGB565 sheet. Past 256 colours at 565 it turns lossy; watch the
-    # summary line's count.
+    # old RGB565 sheet. Past 256 colours at 565 it would turn lossy: asserted.
     sheet_colors = len(sheet.getcolors(1 << 20))
     sheet = sheet.point([v & 0xF8 for v in range(256)] + [v & 0xFC for v in range(256)]
                         + [v & 0xF8 for v in range(256)])
     sheet_colors565 = len(sheet.getcolors(1 << 20))
+    assert sheet_colors565 <= 256, \
+        f"sheet has {sheet_colors565} colours at RGB565: the 8bpp quantize would be lossy"
     q = sheet.quantize(256, dither=Image.Dither.NONE)
     pal = (q.getpalette() + [0] * 768)[:768]
     sheet_blob = b"".join(
@@ -616,16 +627,20 @@ def main():
 
     # ---- controls_pad.png / controls_stick.png ---------------------------
     # anchor sanity: the chip must stay on the page above the selector rows,
-    # sit in one of the two label columns, and two chips on one page must
-    # never collide (they are blitted, not blended). build_page adds the
+    # sit in one of the page's two label columns, and two chips on one page
+    # must never collide (they are blitted, not blended). build_page adds the
     # chip-vs-art-box and leader-vs-button checks.
-    for page_name, anchors, buttons in [("pad", M.PAD_ANCHORS, M.PAD_BUTTONS)]:
+    page_spec = {"PAD": PAD_PAGE, "STICK": STICK_PAGE}
+    pages = []
+    for cname, buttons, _, anchors in M.CTL_CLASSES:
+        page_name, spec = cname.lower(), page_spec[cname]
         assert set(anchors) == set(buttons), f"{page_name}: anchor/button drift"
         for b in buttons:
             x, y = anchors[b]
-            assert x in (COL_L["chip_x"], COL_R["chip_x"]), \
+            assert x in (COL_L["chip_x"], spec["col_r"]["chip_x"]), \
                 f"{page_name} {b}: anchor x {x} is not a label column"
-            assert 8 <= y <= 340 - CHIP_H, f"{page_name} {b}: anchor y {y} off-page"
+            assert 8 <= y <= CTL_ROW_Y(0) - CHIP_H, \
+                f"{page_name} {b}: anchor y {y} off-page"
         for i, a in enumerate(buttons):
             for b in buttons[i + 1:]:
                 ax, ay = anchors[a]
@@ -633,11 +648,9 @@ def main():
                 assert ax + CHIP_W <= bx or bx + CHIP_W <= ax \
                     or ay + CHIP_H <= by or by + CHIP_H <= ay, \
                     f"{page_name}: {a} and {b} chips overlap"
-
-    pad_page = build_page("pad", PAD_PAGE, M.PAD_ANCHORS)
-    stick_page = build_page("stick", STICK_PAGE, {})   # all-tag page, no chips
-    pad_page.save(os.path.join(LOADER_DIR, "controls_pad.png"))
-    stick_page.save(os.path.join(LOADER_DIR, "controls_stick.png"))
+        page = build_page(page_name, spec, anchors)
+        page.save(os.path.join(LOADER_DIR, f"controls_{page_name}.png"))
+        pages.append(page)
 
     # ---- logo_strip.pal8 + .png (tester mockup 2026-10-03: game logo above
     # the top menu). logo.png is the official G.Rev logo art -- branded, so
@@ -677,9 +690,12 @@ def main():
     build_dir = os.path.join(REPO, "build")
     os.makedirs(build_dir, exist_ok=True)
 
-    def preview(name, page, anchors, buttons, layout, row_hi, values,
-                cursor=None, editing=False):
-        pv = page.copy()
+    def preview(name, cls, layout, row_hi, values, footer, cursor=None, editing=False):
+        """Page of class `cls` + its six chips from `layout` + the four rows
+        (`values` = value-cell rects, row `row_hi` highlighted) + the
+        CTL_FOOTERS[footer] strip, all cropped from the decoded sheet."""
+        _, buttons, _, anchors = M.CTL_CLASSES[cls]
+        pv = pages[cls].copy()
         for b in buttons:               # every button, NONE included -- as menu.c blits
             rects = ctl_word_hi_rects if (editing and b == cursor) else ctl_word_rects
             pv.paste(sheet.crop(box_of(rects[M.FUNC_WORDS.index(layout[b])])),
@@ -692,27 +708,36 @@ def main():
             pv.paste(sheet.crop(box_of(r_hi if i == row_hi else r_norm)),
                      (CTL_ROW_LABEL_X, CTL_ROW_Y(i)))
             pv.paste(sheet.crop(box_of(values[i])), (CTL_ROW_VALUE_X, CTL_ROW_Y(i)))
+        r = ctl_footer_rects[list(M.CTL_FOOTERS).index(footer)]
+        pv.paste(sheet.crop(box_of(r)), ((640 - r[2]) // 2, CTL_FOOTER_Y))
         pv.save(os.path.join(build_dir, f"preview_{name}.png"))
 
-    for lid, (lname, lay) in enumerate(M.PAD_LAYOUTS):
-        # row values as the menu shows them: P1 = this preview's layout,
-        # P2 = the other one (so both chips are eyeballed), stick fixed
-        preview(f"pad_{lname.lower()}", pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS,
-                lay, 0, [ctl_pad_value_rects[lid], ctl_pad_value_rects[1 - lid],
-                         ctl_stick_value_rect])
-    # CUSTOM row + a layout only the editor can produce (B.O.S.S., NONE chips)
-    preview("pad_custom_demo", pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS, M.CUSTOM_DEMO,
-            0, [ctl_pad_value_rects[M.CTL_PAD_VALUES.index("CUSTOM")],
-                ctl_pad_value_rects[0], ctl_stick_value_rect])
+    (tourn, old), (arcade,) = ctl_stock_value_rects
+    custom = ctl_custom_value_rects
+    pad, stick = [dict(lays) for _, _, lays, _ in M.CTL_CLASSES]
+    # stock rows: P1 shows the page's layout, P2 the other pad layout, so
+    # every stock chip is eyeballed
+    preview("pad_tournament", 0, pad["TOURNAMENT"], 0,
+            [tourn, old, arcade, arcade], "ROWS_STOCK")
+    preview("pad_old", 0, pad["OLD"], 0, [old, tourn, arcade, arcade], "ROWS_STOCK")
+    preview("stick_arcade", 1, stick["ARCADE"], 2,
+            [tourn, old, arcade, arcade], "ROWS_STOCK")
+    # custom row + a layout only the editor can produce (B.O.S.S., NONE chips)
+    custom_vals = [custom[0], tourn, arcade, arcade]
+    preview("pad_custom_demo", 0, M.CUSTOM_DEMO, 0, custom_vals, "ROWS_CUSTOM")
     # editor states: cursor on the first chip; value mode on RTRIG (amber band)
-    custom_vals = [ctl_pad_value_rects[M.CTL_PAD_VALUES.index("CUSTOM")],
-                   ctl_pad_value_rects[0], ctl_stick_value_rect]
-    for pname, cur, ed in [("pad_custom_cursor", "LTRIG", False),
-                           ("pad_custom_editing", "RTRIG", True)]:
-        preview(pname, pad_page, M.PAD_ANCHORS, M.PAD_BUTTONS, M.CUSTOM_DEMO,
-                0, custom_vals, cursor=cur, editing=ed)
-    preview("stick", stick_page, {}, [],   # labels baked -- nothing to blit
-            M.STICK_LAYOUTS[0][1], 2, ctl_pad_value_rects + [ctl_stick_value_rect])
+    preview("pad_custom_cursor", 0, M.CUSTOM_DEMO, 0, custom_vals, "EDIT",
+            cursor="LTRIG")
+    preview("pad_custom_editing", 0, M.CUSTOM_DEMO, 0, custom_vals, "VALUE",
+            cursor="RTRIG", editing=True)
+    preview("stick_custom_cursor", 1, {**stick["ARCADE"], "B": "B.O.S.S."}, 2,
+            [tourn, old, custom[0], arcade], "EDIT", cursor="X")
+    # delete confirm on P2 PAD (its custom layout is still the one shown);
+    # library full: A on a stock row with all 8 slots used
+    preview("pad_delete", 0, M.CUSTOM_DEMO, 1,
+            [tourn, ctl_delete_rect, arcade, arcade], "CONFIRM")
+    preview("pad_full", 0, pad["TOURNAMENT"], 0,
+            [tourn, custom[7], arcade, arcade], "FULL")
 
     # ---- loader/menu_layout.h -------------------------------------------
     top_dest_y = [275, 319, 363]    # below the logo strip (was 178..302
@@ -799,37 +824,98 @@ def main():
     lines.append("#define MENU_DEFAULT_RECORD {" + ", ".join(f"0x{b:02x}" for b in rec_bytes) + "}")
     lines.append("")
     lines.append("/* ---- CONTROLS pages (controls_pad.png / controls_stick.png) ----"
-                 "\n * CTL_PAD_FUNC indexes FUNC_WORDS/CTL_WORD; button order is"
-                 "\n * menu_def.py's PAD_BUTTONS, same order as shims/src/layouts.h's"
-                 "\n * JVS_LAYOUT_* rows. CTL_PAD_ANCHOR is the chip's top-left on"
-                 "\n * the page. The stick page is fully baked (fixed layout) and"
-                 "\n * needs no tables; the footer is baked into both pages. */")
-    lines.append(f"#define CTL_N_BUTTONS {len(M.PAD_BUTTONS)}")
-    lines.append(f"#define CTL_N_FUNC {len(M.FUNC_WORDS)}   /* function ids; NONE = CTL_N_FUNC - 1 */")
-    lines.append(f"#define CTL_PAD_CUSTOM {len(M.PAD_LAYOUTS)}   /* CTL_PAD_VALUE index = preset byte value */")
-    dflt = dict(M.PAD_LAYOUTS)[M.CTL_CUSTOM_DEFAULT]
-    lines.append("#define CTL_CUSTOM_DEFAULT {" + ", ".join(str(M.FUNC_WORDS.index(dflt[b]))
-                 for b in M.PAD_BUTTONS) + f"}}   /* {M.CTL_CUSTOM_DEFAULT} */")
+                 "\n * [cls] = menu_def.py CTL_CLASSES order (0 pad, 1 stick); button"
+                 "\n * index = that class's PAD_BUTTONS / STICK_BUTTONS order, the nibble"
+                 "\n * order of shims/src/layouts.h's JVS_CLASS_BUTTON. Function ids index"
+                 "\n * FUNC_WORDS / CTL_WORD. CTL_ANCHOR is a chip's top-left on the page."
+                 "\n * Rows are class-major: row i = class i / CTL_PORTS, port"
+                 "\n * i % CTL_PORTS. A row shows CTL_STOCK_VALUE[cls][id] for a stock"
+                 "\n * layout, CTL_CUSTOM_VALUE[slot] for a library slot. The footer is"
+                 "\n * a per-state sheet strip, not baked into the pages. */")
+    classes = M.CTL_CLASSES
     nb = len(M.PAD_BUTTONS)
-    first = min(range(nb), key=lambda i: M.PAD_ANCHORS[M.PAD_BUTTONS[i]][::-1])   # (y, x)
-    nav = edit_nav(M.PAD_ANCHORS, M.PAD_BUTTONS)
-    seen, stack = {first}, [first]          # every chip reachable, or a redesign stranded one
-    while stack:
-        for j in nav[stack.pop()]:
-            if j is not None and j not in seen:
-                seen.add(j)
-                stack.append(j)
-    assert seen == set(range(nb)), f"editor cursor cannot reach {set(range(nb)) - seen}"
-    lines.append("/* Edit-mode cursor: CTL_EDIT_NAV[chip][UP, DOWN, LEFT, RIGHT] = the")
-    lines.append(" * neighbouring chip (PAD_BUTTONS index) or CTL_NAV_NONE. Derived from")
-    lines.append(" * the anchors (gen_menu_assets.edit_nav), no wrap. */")
-    lines.append(f"#define CTL_EDIT_FIRST {first}   /* {M.PAD_BUTTONS[first]}: top-left chip */")
+    max_stock = max(len(lays) for _, _, lays, _ in classes)
+    assert CTL_ROW_Y(len(M.CTL_ROW_ITEMS) - 1) + 28 <= CTL_FOOTER_Y, "rows overlap the footer"
+    lines += [
+        f"#define CTL_PORTS {M.CTL_PORTS}",
+        f"#define CTL_N_CLASS {len(classes)}",
+        f"#define CTL_N_CUSTOM {M.CTL_N_CUSTOM}",
+        f"#define CTL_N_ROWS {len(M.CTL_ROW_ITEMS)}",
+        f"#define CTL_N_BUTTONS {nb}",
+        f"#define CTL_N_FUNC {len(M.FUNC_WORDS)}   /* function ids; NONE = CTL_N_FUNC - 1 */",
+        f"#define CTL_MAX_STOCK {max_stock}",
+        f"static const unsigned char CTL_N_STOCK[{len(classes)}] = {{"
+        + ", ".join(str(len(lays)) for _, _, lays, _ in classes) + "};",
+        f"static const unsigned char CTL_STOCK_FUNC[{len(classes)}][{max_stock}][{nb}] = {{",
+    ]
+    for cname, buttons, lays, _ in classes:
+        lines.append(f"  {{   /* {cname} */")
+        for name, lay in lays:
+            lines.append("    {" + ", ".join(str(M.FUNC_WORDS.index(lay[b])) for b in buttons)
+                         + f"}},   /* {name} */")
+        lines += ["    {" + ", ".join(["0"] * nb) + "},"] * (max_stock - len(lays))
+        lines.append("  },")
+    lines.append("};")
+    lines.append(f"static const mrect_t CTL_STOCK_VALUE[{len(classes)}][{max_stock}] = {{")
+    for (cname, _, lays, _), rects in zip(classes, ctl_stock_value_rects):
+        lines.append("  {" + ", ".join([R(r) for r in rects] + [zero_rect] * (max_stock - len(rects)))
+                     + f"}},   /* {cname}: " + ", ".join(n for n, _ in lays) + " */")
+    lines.append("};")
+    lines.append(f"static const mrect_t CTL_CUSTOM_VALUE[{M.CTL_N_CUSTOM}] = {{"
+                 + ", ".join(R(r) for r in ctl_custom_value_rects) + "};   /* CUSTOM 1.. */")
+    lines.append(f"static const mrect_t CTL_DELETE_VALUE = {R(ctl_delete_rect)};   "
+                 f"/* {M.CTL_DELETE_CELL} (red) */")
+    lines.append("")
+    lines.append(f"static const mrect_t CTL_ROW_LABEL[{len(M.CTL_ROW_ITEMS)}][2] = {{")
+    for (norm, hi), item in zip(ctl_row_rects, M.CTL_ROW_ITEMS):
+        lines.append(f"  {{{R(norm)}, {R(hi)}}},   /* {item} */")
+    lines.append("};")
+    lines.append("")
+    for i, key in enumerate(M.CTL_FOOTERS):
+        lines.append(f"#define CTL_FOOT_{key} {i}")
+    lines.append(f"static const mrect_t CTL_FOOTER[{len(M.CTL_FOOTERS)}] = {{"
+                 + ", ".join(R(r) for r in ctl_footer_rects) + "};")
+    lines.append(f"#define CTL_FOOTER_X {(640 - ctl_footer_rects[0][2]) // 2}")
+    lines.append(f"#define CTL_FOOTER_Y {CTL_FOOTER_Y}")
+    lines.append("")
+    lines.append(f"static const unsigned short CTL_ANCHOR[{len(classes)}][{nb}][2] = {{")
+    for cname, buttons, _, anchors in classes:
+        lines.append(f"  {{   /* {cname} */")
+        for b in buttons:
+            lines.append("    {%d, %d},   /* %s */" % (anchors[b][0], anchors[b][1], b))
+        lines.append("  },")
+    lines.append("};")
+    # editor cursor per class; every chip reachable, or a redesign stranded one
+    firsts, navs = [], []
+    for cname, buttons, _, anchors in classes:
+        first = min(range(nb), key=lambda i: anchors[buttons[i]][::-1])   # (y, x)
+        nav = edit_nav(anchors, buttons)
+        seen, stack = {first}, [first]
+        while stack:
+            for j in nav[stack.pop()]:
+                if j is not None and j not in seen:
+                    seen.add(j)
+                    stack.append(j)
+        assert seen == set(range(nb)), \
+            f"{cname} editor cursor cannot reach {set(range(nb)) - seen}"
+        firsts.append(first)
+        navs.append(nav)
+    lines.append("/* Edit-mode cursor: CTL_EDIT_NAV[cls][chip][UP, DOWN, LEFT, RIGHT] = the")
+    lines.append(" * neighbouring chip (button index) or CTL_NAV_NONE. Derived from the")
+    lines.append(" * anchors (gen_menu_assets.edit_nav), no wrap. CTL_EDIT_FIRST = the")
+    lines.append(" * top-left chip. */")
     lines.append("#define CTL_NAV_NONE 0xff")
-    lines.append(f"static const unsigned char CTL_EDIT_NAV[{nb}][4] = {{")
-    for i, row in enumerate(nav):
-        lines.append("  {" + ", ".join("CTL_NAV_NONE" if j is None else str(j) for j in row)
-                     + "},   /* %s: %s */" % (M.PAD_BUTTONS[i], ", ".join(
-                         "-" if j is None else M.PAD_BUTTONS[j] for j in row)))
+    lines.append(f"static const unsigned char CTL_EDIT_FIRST[{len(classes)}] = {{"
+                 + ", ".join(map(str, firsts)) + "};   /* "
+                 + ", ".join(f"{c[0]} {c[1][f]}" for c, f in zip(classes, firsts)) + " */")
+    lines.append(f"static const unsigned char CTL_EDIT_NAV[{len(classes)}][{nb}][4] = {{")
+    for (cname, buttons, _, _), nav in zip(classes, navs):
+        lines.append(f"  {{   /* {cname} */")
+        for i, row in enumerate(nav):
+            lines.append("    {" + ", ".join("CTL_NAV_NONE" if j is None else str(j) for j in row)
+                         + "},   /* %s: %s */" % (buttons[i], ", ".join(
+                             "-" if j is None else buttons[j] for j in row)))
+        lines.append("  },")
     lines.append("};")
     lines.append(f"static const mrect_t CTL_WORD[{len(M.FUNC_WORDS)}] = {{"
                  + ", ".join(R(r) for r in ctl_word_rects) + "};   /* "
@@ -837,28 +923,9 @@ def main():
     lines.append(f"static const mrect_t CTL_WORD_HI[{len(M.FUNC_WORDS)}] = {{"
                  + ", ".join(R(r) for r in ctl_word_hi_rects) + "};   /* value mode: amber band */")
     lines.append("")
-    lines.append(f"static const unsigned char CTL_PAD_FUNC[2][{len(M.PAD_BUTTONS)}] = {{")
-    for name, lay in M.PAD_LAYOUTS:
-        lines.append("  {" + ", ".join(str(M.FUNC_WORDS.index(lay[b]))
-                                       for b in M.PAD_BUTTONS) + f"}},   /* {name} */")
-    lines.append("};")
-    lines.append("")
-    lines.append(f"static const unsigned short CTL_PAD_ANCHOR[{len(M.PAD_BUTTONS)}][2] = {{")
-    for b in M.PAD_BUTTONS:
-        lines.append("  {%d, %d},   /* %s */" % (M.PAD_ANCHORS[b][0], M.PAD_ANCHORS[b][1], b))
-    lines.append("};")
-    lines.append("")
-    lines.append(f"static const mrect_t CTL_ROW_LABEL[{len(M.CTL_ROW_ITEMS)}][2] = {{")
-    for norm, hi in ctl_row_rects:
-        lines.append(f"  {{{R(norm)}, {R(hi)}}},")
-    lines.append("};")
-    lines.append(f"static const mrect_t CTL_PAD_VALUE[{len(M.CTL_PAD_VALUES)}] = {{"
-                 + ", ".join(R(r) for r in ctl_pad_value_rects) + "};")
-    lines.append(f"static const mrect_t CTL_STICK_VALUE = {R(ctl_stick_value_rect)};")
-    lines.append("")
     lines.append(f"#define CTL_ROW_LABEL_X {CTL_ROW_LABEL_X}")
     lines.append(f"#define CTL_ROW_VALUE_X {CTL_ROW_VALUE_X}")
-    lines.append(f"#define CTL_ROW_Y(i) ({CTL_ROW_Y(0)} + (i) * 34)")
+    lines.append(f"#define CTL_ROW_Y(i) ({CTL_ROW_Y(0)} + (i) * 34 + ((i) / CTL_PORTS) * 12)")
     lines.append("")
     lines.append("#endif /* MENU_LAYOUT_H */")
 
