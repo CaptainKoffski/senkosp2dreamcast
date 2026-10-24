@@ -160,7 +160,7 @@ make gdi        # shims -> patch table -> loader -> mastered GDI in build/
                 # (the Makefile sources tools/kos/environ.sh itself)
 make test       # host-runnable shim tests + the static maple-literal scan
 make release    # build/[GDI] Senko no Ronde Special.zip (disc folder + DS/ preset tree + tester README)
-make deploy     # copy to SD card (CARD=/Volumes/GDEMU/NN) + dot_clean guard
+make deploy     # cdi + gdi onto the inserted GDEMU card, GDMenu list rewritten, eject
 ```
 
 Debug knobs (`make gdi SERIAL=1 CRC=1 ...`) are documented at the top of

@@ -20,9 +20,12 @@
 #                  BOTH CONTAIN THE FULL COMMERCIAL ROM — local use only,
 #                  never upload/commit (build/ is gitignored for this reason).
 #   make test    = shims host tests + the maple-literal scan
-#   make deploy  = copy the five disc files to a GDEMU card entry + dot_clean
-#                  (the playbook's AppleDouble boot trap). Override target:
-#                  make deploy CARD=/Volumes/GDEMU/03
+#   make deploy  = cdi + gdi onto the inserted GDEMU card (gdemu_deploy.py,
+#                  from ../tetkiwam2dreamcast): updates the "<GAMEDIR> [GDI]"/
+#                  "[CDI]" folders or creates them, rewrites the GDMenu list,
+#                  dot_clean (AppleDouble boot trap), eject. CARD=/Volumes/X if
+#                  several cards are mounted, NOEJECT=1 to stage more.
+#                  `python3 test_gdemu_deploy.py` self-checks it.
 #   make test-serial = coder's-cable two-way check (boot GDmenu slot 04 first)
 #
 # Requires: sh-elf toolchain at /opt/toolchains/dc, KOS at tools/kos
@@ -176,7 +179,6 @@ DEFS += -DCART_FAD=$(CD_CART_FAD)
 endif
 export DEFS
 
-CARD ?= /Volumes/GDEMU/03
 DISC_FILES = build/disc.gdi build/track01.iso build/track02.raw \
              build/track03.iso build/track04.iso
 ZIP = build/[GDI] Senko no Ronde Special.zip
@@ -262,18 +264,10 @@ test-vmu:
 test-vmu-play:
 	scripts/test_vmu_untouched.sh play
 
-# Cleopatra's deploy recipe verbatim (../cleopatra/Makefile): copy, dot_clean,
-# then fail loudly if any ._* AppleDouble sidecar survived -- GDEMU reads the
-# junk `.gdi` first (the 2026-07-20 boot blocker).
-deploy: gdi
-	test -d "$(CARD)"   # card entry mounted?
-	cp $(DISC_FILES) "$(CARD)/"
-	dot_clean -m "$(CARD)"
-	@ls -a "$(CARD)" | grep '^\._' && { echo "AppleDouble junk survived!"; exit 1; } || true
-	@# ponytail: eject the whole volume, not the slot dir -- diskutil wants a
-	@# mount point. NOEJECT=1 to stage several slots in one card session.
-	$(if $(NOEJECT),@echo "deployed to $(CARD) -- NOT ejected",\
-	  diskutil eject "$$(df '$(CARD)' | tail -1 | awk '{print $$NF}')")
+# cdi first: it ends with objclean, so gdi then rebuilds the GD-FAD loader
+# (same ordering as release). The script keeps Cleopatra's AppleDouble guard.
+deploy: cdi gdi
+	CARD="$(CARD)" NOEJECT="$(NOEJECT)" python3 gdemu_deploy.py "$(GAMEDIR)" build/disc.gdi build/cdi/disc.cdi
 
 # Task 25: dcload-serial boot disc for the serial-link control test — its own
 # card slot so the game disc stays untouched. Same AppleDouble guard as deploy.

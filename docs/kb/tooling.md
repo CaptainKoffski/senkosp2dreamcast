@@ -3263,3 +3263,24 @@ the editor itself still needs human input (operator leg pending,
 |---|---|
 | `nav-smoke1` | never launched: the wrapper's `pgrep -x Flycast` guard found a leftover emulator process (gone by the time it was inspected — a straggler from an earlier killed leg). No log. |
 | `nav-smoke2` | **PASS**: RAWFB dump at t=15 s shows the top menu on the regenerated sheet (kept: `shot-nav-smoke2-003-t15s.png`; the black in-game dumps deleted post-verdict — GL renderer, normal), fake START launches the game; 160 s: 0 `SHIMERR`, 0 `System reset`, 18,592 `TAEND`, 1,374 `GDDMA`, last cart read `fad=000667b8` = +194 MB. Kept: `.log`, `.log.engine.bin`, `.log.ram.bin`, `.stdout.log`. Release GDI + CDI rebuilt without the knob afterwards (0 fake-START symbols in the loader objects). |
+
+## `make deploy` — `gdemu_deploy.py` (2026-10-24)
+
+Copied from `../tetkiwam2dreamcast` (commit 335cc3d; design + GDMenu
+two-volume notes in its commit message). `make deploy` builds the CDI then
+the GDI and calls `python3 gdemu_deploy.py "Senko no Ronde Special"
+build/disc.gdi build/cdi/disc.cdi`: it finds the `[GDI]`/`[CDI]` folders by
+`name.txt` or creates them, rewrites `LIST.INI` in both of `01/`'s GDMenu
+volumes, runs `dot_clean`, and ejects (`CARD=`, `NOEJECT=1` optional). The
+self-check is `python3 test_gdemu_deploy.py`, which needs cdrtools
+(mkisofs/isoinfo, already recorded under §CDI mastering).
+
+- **Hardware, user report 2026-10-24:** the first run went to slots 06/07
+  because 04 was empty. **GDEMU hides every folder past a gap in the
+  numbering**, so they didn't show up until the gap was closed by hand. Since
+  then the script puts a new folder in the lowest free number; the self-check
+  covers a gap, and it fails against the old max+1 code. After the gap was
+  closed, the GDI and the CDI both booted on the Dreamcast (user report).
+- On the real card `isoinfo -x /LIST.INI` prints "Short read" and nothing
+  else: GDMenu's `track01.iso` is shorter than the volume size its header
+  claims. Read the list by walking the root directory record instead.
