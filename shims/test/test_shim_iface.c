@@ -32,6 +32,9 @@ int main(void) {
     assert(GD_STACK_TOP == BIOS60000_DST);                           /* ... where the BIOS blob home starts */
     assert(SHIM_STATE_GD_BACKEND < 8);              /* inside SHIM_STATE u32[8] */
     assert(SHIM_STATE_LAYOUT_WORD(1, 1) < 8);        /* inside SHIM_STATE u32[8] */
+    /* Loader-to-shim slot contract (loader/main.c staging): pad A/B, stick A/B. */
+    assert(SHIM_STATE_LAYOUT_WORD(0, 0) == 3 && SHIM_STATE_LAYOUT_WORD(0, 1) == 4);
+    assert(SHIM_STATE_LAYOUT_WORD(1, 0) == 5 && SHIM_STATE_LAYOUT_WORD(1, 1) == 6);
     assert(GD_STACK_TOP - GD_STACK_BOTTOM == 0x2000);
     assert(GD_STACK_CANARY != 0);                   /* staging memset is zero */
 

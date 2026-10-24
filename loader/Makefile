@@ -2,7 +2,7 @@
 # checkout -- setup in docs/kb/tooling.md).
 TARGET = loader.elf
 OBJS = main.o handoff.o gd.o gd_sys.o shim_blob.o bios_data.o splash_blob.o naomi_crc.o \
-       menu.o menu_sheet_blob.o ctl_pad_blob.o ctl_stick_blob.o logo_blob.o
+       menu.o ctl_lib.o menu_sheet_blob.o ctl_pad_blob.o ctl_stick_blob.o logo_blob.o
 CFLAGS += -I../shims/include -I../build
 CFLAGS += $(DEFS)   # debug toggles from the top Makefile (e.g. SERIAL=1)
 # T10b spike (THROWAWAY, branch t10b-spike): LZ4BENCH=1 adds the SH4
@@ -22,7 +22,8 @@ $(TARGET): $(OBJS)
 # header change (new patch addresses, new CART_FAD) would NOT rebuild main.o
 # and the loader would silently keep the stale values (bit Cleopatra in B5:
 # CART_FAD change didn't take until an unrelated main.c edit).
-menu.o main.o: menu.h menu_layout.h ../build/patch_table.h ../shims/include/shim_iface.h
+menu.o main.o: menu.h ctl_lib.h menu_layout.h ../build/patch_table.h ../shims/include/shim_iface.h
+ctl_lib.o: ctl_lib.h menu_layout.h
 # The shim's raw-ATA GD driver, built into the loader as well so the loader can
 # rehearse the exact runtime disc path before handoff (freestanding C, no shim
 # dependencies). Explicit rule, not the KOS %.o pattern: the object must land

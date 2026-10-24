@@ -7,6 +7,7 @@
 #include <kos.h>
 #include "menu.h"
 #include "menu_layout.h"
+#include "ctl_lib.h"
 
 extern uint8 splash_bin[];
 extern uint8 menu_sheet_bin[];
@@ -19,17 +20,12 @@ extern uint8 logo_bin[];        /* top-screen logo, logo_strip.pal8: 256 x
                                  * blew the CDI 1792-sector loader region. */
 
 unsigned char menu_game_record[16] = MENU_DEFAULT_RECORD;
-/* Controls-page selector state (spec 2026-09-27): per-port pad preset,
- * 0 = Tournament (default), 1 = Old. Session-only like the record above
- * (VMU save-all-settings will serialize it later); consumed by main.c's
- * SHIM_STATE staging write. Sticks ignore it (shim classifies from DEVINFO). */
-unsigned char menu_pad_layout[2] = { 0, 0 };
-/* CUSTOM layouts (tester ask 2026-10-15): per-port function ids (CTL_WORD /
- * menu_def.py FUNC_WORDS index) per pad button, A B X Y L R. Start as a copy
- * of CTL_CUSTOM_DEFAULT so a fresh CUSTOM row is never empty; ctl_edit()
- * changes them in place; main.c packs each port into its
- * SHIM_STATE_PAD_CUSTOM word (4 bits per button). Session-only, as above. */
-unsigned char menu_custom[2][6] = { CTL_CUSTOM_DEFAULT, CTL_CUSTOM_DEFAULT };
+/* Controls state is not here: it is the shared layout library ctl_lib
+ * (ctl_lib.h, controls-library plan) -- per class (pad, stick) the stock
+ * layouts plus CTL_N_CUSTOM user slots, and per (class, port) the selected
+ * one. Session-only like the record above (.bss zero = every port on stock
+ * layout 0). main.c stages ctl_pack() of each (class, port) as that port's
+ * resolved SHIM_STATE_LAYOUT_WORD; the shim picks the class per poll. */
 
 /* menu_sheet_bin = menu_sheet.pal8: 256 x RGB565-LE palette (512 B) then
  * MENU_SHEET_W x MENU_SHEET_H 8bpp indices. The palette lives in a static
@@ -136,96 +132,58 @@ static void settings_screen(void) {
     }
 }
 
-/* Controls page = layout selector (spec 2026-09-27). Three rows under the
- * diagram; the diagram previews the HIGHLIGHTED row (pad rows: that port's
- * preset on the HKT-7700 art; stick row: the fixed arcade layout on the
- * HKT-7300 art, labels baked into the page since its layout never changes).
- * Chips carry the page BG, so they sit seamlessly on the art's cleared
- * margins. Art memcpy only on entry / device-view change -- T9 flicker
- * rule; row/label changes re-blit fixed cells. */
-static void ctl_draw_labels(int cur) {
-    if (cur == 2) return;              /* stick page: fixed, fully baked */
-    const unsigned char *f = (menu_pad_layout[cur] == CTL_PAD_CUSTOM)
-        ? menu_custom[cur] : CTL_PAD_FUNC[menu_pad_layout[cur]];
-    for (int i = 0; i < 6; i++)
-        blit(CTL_WORD[f[i]], CTL_PAD_ANCHOR[i][0], CTL_PAD_ANCHOR[i][1]);
+/* Controls page = layout selector over the shared library (controls-library
+ * spec 2026-10-24). Four rows, class-major (menu_layout.h): P1 PAD, P2 PAD,
+ * P1 STICK, P2 STICK. The art is the HIGHLIGHTED row's class page
+ * (HKT-7700 pad / HKT-7300 stick) with that row's six functions as chips at
+ * CTL_ANCHOR[cls]. Chips carry the page BG, so they sit seamlessly on the
+ * art's cleared margins. Art memcpy only on entry / class change -- T9
+ * flicker rule; row/label/footer changes re-blit fixed cells. */
+static int ctl_cls(int row)  { return row / CTL_PORTS; }
+static int ctl_port(int row) { return row % CTL_PORTS; }
+
+static const uint8 *ctl_page_bin(int cls) {
+    return cls ? ctl_stick_bin : ctl_pad_bin;
 }
 
-/* Edit-mode cursor: a 2-px frame just OUTSIDE chip `b`'s cell, so re-blitting
- * the chip never clips it. On = MENU_HI_COLOR; off restores the page's own
- * pixels from ctl_pad_bin -- a leader line ends at the chip's edge, right
- * under the frame, and a flat BG fill would nick it. The blob is read
- * byte-wise (LE RGB565, as bmp2rgb565.py wrote it): an objcopy'd blob has
- * no alignment guarantee and SH4 faults on a misaligned uint16 load (the
- * draw_logo lesson). */
-static void ctl_cursor(int b, int on) {
-    const int x0 = CTL_PAD_ANCHOR[b][0] - 2, y0 = CTL_PAD_ANCHOR[b][1] - 2;
-    const int w = CTL_WORD[0].w + 4, h = CTL_WORD[0].h + 4;
-    for (int y = y0; y < y0 + h; y++)
-        for (int x = x0; x < x0 + w; x++) {
-            if (y >= y0 + 2 && y < y0 + h - 2 && x >= x0 + 2 && x < x0 + w - 2)
-                continue;                              /* inside: the chip itself */
-            const int i = y * 640 + x;
-            vram_s[i] = on ? MENU_HI_COLOR
-                           : (uint16)(ctl_pad_bin[2 * i] | (ctl_pad_bin[2 * i + 1] << 8));
-        }
+static const mrect_t *ctl_value_rect(int row) {
+    const int cls = ctl_cls(row), port = ctl_port(row);
+    const int s = ctl_slot(&ctl_lib, cls, port);
+    return s < 0 ? &CTL_STOCK_VALUE[cls][ctl_lib.sel[cls][port]] : &CTL_CUSTOM_VALUE[s];
 }
 
-/* CUSTOM editor (2026-10-15; cursor rework 2026-10-22): entered with A on a
- * pad row showing CUSTOM. The d-pad moves the cursor to the neighbouring
- * chip in that direction (CTL_EDIT_NAV: follows the page, no wrap -- RIGHT
- * on the L trigger lands on the R trigger). A opens value mode: the chip
- * becomes an amber band (CTL_WORD_HI) and LEFT/RIGHT cycle every function
- * word (B.O.S.S. and NONE included); A keeps the value, B restores the one
- * it had. B outside value mode returns to the rows. MOVE and START carry
- * no chip. Same edge() poll, so the reset combo stays live here too. */
-static void ctl_chip(int port, int b, int hi) {
-    const mrect_t *w = hi ? CTL_WORD_HI : CTL_WORD;
-    blit(w[menu_custom[port][b]], CTL_PAD_ANCHOR[b][0], CTL_PAD_ANCHOR[b][1]);
-}
-static void ctl_edit(int port) {
-    int b = CTL_EDIT_FIRST, editing = 0;
-    unsigned char saved = 0;
-    ctl_cursor(b, 1);
-    for (;;) {
-        uint32 e = edge();
-        unsigned char *f = &menu_custom[port][b];
-        if (editing) {
-            if (e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) {
-                *f = (unsigned char)((*f + ((e & CONT_DPAD_RIGHT) ? 1 : CTL_N_FUNC - 1)) % CTL_N_FUNC);
-                ctl_chip(port, b, 1);
-            }
-            if (e & CONT_B) *f = saved;                       /* discard */
-            if (e & (CONT_A | CONT_B)) { editing = 0; ctl_chip(port, b, 0); }
-            continue;
-        }
-        if (e & CONT_B) { ctl_cursor(b, 0); return; }
-        if (e & CONT_A) { saved = *f; editing = 1; ctl_chip(port, b, 1); continue; }
-        int d = (e & CONT_DPAD_UP) ? 0 : (e & CONT_DPAD_DOWN) ? 1
-              : (e & CONT_DPAD_LEFT) ? 2 : (e & CONT_DPAD_RIGHT) ? 3 : -1;
-        if (d >= 0 && CTL_EDIT_NAV[b][d] != CTL_NAV_NONE) {
-            ctl_cursor(b, 0);
-            b = CTL_EDIT_NAV[b][d];
-            ctl_cursor(b, 1);
-        }
-    }
+static void ctl_draw_labels(int row) {
+    const int cls = ctl_cls(row);
+    const unsigned char *f = ctl_funcs(&ctl_lib, cls, ctl_port(row));
+    for (int i = 0; i < CTL_N_BUTTONS; i++)
+        blit(CTL_WORD[f[i]], CTL_ANCHOR[cls][i][0], CTL_ANCHOR[cls][i][1]);
 }
 
 static void ctl_draw_rows(int cur) {
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < CTL_N_ROWS; i++) {
         blit(CTL_ROW_LABEL[i][i == cur], CTL_ROW_LABEL_X, CTL_ROW_Y(i));
-    blit(CTL_PAD_VALUE[menu_pad_layout[0]], CTL_ROW_VALUE_X, CTL_ROW_Y(0));
-    blit(CTL_PAD_VALUE[menu_pad_layout[1]], CTL_ROW_VALUE_X, CTL_ROW_Y(1));
-    blit(CTL_STICK_VALUE, CTL_ROW_VALUE_X, CTL_ROW_Y(2));
+        blit(*ctl_value_rect(i), CTL_ROW_VALUE_X, CTL_ROW_Y(i));
+    }
+}
+
+static void ctl_draw_footer(int which) {
+    blit(CTL_FOOTER[which], CTL_FOOTER_X, CTL_FOOTER_Y);
+}
+
+/* Rows-page footer: a custom selection adds the edit / delete hints. */
+static int ctl_rows_foot(int row) {
+    return ctl_slot(&ctl_lib, ctl_cls(row), ctl_port(row)) < 0
+         ? CTL_FOOT_ROWS_STOCK : CTL_FOOT_ROWS_CUSTOM;
 }
 
 static void ctl_draw_all(int cur) {
-    memcpy(vram_s, cur == 2 ? ctl_stick_bin : ctl_pad_bin, 640 * 480 * 2);
+    memcpy(vram_s, ctl_page_bin(ctl_cls(cur)), 640 * 480 * 2);
     ctl_draw_labels(cur);
     ctl_draw_rows(cur);
+    ctl_draw_footer(ctl_rows_foot(cur));
 }
 
-/* Same caps rule the shim applies (jvs.c jvs_pick_layout): no analog axes
+/* Same caps rule the shim applies (jvs.c jvs_pick_class): no analog axes
  * declared = arcade stick. function_data[0] is the controller function's raw
  * DEVINFO data word (KOS dc/maple.h:252 maple_devinfo_t; same word the shim
  * latches as devinfo_caps). First enumerated controller = the one driving
@@ -235,28 +193,26 @@ static int stick_on_menu_pad(void) {
     return c && !(c->info.function_data[0] & 0x00000f00u);
 }
 
+/* UP/DOWN wrap across the four rows; LEFT/RIGHT cycle the row's selection
+ * (stock ids, then the class's used slots; ctl_cycle). A (edit) and X
+ * (delete) arrive with the editor. B returns to the top menu. */
 static void controls_screen(void) {
-    int cur = stick_on_menu_pad() ? 2 : 0;   /* open on the device in hand */
+    int cur = stick_on_menu_pad() ? CTL_PORTS : 0;   /* open on the device in hand */
     ctl_draw_all(cur);
     for (;;) {
         uint32 e = edge();
         if (e & CONT_B) return;
-        if (e & (CONT_DPAD_UP | CONT_DPAD_DOWN)) {
-            int nxt = (cur + ((e & CONT_DPAD_DOWN) ? 1 : 2)) % 3;
-            int devchg = (nxt == 2) != (cur == 2);
-            cur = nxt;
-            if (devchg) ctl_draw_all(cur);
-            else { ctl_draw_labels(cur); ctl_draw_rows(cur); }
-        }
-        if ((e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) && cur < 2) {
-            const int n = CTL_PAD_CUSTOM + 1;    /* Tournament, Old, Custom */
-            menu_pad_layout[cur] = (unsigned char)
-                ((menu_pad_layout[cur] + ((e & CONT_DPAD_RIGHT) ? 1 : n - 1)) % n);
-            ctl_draw_labels(cur);
-            ctl_draw_rows(cur);
-        }
-        if ((e & CONT_A) && cur < 2 && menu_pad_layout[cur] == CTL_PAD_CUSTOM)
-            ctl_edit(cur);
+        if (!(e & (CONT_DPAD_UP | CONT_DPAD_DOWN | CONT_DPAD_LEFT | CONT_DPAD_RIGHT)))
+            continue;
+        const int prev = cur;
+        if (e & (CONT_DPAD_UP | CONT_DPAD_DOWN))
+            cur = (cur + ((e & CONT_DPAD_DOWN) ? 1 : CTL_N_ROWS - 1)) % CTL_N_ROWS;
+        if (e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT))
+            ctl_cycle(&ctl_lib, ctl_cls(cur), ctl_port(cur), (e & CONT_DPAD_RIGHT) ? 1 : -1);
+        if (ctl_cls(cur) != ctl_cls(prev)) { ctl_draw_all(cur); continue; }
+        ctl_draw_labels(cur);
+        ctl_draw_rows(cur);
+        ctl_draw_footer(ctl_rows_foot(cur));
     }
 }
 
