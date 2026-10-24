@@ -183,6 +183,82 @@ static void ctl_draw_all(int cur) {
     ctl_draw_footer(ctl_rows_foot(cur));
 }
 
+/* Edit-mode cursor: a 2-px frame just OUTSIDE chip `b`'s cell, so re-blitting
+ * the chip never clips it. On = MENU_HI_COLOR; off restores the page's own
+ * pixels from ctl_page_bin(cls) -- a leader line ends at the chip's edge,
+ * right under the frame, and a flat BG fill would nick it. The stick's right
+ * column has 1-px gaps (C/B, B/A), so a frame covers a neighbour's padding
+ * row: frames go on after the chips, and the old frame goes off (page = BG
+ * there) before the new one goes on. The blob is read byte-wise (LE RGB565,
+ * as bmp2rgb565.py wrote it): an objcopy'd blob has no alignment guarantee
+ * and SH4 faults on a misaligned uint16 load (the draw_logo lesson). */
+static void ctl_cursor(int cls, int b, int on) {
+    const uint8 *bin = ctl_page_bin(cls);
+    const int x0 = CTL_ANCHOR[cls][b][0] - 2, y0 = CTL_ANCHOR[cls][b][1] - 2;
+    const int w = CTL_WORD[0].w + 4, h = CTL_WORD[0].h + 4;
+    for (int y = y0; y < y0 + h; y++)
+        for (int x = x0; x < x0 + w; x++) {
+            if (y >= y0 + 2 && y < y0 + h - 2 && x >= x0 + 2 && x < x0 + w - 2)
+                continue;                              /* inside: the chip itself */
+            const int i = y * 640 + x;
+            vram_s[i] = on ? MENU_HI_COLOR : (uint16)(bin[2 * i] | (bin[2 * i + 1] << 8));
+        }
+}
+
+static void ctl_chip(int cls, int b, unsigned char id, int hi) {
+    blit((hi ? CTL_WORD_HI : CTL_WORD)[id], CTL_ANCHOR[cls][b][0], CTL_ANCHOR[cls][b][1]);
+}
+
+/* Chip editor (spec §3), on the layout row `row` shows. The d-pad moves the
+ * frame to the neighbouring chip (CTL_EDIT_NAV, no wrap). A opens value mode:
+ * the chip becomes an amber band and LEFT/RIGHT cycle a candidate through
+ * every function word (B.O.S.S. and NONE included); A keeps it via ctl_keep
+ * -- on a stock row the first changed keep forks the layout into the lowest
+ * free slot and the row value flips to CUSTOM n -- B drops it. B outside
+ * value mode returns; the caller restores the rows footer. Only the chip,
+ * frame, rows and footer repaint. Same edge() poll: reset combo stays live. */
+static void ctl_edit(int row) {
+    const int cls = ctl_cls(row), port = ctl_port(row);
+    int b = CTL_EDIT_FIRST[cls], editing = 0;
+    unsigned char cand = 0;
+    ctl_draw_footer(CTL_FOOT_EDIT);
+    ctl_cursor(cls, b, 1);
+    for (;;) {
+        uint32 e = edge();
+        if (editing) {
+            if (e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT)) {
+                cand = (unsigned char)((cand + ((e & CONT_DPAD_RIGHT) ? 1 : CTL_N_FUNC - 1)) % CTL_N_FUNC);
+                ctl_chip(cls, b, cand, 1);
+            }
+            /* SAME / FULL change nothing; FULL cannot happen here (A on the
+             * rows page refuses a stock row when no slot is free). */
+            if ((e & CONT_A) && ctl_keep(&ctl_lib, cls, port, b, cand) == CTL_KEEP_FORKED)
+                ctl_draw_rows(row);
+            if (e & (CONT_A | CONT_B)) {
+                editing = 0;
+                ctl_chip(cls, b, ctl_funcs(&ctl_lib, cls, port)[b], 0);
+                ctl_draw_footer(CTL_FOOT_EDIT);
+            }
+            continue;
+        }
+        if (e & CONT_B) { ctl_cursor(cls, b, 0); return; }
+        if (e & CONT_A) {
+            editing = 1;
+            cand = ctl_funcs(&ctl_lib, cls, port)[b];
+            ctl_chip(cls, b, cand, 1);
+            ctl_draw_footer(CTL_FOOT_VALUE);
+            continue;
+        }
+        int d = (e & CONT_DPAD_UP) ? 0 : (e & CONT_DPAD_DOWN) ? 1
+              : (e & CONT_DPAD_LEFT) ? 2 : (e & CONT_DPAD_RIGHT) ? 3 : -1;
+        if (d >= 0 && CTL_EDIT_NAV[cls][b][d] != CTL_NAV_NONE) {
+            ctl_cursor(cls, b, 0);
+            b = CTL_EDIT_NAV[cls][b][d];
+            ctl_cursor(cls, b, 1);
+        }
+    }
+}
+
 /* Same caps rule the shim applies (jvs.c jvs_pick_class): no analog axes
  * declared = arcade stick. function_data[0] is the controller function's raw
  * DEVINFO data word (KOS dc/maple.h:252 maple_devinfo_t; same word the shim
@@ -194,14 +270,47 @@ static int stick_on_menu_pad(void) {
 }
 
 /* UP/DOWN wrap across the four rows; LEFT/RIGHT cycle the row's selection
- * (stock ids, then the class's used slots; ctl_cycle). A (edit) and X
- * (delete) arrive with the editor. B returns to the top menu. */
+ * (stock ids, then the class's used slots; ctl_cycle). A customizes (spec
+ * §3): a stock row with no free slot in its class shows the FULL footer
+ * until the next press (that press is then processed normally), otherwise
+ * ctl_edit -- a full library never blocks a custom row. X on a custom row
+ * asks DELETE? (spec §4); the next press answers and is consumed: X frees
+ * the slot (every row on it falls back to stock 0), anything else cancels.
+ * X on a stock row does nothing. B returns to the top menu. */
 static void controls_screen(void) {
     int cur = stick_on_menu_pad() ? CTL_PORTS : 0;   /* open on the device in hand */
+    int msg = 0, confirm = 0;
     ctl_draw_all(cur);
     for (;;) {
         uint32 e = edge();
+        if (!e) continue;
+        const int cls = ctl_cls(cur), slot = ctl_slot(&ctl_lib, cls, ctl_port(cur));
+        if (confirm) {
+            confirm = 0;
+            if (e & CONT_X) { ctl_delete(&ctl_lib, cls, slot); ctl_draw_labels(cur); }
+            ctl_draw_rows(cur);
+            ctl_draw_footer(ctl_rows_foot(cur));
+            continue;
+        }
+        if (msg) { msg = 0; ctl_draw_footer(ctl_rows_foot(cur)); }
         if (e & CONT_B) return;
+        if (e & CONT_A) {
+            if (slot < 0 && ctl_free_slot(&ctl_lib, cls) < 0) {
+                ctl_draw_footer(CTL_FOOT_FULL);
+                msg = 1;
+            } else {
+                ctl_edit(cur);
+                ctl_draw_rows(cur);
+                ctl_draw_footer(ctl_rows_foot(cur));
+            }
+            continue;
+        }
+        if ((e & CONT_X) && slot >= 0) {
+            blit(CTL_DELETE_VALUE, CTL_ROW_VALUE_X, CTL_ROW_Y(cur));
+            ctl_draw_footer(CTL_FOOT_CONFIRM);
+            confirm = 1;
+            continue;
+        }
         if (!(e & (CONT_DPAD_UP | CONT_DPAD_DOWN | CONT_DPAD_LEFT | CONT_DPAD_RIGHT)))
             continue;
         const int prev = cur;
