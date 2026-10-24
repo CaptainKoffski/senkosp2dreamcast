@@ -337,7 +337,7 @@ Apple builds, `tooling.md` §RAWFB), so walking the page is the operator's
 leg (below).
 
 **Origin.** Operator review (2026-10-24) of the `0.20.0` CUSTOM (§Custom pad
-layout below) against the tester's round-2 message (`CONTROLS_TASK.MD`
+layout above) against the tester's round-2 message (`CONTROLS_TASK.MD`
 §Round 2). Four problems: CUSTOM always started from Tournament, sticks could
 not be customized, nothing on screen said CUSTOM was editable, and each port
 owned its one custom layout, so P1's could not be reused on P2. Design
@@ -362,8 +362,13 @@ slot. A custom layout belongs to nobody: two rows that select CUSTOM 1 share
 one object, so editing it from either row changes both (operator requirement
 8, spec §2). The state is session-only. The all-zero `.bss` instance is the
 defaults (every pad row TOURNAMENT, every stick row ARCADE; KOS clears
-`.bss`). The arrays are laid out for the future VMU task to serialize as-is
-(spec §8). Nothing writes a VMU.
+`.bss`: `arch_main` memsets `_bss_start`, `tools/kos/kernel/arch/dreamcast/
+kernel/init.c:299`). The in-game A+B+X+Y+Start warm boot reloads the loader
+from disc (`shims/src/main.c` `pad_reboot`, §Warm boot to the menu) and KOS
+clears `.bss` on entry (`init.c:299`), so every custom layout and selection
+is back to defaults after it; VMU persistence is the follow-up task. The
+arrays are laid out for the future VMU task to serialize as-is (spec §8).
+Nothing writes a VMU.
 
 **Rows page.** There are four fixed rows, class-major: P1 PAD, P2 PAD,
 P1 STICK, P2 STICK (`CTL_ROW_ITEMS`, generated from `CTL_PORTS` = 2 × the
@@ -416,7 +421,7 @@ shared by both classes).
 **Shim: resolved words and a flag.** The shim no longer knows presets. The
 loader stages these unconditionally (`loader/main.c`, staging block before
 the GD stack canary):
-- `SHIM_STATE[2]` = `SHIM_STATE_LAYOUT_VALID` = 1;
+- `SHIM_STATE[SHIM_STATE_LAYOUT_VALID]` ([2]) = 1;
 - four words `SHIM_STATE_LAYOUT_WORD(cls, port)` = 3 + 2·cls + port: [3] pad
   A, [4] pad B, [5] stick A, [6] stick B (`shims/include/shim_iface.h`; slot
   pins in `shims/test/test_shim_iface.c`). Each is `ctl_pack`: six 4-bit
@@ -429,8 +434,9 @@ port:
    capability bit means stick. Measured caps words are `0xfe060f00` for a pad
    and `0xff070000` for a stick (§Three-layout controls).
 2. It takes `jvs_layout_word(valid, staged, cls)`: the staged word only when
-   `SHIM_STATE[2] == 1`, otherwise `JVS_WORD_DEFAULT[cls]` (Tournament /
-   Arcade). A zero-filled window is therefore never read as a layout.
+   `SHIM_STATE[SHIM_STATE_LAYOUT_VALID] == 1`, otherwise
+   `JVS_WORD_DEFAULT[cls]` (Tournament / Arcade). A zero-filled window is
+   therefore never read as a layout.
 3. It maps the input through `dc_to_jvs_word(dc, cls, word)`, where the class
    picks the button-bit list (`JVS_CLASS_BUTTON`).
 

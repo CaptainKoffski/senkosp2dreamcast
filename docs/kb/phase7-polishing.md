@@ -3536,6 +3536,12 @@ commits):
 
   The release GDI was then rebuilt without the knob (md5 differs from the
   FAKESTART loader).
+- **State is lost on the in-game reset.** The A+B+X+Y+Start warm boot
+  reloads the loader from disc and KOS clears `.bss` on entry
+  (`tools/kos/kernel/arch/dreamcast/kernel/init.c:299`), so every custom
+  layout and selection returns to defaults after a reset. This is by design
+  (session-only, spec §8), not a defect to file; VMU persistence is the
+  follow-up task.
 - **Operator legs: pending.** (1) The emulator walkthrough. (2) The
   hardware round on a real DC with GDEmu, pad in one port and stick in the
   other. Checklist: spec §Verification "Operator legs". The fork cannot
@@ -3543,7 +3549,8 @@ commits):
 
 **Plan-mandated interim behaviours that no longer apply** (they were true
 only between tasks; none is in `3a76736`):
-- `8537b4d..33baccb`: the loader staged `SHIM_STATE_LAYOUT_VALID = 0`, so
+- `8537b4d..33baccb`: the loader staged `SHIM_STATE[SHIM_STATE_LAYOUT_VALID]`
+  ([2]) = 0, so
   the shim ran the generated defaults (Tournament / Arcade) whatever the
   menu chose.
 - `e8f7727..33baccb`: the loader did not compile, because the generated

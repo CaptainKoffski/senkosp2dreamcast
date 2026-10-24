@@ -333,3 +333,13 @@ mandatory VMS header in a second). Nothing in this design writes a VMU.
 - Whether `SHIM_STATE[2]` stays a flag or the shim simply trusts the words
   (the loader writes them unconditionally); the flag is the safer default.
 - Order of work and branch name (plan: `superpowers:writing-plans`).
+
+## Amendment 2026-10-25 (final review)
+
+The in-game warm boot (A+B+X+Y+Start) resets the library: it reloads the
+loader from disc and KOS clears `.bss` on entry
+(`tools/kos/kernel/arch/dreamcast/kernel/init.c:299`), so every custom layout
+and selection returns to defaults. This is session-only by design (§8), but it
+makes VMU persistence load-bearing for the "build, keep and share" intent: a
+tester who builds layouts loses them on any reset. VMU persistence is
+therefore the next task.

@@ -17,7 +17,7 @@ typedef struct {
     unsigned char sel[CTL_N_CLASS][CTL_PORTS];   /* < CTL_N_STOCK[cls]: stock id; else CTL_N_STOCK[cls] + slot */
 } ctl_lib_t;
 
-extern ctl_lib_t ctl_lib;                        /* the session instance; all-zero == defaults (KOS clears .bss) */
+extern ctl_lib_t ctl_lib;                        /* the session instance; all-zero == defaults (KOS clears .bss: arch_main memset of _bss_start, tools/kos/kernel/arch/dreamcast/kernel/init.c:299) */
 
 #define CTL_KEEP_FULL    (-1)
 #define CTL_KEEP_SAME    0
@@ -33,7 +33,7 @@ int  ctl_free_slot(const ctl_lib_t *L, int cls);                         /* lowe
  * write the value -> CTL_KEEP_FORKED (no free slot -> CTL_KEEP_FULL, nothing
  * changed). Custom selection: write in place -> CTL_KEEP_WRITTEN. */
 int  ctl_keep(ctl_lib_t *L, int cls, int port, int button, unsigned char value);
-void ctl_delete(ctl_lib_t *L, int cls, int slot);                        /* free it; every port selecting it -> 0 */
+void ctl_delete(ctl_lib_t *L, int cls, int slot);                        /* free it; every port selecting it -> 0. slot is a ctl_slot() result: -1 (stock) or out of range is a no-op */
 unsigned ctl_pack(const ctl_lib_t *L, int cls, int port);                /* nibble i = funcs[i] */
 
 #endif

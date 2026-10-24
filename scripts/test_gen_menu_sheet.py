@@ -22,8 +22,8 @@ def test_pal8_matches_png():
     pal = [struct.unpack_from("<H", blob, 2 * i)[0] for i in range(256)]
     png = Image.open(os.path.join(REPO, "loader", "menu_sheet.png")).convert("RGB")
     assert png.size == (M.SHEET_W, M.SHEET_H)
-    for y in range(0, M.SHEET_H, 7):           # strided: whole-sheet exactness, fast
-        for x in range(0, M.SHEET_W, 5):
+    for y in range(M.SHEET_H):                 # every pixel
+        for x in range(M.SHEET_W):
             assert pal[blob[512 + y * M.SHEET_W + x]] == g.rgb565(png.getpixel((x, y)))
 
 

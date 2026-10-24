@@ -48,6 +48,7 @@ int ctl_keep(ctl_lib_t *L, int cls, int port, int button, unsigned char value) {
 }
 
 void ctl_delete(ctl_lib_t *L, int cls, int slot) {
+    if (slot < 0 || slot >= CTL_N_CUSTOM) return;
     L->used[cls][slot] = 0;
     for (int p = 0; p < CTL_PORTS; p++)
         if (L->sel[cls][p] == CTL_N_STOCK[cls] + slot) L->sel[cls][p] = 0;
@@ -56,6 +57,6 @@ void ctl_delete(ctl_lib_t *L, int cls, int slot) {
 unsigned ctl_pack(const ctl_lib_t *L, int cls, int port) {
     const unsigned char *f = ctl_funcs(L, cls, port);
     unsigned v = 0;
-    for (int i = 0; i < CTL_N_BUTTONS; i++) v |= (unsigned)f[i] << (4 * i);
+    for (int i = 0; i < CTL_N_BUTTONS; i++) v |= (unsigned)(f[i] & 0xfu) << (4 * i);
     return v;
 }

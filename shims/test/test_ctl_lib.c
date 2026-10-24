@@ -45,6 +45,26 @@ int main(void) {
     L.sel[P][0] = 0; assert(ctl_keep(&L, P, 0, 0, 1) == CTL_KEEP_FULL && ctl_slot(&L, P, 0) == -1);
     L.sel[P][0] = 2 + 7; assert(ctl_keep(&L, P, 0, 1, 2) == CTL_KEEP_WRITTEN);
 
+    /* backward wrap from stock 0 lands on the last used slot */
+    memset(&L, 0, sizeof L);
+    for (int i = 0; i < 2; i++) { L.sel[P][0] = 0; assert(ctl_keep(&L, P, 0, 0, 1) == CTL_KEEP_FORKED); }
+    L.sel[P][0] = 0; ctl_cycle(&L, P, 0, -1); assert(ctl_slot(&L, P, 0) == 1);
+    /* delete leaves a port on a different slot alone */
+    L.sel[P][0] = 2 + 1; L.sel[P][1] = 2 + 0;
+    ctl_delete(&L, P, 0); assert(ctl_slot(&L, P, 0) == 1 && L.sel[P][1] == 0);
+    /* FULL leaves sel and used untouched */
+    memset(&L, 0, sizeof L);
+    for (int i = 0; i < 8; i++) { L.sel[P][0] = 0; assert(ctl_keep(&L, P, 0, 0, 1) == CTL_KEEP_FORKED); }
+    L.sel[P][0] = 0;
+    unsigned char used_snap[CTL_N_CUSTOM];
+    memcpy(used_snap, L.used[P], CTL_N_CUSTOM);
+    assert(ctl_keep(&L, P, 0, 0, 1) == CTL_KEEP_FULL && L.sel[P][0] == 0 && memcmp(used_snap, L.used[P], CTL_N_CUSTOM) == 0);
+    /* delete of stock (-1) is a no-op; port 1 on stock Old (sel 1 == N_STOCK + -1) is the canary */
+    L.sel[P][1] = 1;
+    ctl_lib_t before = L;
+    ctl_delete(&L, P, -1);
+    assert(memcmp(&before, &L, sizeof L) == 0);
+
     printf("test_ctl_lib: PASS\n");
     return 0;
 }

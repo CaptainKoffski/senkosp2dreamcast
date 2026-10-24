@@ -399,6 +399,7 @@ def pack_word(buttons, layout):
 
 
 def emit_layouts_h():
+    assert [c[0] for c in M.CTL_CLASSES] == ["PAD", "STICK"], "shim class ids are positional: CTL_CLASSES must stay PAD, STICK"
     # self-checks: a layout that can't reach every game function is a
     # shipping bug, not a preference (stick OverDrive gap was exactly this)
     playable = {"MAIN", "SUB", "BARRAGE", "ACTION", "OVERDRIVE"}
