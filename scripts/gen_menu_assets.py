@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """T9 offline asset generator (Pillow -- NOT a build dependency; outputs are
-committed). Renders loader/menu_sheet.png (640x1024 sprite sheet) and the two
-controls pages, loader/controls_pad.png / controls_stick.png (640x480), and
+committed). Renders loader/menu_sheet.pal8 (640x1024 8bpp palettized sprite
+sheet) + its decoded preview menu_sheet.png and the two controls pages,
+loader/controls_pad.png / controls_stick.png (640x480), and
 emits loader/menu_layout.h (sheet rects + dest coordinates + the settings byte
 tables) and shims/src/layouts.h (button->JVS tables), both from menu_def.py.
 
@@ -588,6 +589,29 @@ def main():
     # Canvas was allocated at the full sheet size up front and pre-filled with
     # BG, so the untouched tail below shelf.bottom is already the required
     # padding -- no separate crop+pad step needed.
+    # Shipped as an 8bpp palettized blob (the logo_strip.pal8 layout): 256 x
+    # RGB565-LE palette (512 B) then SHEET_W*SHEET_H indices, row-major; the
+    # raw RGB565 sheet (1.3 MB) ate the loader region. menu_sheet.png is the
+    # DECODED preview of that blob (exactly what ships), and every preview
+    # below crops from it. No dithering: flat fills + anti-aliased text.
+    # The sheet is first snapped to the RGB565 grid (truncation, what
+    # rgb565() does): it has ~590 distinct 888 colours but ~140 at 565, so
+    # quantize(256) then loses nothing -- the blob decodes to exactly the
+    # old RGB565 sheet. Past 256 colours at 565 it turns lossy; watch the
+    # summary line's count.
+    sheet_colors = len(sheet.getcolors(1 << 20))
+    sheet = sheet.point([v & 0xF8 for v in range(256)] + [v & 0xFC for v in range(256)]
+                        + [v & 0xF8 for v in range(256)])
+    sheet_colors565 = len(sheet.getcolors(1 << 20))
+    q = sheet.quantize(256, dither=Image.Dither.NONE)
+    pal = (q.getpalette() + [0] * 768)[:768]
+    sheet_blob = b"".join(
+        rgb565(tuple(pal[i * 3:i * 3 + 3])).to_bytes(2, "little")
+        for i in range(256)) + q.tobytes()      # P-mode raw bytes = the indices
+    assert len(sheet_blob) == 512 + M.SHEET_W * M.SHEET_H
+    with open(os.path.join(LOADER_DIR, "menu_sheet.pal8"), "wb") as f:
+        f.write(sheet_blob)
+    sheet = q.convert("RGB")
     sheet.save(os.path.join(LOADER_DIR, "menu_sheet.png"))
 
     # ---- controls_pad.png / controls_stick.png ---------------------------
@@ -702,6 +726,7 @@ def main():
         "typedef struct { unsigned short x, y, w, h; } mrect_t;",
         "",
         f"#define MENU_SHEET_W {M.SHEET_W}",
+        f"#define MENU_SHEET_H {M.SHEET_H}",
         f"#define MENU_BG_COLOR 0x{rgb565(BG):04x}",
         f"#define MENU_HI_COLOR 0x{rgb565(AMBER):04x}   /* edit-mode chip cursor */",
         "/* logo_strip.pal8 rect: 256 x RGB565-LE palette then 8bpp indices */",
@@ -842,6 +867,7 @@ def main():
 
     print(f"gen_menu_assets: sheet {shelf.bottom}/{M.SHEET_H}px used "
           f"({100 * shelf.bottom / M.SHEET_H:.1f}% vertical), "
+          f"{sheet_colors} distinct colours ({sheet_colors565} at RGB565) -> 8bpp palette, "
           f"{n_settings} settings rows, {len(value_cache)} unique value chips, "
           f"{len(ctl_word_rects)} control-word chips")
 

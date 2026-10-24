@@ -5,6 +5,7 @@
 typedef struct { unsigned short x, y, w, h; } mrect_t;
 
 #define MENU_SHEET_W 640
+#define MENU_SHEET_H 1024
 #define MENU_BG_COLOR 0xe71c
 #define MENU_HI_COLOR 0xe504   /* edit-mode chip cursor */
 /* logo_strip.pal8 rect: 256 x RGB565-LE palette then 8bpp indices */

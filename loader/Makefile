@@ -139,16 +139,14 @@ splash_blob.o: ../build/splash.bin
 # T9 pre-game menu: sprite sheet (settings screen) + the two controls
 # pages, all our
 # own generated art (scripts/gen_menu_assets.py from scripts/menu_def.py --
-# copyright rule, CLAUDE.md). Same sips+bmp2rgb565 pattern as the splash rule
-# above.
-../build/menu_sheet.bin: menu_sheet.png ../scripts/bmp2rgb565.py
-	mkdir -p ../build
-	sips -s format bmp menu_sheet.png --out ../build/menu_sheet.bmp > /dev/null
-	python3 ../scripts/bmp2rgb565.py ../build/menu_sheet.bmp $@ 640 1024
-menu_sheet_blob.o: ../build/menu_sheet.bin
+# copyright rule, CLAUDE.md). The sheet is an 8bpp palettized blob written
+# by the generator (menu_sheet.pal8: 256 x RGB565-LE palette then indices,
+# the logo_strip.pal8 layout) and objcopied straight in; the controls pages
+# use the sips+bmp2rgb565 pattern as the splash rule above.
+menu_sheet_blob.o: menu_sheet.pal8
 	sh-elf-objcopy -I binary -O elf32-shl -B sh4 \
-	  --redefine-sym _binary____build_menu_sheet_bin_start=_menu_sheet_bin \
-	  --redefine-sym _binary____build_menu_sheet_bin_end=_menu_sheet_bin_end \
+	  --redefine-sym _binary_menu_sheet_pal8_start=_menu_sheet_bin \
+	  --redefine-sym _binary_menu_sheet_pal8_end=_menu_sheet_bin_end \
 	  $< $@
 # Two controls pages (HKT-7700 pad / HKT-7300 stick); the menu blits the
 # label chips from menu_sheet on top of whichever page is showing.
@@ -186,9 +184,8 @@ logo_blob.o: logo_strip.pal8
 clean:
 	rm -f $(TARGET) $(OBJS) ../build/1ST_READ.BIN ../build/bios_data.bin ../build/patch_table.h \
 	  ../build/splash.bin ../build/splash.bmp \
-	  ../build/menu_sheet.bin ../build/menu_sheet.bmp \
 	  ../build/ctl_pad.bin ../build/ctl_pad.bmp ../build/ctl_stick.bin ../build/ctl_stick.bmp
 # splash.bin MUST die on clean: the T7 round-2 text bake edited it in place,
 # and a surviving copy is "up to date" to make -- round 3 shipped the stale
 # baked splash that way (operator caught it on hardware). Same reason the
-# three T9 .bins are listed here too.
+# two T9 controls-page .bins are listed here too.

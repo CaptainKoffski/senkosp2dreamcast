@@ -31,11 +31,19 @@ unsigned char menu_pad_layout[2] = { 0, 0 };
  * SHIM_STATE_PAD_CUSTOM word (4 bits per button). Session-only, as above. */
 unsigned char menu_custom[2][6] = { CTL_CUSTOM_DEFAULT, CTL_CUSTOM_DEFAULT };
 
+/* menu_sheet_bin = menu_sheet.pal8: 256 x RGB565-LE palette (512 B) then
+ * MENU_SHEET_W x MENU_SHEET_H 8bpp indices. The palette lives in a static
+ * copy (menu_run fills it): the blob section carries no alignment guarantee
+ * and SH4 faults on a misaligned uint16 load (the draw_logo lesson). */
+static uint16 sheet_pal[256];
+
 static void blit(mrect_t src, int dx, int dy) {
-    const uint16 *sheet = (const uint16 *)menu_sheet_bin;
-    for (int row = 0; row < src.h; row++)
-        memcpy(vram_s + (dy + row) * 640 + dx,
-               sheet + (src.y + row) * MENU_SHEET_W + src.x, src.w * 2);
+    for (int row = 0; row < src.h; row++) {
+        const uint8 *px = menu_sheet_bin + 512 + (src.y + row) * MENU_SHEET_W + src.x;
+        uint16 *dst = vram_s + (dy + row) * 640 + dx;
+        for (int x = 0; x < src.w; x++)
+            dst[x] = sheet_pal[px[x]];
+    }
 }
 
 static uint32 buttons(int nth) {            /* nth enumerated pad; none = 0 */
@@ -269,6 +277,7 @@ static void draw_logo(void) {
 
 void menu_run(void) {
     int cur = 0;
+    memcpy(sheet_pal, menu_sheet_bin, sizeof sheet_pal);
     clear_bg();
     draw_logo();
     draw_top(cur);
