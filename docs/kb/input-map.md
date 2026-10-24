@@ -82,6 +82,10 @@ bit is `0x0020` (`NAOMI_BTN4_KEY`) after senkosp's own descriptor remap — see
 
 ## Three-layout controls (decided + shipped 2026-09-27) — current binding
 
+*2026-10-24: the three layouts and the caps classifier below still bind;
+the shim mechanism described here (`jvs_pick_layout`, the preset bytes in
+`SHIM_STATE[2]`, the three-row selector) is replaced by §Controls library.*
+
 **HARDWARE VERIFICATION: PASS (operator, 2026-09-30).** The operator ran
 the interactive emulator walkthrough and the hardware-leg matrix (task-7
 brief, Step 3: pad defaults, Old preset, Stick row, mixed ports,
@@ -216,6 +220,11 @@ the operator's emulator walkthrough and hardware-leg matrix both PASS
 
 ### Custom pad layout + B.O.S.S. macro (2026-10-15, branch `feat/custom-layout`)
 
+**Superseded (menu model only) by §Controls library below (2026-10-24,
+`feat/controls-library`)**: the per-port CUSTOM, its preset byte and
+`SHIM_STATE[2]`/`[3..4]` meanings, and `dc_to_jvs_port` are gone. The
+B.O.S.S. mask and its 2026-10-24 hardware verification still stand.
+
 **Origin.** The same tester's third controls message (verbatim in
 `CONTROLS_TASK.MD` §Round 2): a single-button B.O.S.S. — on the cabinet,
 B.O.S.S. mode is the Main+Sub+Action chord (tester's statement; the 360
@@ -318,6 +327,217 @@ band, LEFT/RIGHT cycling, A keeps / B restores, B back, START; (2) in-game: B.O.
 gauge activates B.O.S.S. mode — also the first measurement that senkosp
 accepts the simultaneous three-bit press (tester's claim — confirmed on hardware 2026-10-24, see above);
 (3) the hardware round, standing Flycast≠hardware rule.
+
+### Controls library (2026-10-24, branch `feat/controls-library`)
+
+**Status: operator legs pending, not released.** Host tests and one emulator
+boot smoke only. The controls page itself has not run with input on any
+target: the Flycast fork cannot inject pad input on macOS (Lua is off on
+Apple builds, `tooling.md` §RAWFB), so walking the page is the operator's
+leg (below).
+
+**Origin.** Operator review (2026-10-24) of the `0.20.0` CUSTOM (§Custom pad
+layout below) against the tester's round-2 message (`CONTROLS_TASK.MD`
+§Round 2). Four problems: CUSTOM always started from Tournament, sticks could
+not be customized, nothing on screen said CUSTOM was editable, and each port
+owned its one custom layout, so P1's could not be reused on P2. Design
+brainstormed and approved in-session 2026-10-24; the operator picked the row
+model, the fork moment, the delete placement and the cap from mockups. Spec
+`docs/superpowers/specs/2026-10-24-controls-library-design.md`, plan
+`docs/superpowers/plans/2026-10-24-controls-library.md`, ledger
+`phase7-polishing.md` §T20. Unchanged: the three stock layouts, the B.O.S.S.
+mask, the chip editor's controls, the DEVINFO pad/stick classifier, the
+test-boot mapping and the reset combo.
+
+**Library model** (`loader/ctl_lib.c/.h`, host test
+`shims/test/test_ctl_lib.c`). There is one shared library per device class.
+**Pad** has buttons A B X Y L R (`menu_def.PAD_BUTTONS`), **stick** has
+A B X Y Z C (`STICK_BUTTONS`). Each class has its stock layouts (pad
+TOURNAMENT, OLD; stick ARCADE), which are immutable, plus `CTL_N_CUSTOM` = 8
+custom slots. Slot *i* is always named CUSTOM *i+1*. A layout is six
+function ids in `FUNC_WORDS` order (unchanged). State is
+`ctl_lib_t {custom[2][8][6], used[2][8], sel[2][2]}`, 116 bytes. `sel` below
+`CTL_N_STOCK[cls]` is a stock id; above it, it means `CTL_N_STOCK[cls]` +
+slot. A custom layout belongs to nobody: two rows that select CUSTOM 1 share
+one object, so editing it from either row changes both (operator requirement
+8, spec §2). The state is session-only. The all-zero `.bss` instance is the
+defaults (every pad row TOURNAMENT, every stick row ARCADE; KOS clears
+`.bss`). The arrays are laid out for the future VMU task to serialize as-is
+(spec §8). Nothing writes a VMU.
+
+**Rows page.** There are four fixed rows, class-major: P1 PAD, P2 PAD,
+P1 STICK, P2 STICK (`CTL_ROW_ITEMS`, generated from `CTL_PORTS` = 2 × the
+class list in `scripts/menu_def.py`), at y 300/334/380/414 (`CTL_ROW_Y`, a
+12 px gap between the groups). UP/DOWN moves the highlight. The art page
+(HKT-7700 pad / HKT-7300 stick) is copied only on entry and when the
+highlight crosses class (`loader/menu.c` `ctl_draw_all`), so it flips once,
+between the groups. Every row is settable whatever is plugged in (a hot-swap
+never changes what a row means). The page opens on P1 STICK if a stick drives
+the menu (`stick_on_menu_pad()`, unchanged rule), otherwise on P1 PAD.
+
+**Cycle, customize, fork, delete** (`loader/menu.c` controls loop over
+`ctl_lib`):
+- **LEFT/RIGHT** (`ctl_cycle`) steps through the stock ids, then the used
+  slots in ascending order. Unused slots are skipped and the list wraps: pad
+  TOURNAMENT, OLD, CUSTOM n…; stick ARCADE, CUSTOM n….
+- **A on any row** opens the chip editor (`ctl_edit`) on the layout the row
+  shows, pad or stick. The editor controls are the 2026-10-22 ones (§Custom
+  pad layout): the d-pad walks `CTL_EDIT_NAV`, A opens value mode, LEFT/RIGHT
+  cycle the seven functions, A keeps, B restores, and B outside value mode
+  returns. The frame starts on `CTL_EDIT_FIRST` = {pad L, stick X}, the
+  top-left chip on each page (X is MAIN in ARCADE).
+- **Fork on first change** (`ctl_keep`). On a stock selection, the first kept
+  value that differs from the stock one copies the stock layout into the
+  lowest free slot, writes the change into the copy, and selects that slot on
+  the highlighted row only (`CTL_KEEP_FORKED`). The row value flips to
+  `< CUSTOM n >`. Keeping an unchanged value (`CTL_KEEP_SAME`), or B in value
+  mode, forks nothing. Leaving without a kept change leaves the row on the
+  stock layout. On a custom selection the edit is written in place
+  (`CTL_KEEP_WRITTEN`).
+- **Library full.** A on a stock row while all 8 slots of that class are used
+  does not open the editor. The footer shows FULL until the next press, and
+  that press is then processed normally. The check happens up front so a fork
+  can never fail mid-edit. A on a custom row still opens the editor, because
+  it edits in place.
+- **Delete is X, twice, on a custom row only.** X on a stock row does
+  nothing. The first X turns the row's value cell into a red `DELETE?` cell
+  and the footer to CONFIRM. A second X runs `ctl_delete`: the slot is freed,
+  and every port of that class selecting it falls back to stock 0
+  (TOURNAMENT / ARCADE), with rows and labels redrawn. Any other button
+  cancels, and that press is consumed (B does not also leave the page). A
+  freed number is reused by the next fork (lowest free slot wins).
+
+**Cap: 8 per class.** This was the operator's choice. The VMU is not the
+limit: one 512-byte block holds over a hundred 3-byte layouts (spec §2). The
+limits are the sprite sheet and the LEFT/RIGHT cycle length. The menu has no
+runtime font, so every slot needs its own baked `< CUSTOM n >` chip (1–8,
+shared by both classes).
+
+**Shim: resolved words and a flag.** The shim no longer knows presets. The
+loader stages these unconditionally (`loader/main.c`, staging block before
+the GD stack canary):
+- `SHIM_STATE[2]` = `SHIM_STATE_LAYOUT_VALID` = 1;
+- four words `SHIM_STATE_LAYOUT_WORD(cls, port)` = 3 + 2·cls + port: [3] pad
+  A, [4] pad B, [5] stick A, [6] stick B (`shims/include/shim_iface.h`; slot
+  pins in `shims/test/test_shim_iface.c`). Each is `ctl_pack`: six 4-bit
+  ids, nibble *i* = the class's button *i*.
+
+On every poll, `mie_poll` (`shims/src/main.c`) does the following for each
+port:
+1. It classifies the port with `jvs_pick_class(devinfo_caps[port])`
+   (`shims/src/jvs.c`). The rule is the old one: no RTRIG/LTRIG/analog X/Y
+   capability bit means stick. Measured caps words are `0xfe060f00` for a pad
+   and `0xff070000` for a stick (§Three-layout controls).
+2. It takes `jvs_layout_word(valid, staged, cls)`: the staged word only when
+   `SHIM_STATE[2] == 1`, otherwise `JVS_WORD_DEFAULT[cls]` (Tournament /
+   Arcade). A zero-filled window is therefore never read as a layout.
+3. It maps the input through `dc_to_jvs_word(dc, cls, word)`, where the class
+   picks the button-bit list (`JVS_CLASS_BUTTON`).
+
+A test boot uses `dc_to_jvs_test(dc, cls, word, &test_bit)` on the same
+resolved word. Because the class is chosen per poll, a pad↔stick hot-swap
+moves that port between its pad word and its stick word. That is the
+mechanism only; the hardware check is operator leg (2). Deleted:
+`jvs_pick_layout`, `dc_to_jvs`, `dc_to_jvs_custom`, `dc_to_jvs_port`, the
+preset tables (`JVS_LAYOUT_PAD[2]`, `JVS_LAYOUT_STICK`), `LAYOUT_PAD_*` and
+`PAD_SEL_CUSTOM`. The rest of the poll path is untouched: active-low
+normalization, trigger threshold, capability-gated axes, the `was_dead[]`
+re-probe and the reset combo.
+
+**Stock words** (generated into `shims/src/layouts.h` from `menu_def.py`;
+ids 0 MAIN, 1 SUB, 2 BARRAGE, 3 ACTION, 4 OVERDRIVE, 5 B.O.S.S., 6 NONE;
+nibble *i* = button *i*). They match the old tables button for button (the
+§Three-layout table; host-pinned in `shims/test/test_host.c`):
+
+| Word | Literal | A | B | X | Y | L / Z | R / C |
+|---|---|---|---|---|---|---|---|
+| `JVS_WORD_TOURNAMENT` (pad) | `0x343210` | MAIN | SUB | BARRAGE | ACTION | OVERDRIVE | ACTION |
+| `JVS_WORD_OLD` (pad) | `0x432130` | MAIN | ACTION | SUB | BARRAGE | ACTION | OVERDRIVE |
+| `JVS_WORD_ARCADE` (stick) | `0x421063` | ACTION | NONE | MAIN | SUB | BARRAGE | OVERDRIVE |
+
+**Sprite sheet: 8bpp palettized.** `menu_sheet` now uses the logo's format
+(`loader/menu_sheet.pal8`): a 512-byte RGB565-LE palette, then 640 ×
+`SHEET_H` 8bpp indices. `blit()` in `loader/menu.c` is a palette lookup.
+`SHEET_H` went from 1024 to 1280 (1220 px used, 197 colours at RGB565). The
+blob is 819,712 bytes, against 1,310,720 for the RGB565 sheet at 1024.
+Loader `1ST_READ.BIN`: 3,536,144 → **3,045,188 bytes**, against the
+1728-sector loader limit of 3,538,944. The generator pipeline is in
+`tooling.md` §T9 menu asset generator.
+
+**Stick chips and the B leader.** The stick page's baked function tags are
+gone. Its chips are now drawn at runtime like the pad page's (`STICK_ANCHORS`,
+`scripts/menu_def.py`). They sit exactly where the 2026-10-03 tags sat
+(anchor y = tag y − 12), so the leaders keep their straight routes:
+- X (10,18) in the left column;
+- Y (480,53), Z (480,83), C (480,111), B (480,136), A (480,161) in the right
+  column at x480 (`SCOL_R`).
+
+B is new. Stock ARCADE leaves it unmapped, so it never had an art coordinate.
+Its art centre is (705,461) r50, measured on `stick_diagram.png` (outer ring
+ink x655–756, y411–512). Its leader has one elbow, (476,148)→(377,148)→
+(377,138): it runs under C and rises onto B's south rim
+(`gen_menu_assets.STICK_PAGE`; the generator asserts every leader ends on its
+button's circle). On ARCADE, B shows NONE. MOVE and START stay baked (they
+carry no function). The cone-rule nav table now covers the stick anchors too
+(`scripts/test_gen_menu_nav.py` `test_real_stick_page`).
+
+**Footers.** The footer left the page bins: the bins' footer area is now
+background. Six 640×24 sheet strips are blitted per state at y 452
+(`CTL_FOOTER_Y`):
+
+| State | Strip |
+|---|---|
+| ROWS_STOCK | `LEFT/RIGHT: LAYOUT   A: CUSTOMIZE   B: BACK` |
+| ROWS_CUSTOM | `LEFT/RIGHT: LAYOUT   A: EDIT   X: DELETE   B: BACK` |
+| EDIT | `D-PAD: BUTTON   A: CHANGE   B: DONE` |
+| VALUE | `LEFT/RIGHT: FUNCTION   A: KEEP   B: UNDO` |
+| CONFIRM | `X: DELETE   ANY OTHER BUTTON: CANCEL` |
+| FULL | `ALL 8 CUSTOM SLOTS USED: DELETE ONE FIRST` |
+
+The spec's rows footer started with `UP/DOWN: ROW`. With it, ROWS_STOCK
+measured 644 px against the 624 px maximum at `F_ROW` (`check_fits`), so it
+was dropped, which is the spec §7 rule's first step. The plan's ROWS_CUSTOM
+never carried `UP/DOWN: ROW`, so neither rows strip advertises UP/DOWN now.
+The other five strips are as the plan wrote them.
+
+**Verification:** host tests (`make test`) and an emulator boot smoke (leg
+below). **Operator legs pending** (emulator walkthrough + hardware; spec
+§Verification).
+- **Host tests:**
+  - `shims/test/test_host.c`: all three stock words against the old literals
+    for every button; the classifier from the measured caps words; stick
+    nibbles A B X Y Z C, including Z → BARRAGE and C → OVERDRIVE on ARCADE;
+    the staged-flag fallback; B.O.S.S., NONE, junk nibbles, OR of two
+    buttons, and layout-blind Start / 8-way.
+  - `shims/test/test_shim_iface.c`: slot pins 3/4/5/6.
+  - `shims/test/test_ctl_lib.c`: defaults; the cycle with a hole and wrap; a
+    same-value keep; fork to the lowest free slot on the highlighted port
+    only; the shared object; delete fallback; freed-number reuse; class
+    independence; eight forks, then FULL refusal while a custom row still
+    edits.
+  - `scripts/test_gen_menu_nav.py` (stick anchors) and
+    `scripts/test_gen_menu_sheet.py` (blob ↔ png).
+- **Previews viewed** (by the Task 3 reviewer): all nine `build/preview_*.png`,
+  including the DELETE? and FULL states.
+- **Emulator boot smoke `captures/ctl-library/boot-smoke1`** (FAKESTART build;
+  `tooling.md` §Legs: ctl-library):
+  - The pre-game top menu renders from the pal8 sheet: RAWFB dump
+    `shot-boot-smoke1-004-t20s.png`, viewed, pixel-identical (0 differing
+    pixels) to the RGB565-sheet menu frames of `customlayout/boot-smoke3` and
+    `nav-smoke2`. The t=15 s dump caught the loader splash instead (dump
+    timing; see the leg record).
+  - The fake START launches the game. Over 160 s: 0 `SHIMERR`,
+    0 `System reset`, 18,528 `TAEND`, 1,374 `GDDMA`.
+  - What this covers: the flag-1 staging and the shim's per-poll word read on
+    the default path (all-zero library, so Tournament / Arcade words). It does
+    **not** cover the controls page.
+- **Operator legs** (the claim gate, spec §Verification):
+  1. emulator walkthrough of the four rows, the art flip, the cycle order,
+     fork, sharing, delete and the FULL footer, on pad and stick rows,
+     including B;
+  2. hardware (real DC + GDEmu, pad in one port, stick in the other): per-port
+     custom layouts in game, B.O.S.S., a stick custom with Z/C remapped,
+     hot-swap, CDI and GDI.
 
 ### Non-standard controllers: axis bytes are capability-gated (2026-09-26)
 

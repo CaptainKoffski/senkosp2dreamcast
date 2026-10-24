@@ -2224,6 +2224,38 @@ released.
   3,538,016 B ceiling — confirming both blobs are wired correctly and
   fit once Task 5 references them.
 
+- **Menu sheet goes 8bpp palettized (2026-10-24, `feat/controls-library`,
+  commit `3bb534f`).**
+  - **Format:** `loader/menu_sheet.pal8` uses the logo's layout (the logo's
+    pal8 note is in `00-status.md` §Menu logo; it had no tooling entry). That
+    is a 512-byte palette of 256 × RGB565-LE, then 640 × `SHEET_H` 8bpp
+    indices, row-major (`SHEET_H` 1280 since `e8f7727`; blob 819,712 B).
+  - **Generator:** `scripts/gen_menu_assets.py` renders the RGB sheet as
+    before. It then snaps every channel to the RGB565 grid (truncation:
+    `& 0xF8` / `& 0xFC` / `& 0xF8`, what the old RGB565 blob stored). It
+    asserts the snapped sheet has ≤ 256 colours (197 today), so the
+    following `quantize(256, dither=NONE)` is lossless and the blob decodes
+    to exactly the old RGB565 sheet. Past 256 colours the generator fails
+    instead of going lossy silently. It writes the decoded sheet as
+    `loader/menu_sheet.png`, which is the preview and the source for the
+    previews' crops.
+  - **Self-check:** `scripts/test_gen_menu_sheet.py` (in `make test`) checks
+    that the blob's palette lookup equals `rgb565()` of the PNG. It samples
+    every 7th row and every 5th column, not every pixel (the comment says
+    "whole-sheet exactness"; the Task 2 review noted it as a strided
+    compare).
+  - **Build:** `loader/Makefile` `menu_sheet_blob.o: menu_sheet.pal8`
+    objcopies the blob straight in (`sh-elf-objcopy -I binary -O elf32-shl
+    -B sh4`, symbols renamed to `_menu_sheet_bin`/`_menu_sheet_bin_end`),
+    the same rule as `logo_blob.o`. No sips or `bmp2rgb565.py` step is
+    involved.
+  - **Consumer:** `loader/menu.c` `blit()` looks up a palette filled once at
+    `menu_run` entry. The page bins, the splash and the logo paths are
+    unchanged.
+  - **Effect:** the loader went from 3,536,144 to 3,045,188 B, against the
+    1728-sector limit of 3,538,944. The emulator proof that the on-target
+    blit matches the old sheet is §Legs: ctl-library/boot-smoke1.
+
 ## SD-card mux survey — one-command GDEMU deploy (2026-09-13, nothing bought)
 
 Research only; no hardware purchased. Goal: remove the
@@ -3263,6 +3295,46 @@ the editor itself still needs human input (operator leg pending,
 |---|---|
 | `nav-smoke1` | never launched: the wrapper's `pgrep -x Flycast` guard found a leftover emulator process (gone by the time it was inspected — a straggler from an earlier killed leg). No log. |
 | `nav-smoke2` | **PASS**: RAWFB dump at t=15 s shows the top menu on the regenerated sheet (kept: `shot-nav-smoke2-003-t15s.png`; the black in-game dumps deleted post-verdict — GL renderer, normal), fake START launches the game; 160 s: 0 `SHIMERR`, 0 `System reset`, 18,592 `TAEND`, 1,374 `GDDMA`, last cart read `fad=000667b8` = +194 MB. Kept: `.log`, `.log.engine.bin`, `.log.ram.bin`, `.stdout.log`. Release GDI + CDI rebuilt without the knob afterwards (0 fake-START symbols in the loader objects). |
+
+### Legs: ctl-library/boot-smoke1 (2026-10-25, T20 controls library)
+
+The same recipe as customlayout:
+`make objclean && source tools/kos/environ.sh && FAKESTART=6000 make gdi &&
+scripts/capture_rawfb_leg.sh ctl-library/boot-smoke1 160 4`. The FAKESTART
+loader's `md5` is `dfac15537ffcd4bbe4d20eafc74c5554` (3,045,188 B).
+
+What the leg covers:
+- the top menu blitted from the 8bpp sheet (`blit()` palette lookup);
+- the loader staging `SHIM_STATE[2] = 1` plus four `ctl_pack` words (the
+  all-zero library gives `0x343210` pad and `0x421063` stick);
+- the shim's per-poll `jvs_pick_class` + `jvs_layout_word` read on that
+  default path.
+
+It does not cover the controls page: the fork cannot inject pad input
+(§RAWFB), so that is the operator's leg (`phase7-polishing.md` §T20).
+
+| Leg | Result |
+|---|---|
+| `boot-smoke1` | **PASS** on the first launch (no host trap). The RAWFB dumps run every 5 s from t=5 to t=160: 4 s of sleep plus the wrapper's 1 s wait per dump. The t=15 s dump (`shot-boot-smoke1-003-t15s.png`) still shows the loader's licence splash. The t=20 s dump (`shot-boot-smoke1-004-t20s.png`) shows the pre-game top menu (logo, START GAME / SETTINGS / CONTROLS, footer); I viewed it, and it is pixel-identical (0 differing pixels, PIL `ImageChops.difference`) to `customlayout/shot-boot-smoke3-003-t15s.png` and `shot-nav-smoke2-003-t15s.png`, which were drawn from the RGB565 sheet. The fake START launches the game. Over 160 s: 0 `SHIMERR`, 0 `System reset`, 18,528 `TAEND`, 1,374 `GDDMA` (the same as nav-smoke2), and the last GD read `fad=000667b8` (the same as nav-smoke2). Counts are `grep -c` on `boot-smoke1.log`. All files are kept: `.log`, `.log.engine.bin`, `.log.ram.bin`, `.stdout.log`, and the 32 `shot-*.png` plus `rawfb-boot-smoke1.png`. |
+
+**Why the menu frame is t=20 s, not t=15 s.** The dump grid is fixed to the
+wrapper's launch, but the BIOS stretch varies. The BIOS → IP.BIN handoff
+(`CLEO-CCR write … pc=ac008300` in `.stdout.log`) came 11.7 s after launch in
+this leg, against 11.3 s (boot-smoke3) and 11.4 s (nav-smoke2). The third dump
+then landed 1.9 s after the handoff, against 2.7 s and 2.6 s, while the splash
+was still up. This is not a slower loader. From the handoff to the loader's
+first CCR write after the fake START (`pc=ac0210b8`), the interval is
+8.469 s here, against 8.463 s and 8.469 s in the two earlier legs. The knob
+counts from menu entry, so the menu opened at the same moment in all three.
+
+Release image: `make objclean && make gdi` (knob off) gives loader md5
+`1850befe4bc586341becbf52324e575c`, which differs from the FAKESTART build.
+After the Task 7 comment pass, the knob-off loader is
+`06f4fb26b2b380ec05ec121b64853310`. That build differs from `1850befe…` only
+in the order of `menu.o`'s function sections: `ctl_chip` moved above
+`ctl_draw_labels`, and all 10 sections disassemble identically, checked with
+`sh-elf-objdump -d` section by section. The CDI was not rebuilt by this leg;
+`make deploy` builds both images.
 
 ## `make deploy` — `gdemu_deploy.py` (2026-10-24)
 

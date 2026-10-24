@@ -1,5 +1,28 @@
 # Project status
 
+**Controls library — branch `feat/controls-library` (2026-10-24/25),
+operator legs pending, not released.** This replaces the `0.20.0` per-port
+CUSTOM with one shared custom-layout library per device class (pad, stick).
+The page has four rows (P1/P2 PAD, P1/P2 STICK). LEFT/RIGHT cycles through
+the stock layouts, then CUSTOM 1–8. A on any row edits what the row shows:
+the first kept change forks a stock layout into the lowest free slot, and an
+existing custom layout is edited in place and shared by every row that
+selects it. X twice deletes a custom layout, and its rows fall back to
+TOURNAMENT / ARCADE. The cap is 8 per class, set by the sprites and the cycle
+length, not the VMU. Sticks are customizable now (runtime chips, B gains a
+leader). The footer names what A, X and B do. The shim takes one resolved
+6-nibble word per port per class (`SHIM_STATE[2]` flag + words [3..6]; the
+preset tables are gone). The menu sprite sheet went 8bpp palettized, so the
+loader shrank 3,536,144 → 3,045,188 bytes (limit 3,538,944). Verified so
+far: host tests (`make test`) and the emulator boot smoke
+`ctl-library/boot-smoke1` (the top menu renders from the new sheet,
+pixel-identical to the old one; the game launches; 0 SHIMERR). The
+controls page needs pad input the fork cannot inject, so the emulator
+walkthrough and the hardware round are the operator's. Release (`0.21.0`)
+follows the hardware verdict. Mechanism: `input-map.md` §Controls library.
+Ledger: `phase7-polishing.md` §T20. Spec:
+`docs/superpowers/specs/2026-10-24-controls-library-design.md`.
+
 **Updated:** 2026-09-20 — **ALL SEVEN PHASES CLOSED.** The port is
 complete: the game boots, plays, and soaks on real hardware (Dreamcast
 + GDEMU; DreamShell serial-SD as courtesy path), with the phase-7
