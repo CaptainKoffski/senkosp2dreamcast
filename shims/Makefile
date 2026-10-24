@@ -80,6 +80,7 @@ test:
 	# gd_plan the shim runs, so a divergence is a link/assert failure, not a copy.
 	cc -DHOST_TEST -Iinclude -o $(B)/test_gd_math test/test_gd_math.c src/gd.c && $(B)/test_gd_math
 	cc -o $(B)/test_naomi_crc test/test_naomi_crc.c ../loader/naomi_crc.c && $(B)/test_naomi_crc
+	cc -I../loader -o $(B)/test_ctl_lib test/test_ctl_lib.c ../loader/ctl_lib.c && $(B)/test_ctl_lib
 	cc -Iinclude -o $(B)/test_lz4_lay test/test_lz4_lay.c src/lz4_lay.c && $(B)/test_lz4_lay
 # MIE reply blobs: GENERATED at build time by scripts/gen_mie_blobs.py from
 # committed constants (Flycast emulator output, cited) + the builder's own
