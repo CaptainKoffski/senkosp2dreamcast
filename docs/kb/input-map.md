@@ -307,13 +307,16 @@ menu renders on the regenerated sheet at t=15 s; 160 s: 0 `SHIMERR`,
 launched — leftover emulator process, `tooling.md` §Legs:
 customlayout/nav-smoke). **Operator verdict 2026-10-22: "It works
 perfectly"** — legs (1) and (3) below done on the reworked editor, **on
-hardware** (hardware-verified). Shipped as `0.20.0`; (2) remains open.
+hardware** (hardware-verified). Shipped as `0.20.0`. **Leg (2) done 2026-10-24** (operator, real DC +
+GDEmu, `0.20.0`): B.O.S.S. on a single custom button with a full gauge
+activates B.O.S.S. mode — senkosp accepts Main+Sub+Action arriving in the
+same poll. All three legs closed.
 **Operator legs:** (1)
 emulator walkthrough — CUSTOM on both pad rows, d-pad cursor following the
 page (RIGHT on L → R, LEFT from the right column → L, no wrap), A → amber
 band, LEFT/RIGHT cycling, A keeps / B restores, B back, START; (2) in-game: B.O.S.S. on a face button with a full
 gauge activates B.O.S.S. mode — also the first measurement that senkosp
-accepts the simultaneous three-bit press (tester's claim, unmeasured so far);
+accepts the simultaneous three-bit press (tester's claim — confirmed on hardware 2026-10-24, see above);
 (3) the hardware round, standing Flycast≠hardware rule.
 
 ### Non-standard controllers: axis bytes are capability-gated (2026-09-26)

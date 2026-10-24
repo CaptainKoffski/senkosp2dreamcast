@@ -3442,9 +3442,10 @@ preview viewed. Emulator boot smoke `customlayout/boot-smoke3`: **PASS**
 emulator launch flakes, `tooling.md` §Legs: customlayout). Release images
 rebuilt without the knob afterwards.
 Operator legs: menu walkthrough and hardware round **done 2026-10-22**
-("It works perfectly", on hardware, on the reworked cursor above). Still
-open: the in-game B.O.S.S. activation measurement (needs a full gauge) —
-the edit mode needs human input (no Lua on the Apple fork).
+("It works perfectly", on hardware, on the reworked cursor above). In-game
+B.O.S.S. activation (full gauge, B.O.S.S. on one custom button) **done
+2026-10-24** (operator, real DC + GDEmu, `0.20.0`): B.O.S.S. mode
+activates — the simultaneous three-bit press is accepted. No legs open.
 
 **Not done, deliberately:** no VMU save (session-only like all menu state —
 the cost driver if CUSTOM graduates from lab to feature); no custom stick

@@ -76,7 +76,8 @@ A on a CUSTOM row opens an in-place chip editor (d-pad moves between the
 chips as laid out on the page, A opens value mode, LEFT/RIGHT function, A
 keeps / B restores, B back; reworked 2026-10-22) with B.O.S.S. and NONE
 among the seven functions. B.O.S.S.
-is a three-bit JVS mask raised in one poll. Presets untouched; session-only
+is a three-bit JVS mask raised in one poll; in-game activation
+hardware-verified 2026-10-24 (operator, GDEmu, full gauge). Presets untouched; session-only
 (no VMU). Host-tested (TDD), generator preview viewed, both masters build;
 emulator boot smoke + operator legs: `phase7-polishing.md` §T19,
 mechanism `input-map.md` §Custom pad layout, tester message
