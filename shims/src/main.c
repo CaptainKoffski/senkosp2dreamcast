@@ -128,13 +128,13 @@ extern const unsigned char mie_jvsdflt[]; extern const unsigned int mie_jvsdflt_
  * returns the normalized pressed mask; src/jvs.c maps it to the JVS word and
  * owns the frame checksum. */
 unsigned int  maple_getcond(unsigned int port);         /* src/maple.c */
-unsigned      dc_to_jvs(unsigned dc_buttons, unsigned layout);           /* src/jvs.c */
-unsigned      dc_to_jvs_port(unsigned dc_buttons, unsigned layout, unsigned custom_word); /* src/jvs.c, custom layout 2026-10-15 */
-unsigned      dc_to_jvs_test(unsigned dc_buttons, unsigned layout, unsigned *test_bit); /* src/jvs.c, Task 13 */
+unsigned      dc_to_jvs_word(unsigned dc_buttons, unsigned cls, unsigned word); /* src/jvs.c, controls-library plan */
+unsigned      dc_to_jvs_test(unsigned dc_buttons, unsigned cls, unsigned word, unsigned *test_bit); /* src/jvs.c, Task 13 */
 unsigned char jvs_checksum(const unsigned char *f);     /* src/jvs.c */
 void *xmemcpy(void *, const void *, u32);               /* src/util.c */
 extern u32 devinfo_caps[2];                              /* src/maple.c */
-unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel); /* src/jvs.c, controls spec 2026-09-27 */
+unsigned jvs_pick_class(unsigned caps);                 /* src/jvs.c, controls spec 2026-09-27 */
+unsigned jvs_layout_word(unsigned valid, unsigned staged, unsigned cls); /* src/jvs.c */
 int      dc_reset_combo(unsigned dc_buttons);           /* src/jvs.c */
 
 /* Cold boot through the BIOS reset vector, exactly as KOS arch_reboot does
@@ -258,8 +258,9 @@ static void mie_poll(u32 rcv) {
     if (n > sizeof f) n = sizeof f;     /* bounded: never read past the blob */
     xmemcpy(f, mie_sub33, n);
     /* getcond FIRST (a success-after-dead poll refreshes devinfo_caps, Task 3),
-     * then classify: stick -> fixed arcade layout, pad -> this port's preset
-     * byte from the loader-staged word (0 Tournament / 1 Old). */
+     * then classify (pad / stick) and take that class's resolved word for the
+     * port: the loader's staged one when it flagged SHIM_STATE_LAYOUT_VALID,
+     * else the generated stock default (shim_iface.h). */
     u32 p1 = maple_getcond(0), p2 = maple_getcond(1);
     if (dc_reset_combo(p1) || dc_reset_combo(p2)) pad_reboot();  /* either pad, as retail */
 #if SHIM_FAKE_COMBO
@@ -267,23 +268,19 @@ static void mie_poll(u32 rcv) {
      * the combo, so fire the reset path after N polls (~60/s). Never ship. */
     { static u32 fake_n = 1; if (++fake_n > (u32)SHIM_FAKE_COMBO) pad_reboot(); }
 #endif
-    u32 sel = UW(SHIM_STATE + 4 * SHIM_STATE_PAD_LAYOUT);
-    u32 l1 = jvs_pick_layout(devinfo_caps[0], sel & 0xffu);
-    u32 l2 = jvs_pick_layout(devinfo_caps[1], (sel >> 8) & 0xffu);
-    /* CUSTOM (2026-10-15): the port's own six-nibble word, staged next to the
-     * preset bytes; only consulted when jvs_pick_layout said CUSTOM. */
-    u32 c1 = UW(SHIM_STATE + 4 * SHIM_STATE_PAD_CUSTOM);
-    u32 c2 = UW(SHIM_STATE + 4 * (SHIM_STATE_PAD_CUSTOM + 1));
+    u32 valid = UW(SHIM_STATE + 4 * SHIM_STATE_LAYOUT_VALID);
+    u32 k1 = jvs_pick_class(devinfo_caps[0]), k2 = jvs_pick_class(devinfo_caps[1]);
+    u32 w1 = jvs_layout_word(valid, UW(SHIM_STATE + 4 * SHIM_STATE_LAYOUT_WORD(k1, 0)), k1);
+    u32 w2 = jvs_layout_word(valid, UW(SHIM_STATE + 4 * SHIM_STATE_LAYOUT_WORD(k2, 1)), k2);
     if (UW(SHIM_STATE) == 1u) {         /* test boot: P1 Start->Test, A->Service
-                                         * (a CUSTOM P1 falls to Tournament here --
-                                         * the test menu only needs those two) */
+                                         * (rest of P1's layout word stays live) */
         unsigned test_bit;
-        j1 = dc_to_jvs_test(p1, l1, &test_bit);
+        j1 = dc_to_jvs_test(p1, k1, w1, &test_bit);
         f[0x1f] = (u8)(test_bit ? 0x80 : 0x00);
     } else {
-        j1 = dc_to_jvs_port(p1, l1, c1);    /* DC port A -> P1 */
+        j1 = dc_to_jvs_word(p1, k1, w1);    /* DC port A -> P1 */
     }
-    j2 = dc_to_jvs_port(p2, l2, c2);        /* DC port B -> P2 (no pad -> 0 = idle) */
+    j2 = dc_to_jvs_word(p2, k2, w2);        /* DC port B -> P2 (no pad -> 0 = idle) */
     f[0x20] = (u8)(j1 >> 8); f[0x21] = (u8)j1;
     f[0x22] = (u8)(j2 >> 8); f[0x23] = (u8)j2;
     f[0x3a] = jvs_checksum(f);

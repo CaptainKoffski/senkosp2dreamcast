@@ -6,94 +6,71 @@
 #include <assert.h>
 #include <stdio.h>
 #include "../include/shim_iface.h"
-#include "../src/jvs.c"      /* pure: CONT_ and JVS_ tables, dc_to_jvs, jvs_checksum */
+#include "../src/jvs.c"      /* pure: CONT_ and JVS_ tables, dc_to_jvs_word, jvs_checksum */
 
 int main(void) {
-    /* dc_to_jvs: takes an already-normalized PRESSED mask (unlike Cleopatra's
+    /* dc_to_jvs_word: takes an already-normalized PRESSED mask (unlike Cleopatra's
        version, which inverted DC's active-low word internally) -- the CONT_*
        bits below match KOS controller.h numbering (jvs.c comment). JVS word
        (docs/kb/input-map.md, measured): Start 0x8000 Up 0x2000 Down 0x1000
        Left 0x0800 Right 0x0400 M(A) 0x0200 S(X) 0x0100 Barrage(Y) 0x0080
        Action(B) 0x0040 OverDrive(Rtrig) 0x0020. */
-    assert(dc_to_jvs(0, LAYOUT_PAD_OLD) == 0x0000);                              /* nothing pressed */
-    assert(dc_to_jvs(CONT_START, LAYOUT_PAD_OLD) == JVS_START);
-    assert(dc_to_jvs(CONT_DPAD_UP, LAYOUT_PAD_OLD) == JVS_UP);
-    assert(dc_to_jvs(CONT_DPAD_DOWN, LAYOUT_PAD_OLD) == JVS_DOWN);
-    assert(dc_to_jvs(CONT_DPAD_LEFT, LAYOUT_PAD_OLD) == JVS_LEFT);
-    assert(dc_to_jvs(CONT_DPAD_RIGHT, LAYOUT_PAD_OLD) == JVS_RIGHT);
-    assert(dc_to_jvs(CONT_A, LAYOUT_PAD_OLD) == JVS_M);
-    assert(dc_to_jvs(CONT_X, LAYOUT_PAD_OLD) == JVS_S);
-    assert(dc_to_jvs(CONT_Y, LAYOUT_PAD_OLD) == JVS_BARRAGE);
-    assert(dc_to_jvs(CONT_B, LAYOUT_PAD_OLD) == JVS_A);
-    assert(dc_to_jvs(CONT_RTRIG, LAYOUT_PAD_OLD) == JVS_OD);
-    assert(dc_to_jvs(CONT_LTRIG, LAYOUT_PAD_OLD) == JVS_A);                      /* L duplicates B (block) */
-    assert(dc_to_jvs(CONT_LTRIG | CONT_B, LAYOUT_PAD_OLD) == JVS_A);             /* both held: still one bit */
-    assert(dc_to_jvs(CONT_START | CONT_DPAD_UP, LAYOUT_PAD_OLD) == (JVS_START | JVS_UP));   /* chord */
-    assert(dc_to_jvs(CONT_C, LAYOUT_PAD_OLD) == 0);                              /* C has no JVS mapping */
+    assert(dc_to_jvs_word(0, JVS_CLASS_PAD, JVS_WORD_OLD) == 0x0000);                              /* nothing pressed */
+    assert(dc_to_jvs_word(CONT_START, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_START);
+    assert(dc_to_jvs_word(CONT_DPAD_UP, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_UP);
+    assert(dc_to_jvs_word(CONT_DPAD_DOWN, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_DOWN);
+    assert(dc_to_jvs_word(CONT_DPAD_LEFT, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_LEFT);
+    assert(dc_to_jvs_word(CONT_DPAD_RIGHT, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_RIGHT);
+    assert(dc_to_jvs_word(CONT_A, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_M);
+    assert(dc_to_jvs_word(CONT_X, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_S);
+    assert(dc_to_jvs_word(CONT_Y, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_BARRAGE);
+    assert(dc_to_jvs_word(CONT_B, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_A);
+    assert(dc_to_jvs_word(CONT_RTRIG, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_OD);
+    assert(dc_to_jvs_word(CONT_LTRIG, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_A);                      /* L duplicates B (block) */
+    assert(dc_to_jvs_word(CONT_LTRIG | CONT_B, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_A);             /* both held: still one bit */
+    assert(dc_to_jvs_word(CONT_START | CONT_DPAD_UP, JVS_CLASS_PAD, JVS_WORD_OLD) == (JVS_START | JVS_UP));   /* chord */
+    assert(dc_to_jvs_word(CONT_C, JVS_CLASS_PAD, JVS_WORD_OLD) == 0);                              /* C has no JVS mapping */
 
-    /* Layout tables (controls spec 2026-09-27). TOURNAMENT = the tester's EVO
-       pad layout, the new DEFAULT; OLD = the pre-2026-09-27 mapping (the
-       asserts above, now pinned); STICK = the Naomi cab layout, fixed --
-       the only layout that reaches OverDrive on a triggerless device. */
-    assert(dc_to_jvs(CONT_A, LAYOUT_PAD_TOURNAMENT) == JVS_M);
-    assert(dc_to_jvs(CONT_B, LAYOUT_PAD_TOURNAMENT) == JVS_S);
-    assert(dc_to_jvs(CONT_X, LAYOUT_PAD_TOURNAMENT) == JVS_BARRAGE);
-    assert(dc_to_jvs(CONT_Y, LAYOUT_PAD_TOURNAMENT) == JVS_A);
-    assert(dc_to_jvs(CONT_LTRIG, LAYOUT_PAD_TOURNAMENT) == JVS_OD);
-    assert(dc_to_jvs(CONT_RTRIG, LAYOUT_PAD_TOURNAMENT) == JVS_A);
-    assert(dc_to_jvs(CONT_START | CONT_DPAD_LEFT, LAYOUT_PAD_TOURNAMENT)
-           == (JVS_START | JVS_LEFT));                /* common bits layout-blind */
-    assert(dc_to_jvs(CONT_X, LAYOUT_STICK) == JVS_M);
-    assert(dc_to_jvs(CONT_Y, LAYOUT_STICK) == JVS_S);
-    assert(dc_to_jvs(CONT_Z, LAYOUT_STICK) == JVS_BARRAGE);
-    assert(dc_to_jvs(CONT_A, LAYOUT_STICK) == JVS_A);
-    assert(dc_to_jvs(CONT_C, LAYOUT_STICK) == JVS_OD); /* OverDrive reachable: the fix */
-    assert(dc_to_jvs(CONT_B, LAYOUT_STICK) == 0);      /* B unmapped, tester's spec */
-    assert(dc_to_jvs(CONT_RTRIG | CONT_LTRIG, LAYOUT_STICK) == 0); /* no trigger ghosts */
-
-    /* jvs_pick_layout: DEVINFO caps classifier + per-port pad preset byte.
-       PAD/STICK caps words as in the block below (flycast maple_devs.cpp:85/:292). */
-    assert(jvs_pick_layout(0xfe060f00u, 0) == LAYOUT_PAD_TOURNAMENT);
-    assert(jvs_pick_layout(0xfe060f00u, 1) == LAYOUT_PAD_OLD);
-    assert(jvs_pick_layout(0xfe060f00u, 0x77) == LAYOUT_PAD_TOURNAMENT); /* junk sel -> default */
-    assert(jvs_pick_layout(0xff070000u, 0) == LAYOUT_STICK);
-    assert(jvs_pick_layout(0xff070000u, 1) == LAYOUT_STICK);   /* stick ignores pad sel */
-    /* per-port independence is just two calls with different sel bytes */
-    assert(jvs_pick_layout(0xfe060f00u, 1) != jvs_pick_layout(0xfe060f00u, 0));
-
-    /* Custom pad layout + B.O.S.S. macro (tester ask 2026-10-15, branch
-       feat/custom-layout). The loader stages one word per port: six 4-bit
-       function ids (menu_def.py FUNC_WORDS index) at nibble i = PAD_BUTTONS[i]
-       (A B X Y L R). Read only when that port's preset byte says CUSTOM. */
-    assert(jvs_pick_layout(0xfe060f00u, PAD_SEL_CUSTOM) == LAYOUT_PAD_CUSTOM);
-    assert(jvs_pick_layout(0xff070000u, PAD_SEL_CUSTOM) == LAYOUT_STICK);  /* stick still wins */
-    assert(JVS_FUNC_MASK[JVS_FUNC_BOSS] == (JVS_M | JVS_S | JVS_A));      /* the macro: 3 bits, 1 poll */
+    /* One resolved word per port per device class (controls-library plan, Task
+       1): the shim holds no presets, only six 4-bit function ids per word
+       (nibble i = JVS_CLASS_BUTTON[cls][i]); the generated JVS_WORD_* are the
+       stock Tournament / Old / Arcade layouts packed into that form. */
+    /* stock words reproduce the three tables */
+    assert(dc_to_jvs_word(CONT_A, JVS_CLASS_PAD, JVS_WORD_TOURNAMENT) == JVS_M);
+    assert(dc_to_jvs_word(CONT_B, JVS_CLASS_PAD, JVS_WORD_TOURNAMENT) == JVS_S);
+    assert(dc_to_jvs_word(CONT_X, JVS_CLASS_PAD, JVS_WORD_TOURNAMENT) == JVS_BARRAGE);
+    assert(dc_to_jvs_word(CONT_Y, JVS_CLASS_PAD, JVS_WORD_TOURNAMENT) == JVS_A);
+    assert(dc_to_jvs_word(CONT_LTRIG, JVS_CLASS_PAD, JVS_WORD_TOURNAMENT) == JVS_OD);
+    assert(dc_to_jvs_word(CONT_RTRIG, JVS_CLASS_PAD, JVS_WORD_TOURNAMENT) == JVS_A);
+    assert(dc_to_jvs_word(CONT_B, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_A);
+    assert(dc_to_jvs_word(CONT_X, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_S);
+    assert(dc_to_jvs_word(CONT_LTRIG | CONT_B, JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_A);
+    assert(dc_to_jvs_word(CONT_Z, JVS_CLASS_STICK, JVS_WORD_ARCADE) == JVS_BARRAGE);
+    assert(dc_to_jvs_word(CONT_C, JVS_CLASS_STICK, JVS_WORD_ARCADE) == JVS_OD);
+    assert(dc_to_jvs_word(CONT_B, JVS_CLASS_STICK, JVS_WORD_ARCADE) == 0);
+    assert(dc_to_jvs_word(CONT_Z, JVS_CLASS_PAD, JVS_WORD_ARCADE) == 0);        /* class picks the button list */
+    assert(dc_to_jvs_word(CONT_RTRIG | CONT_LTRIG, JVS_CLASS_STICK, JVS_WORD_ARCADE) == 0); /* no trigger ghosts */
+    /* Start + 8-way are layout-blind; chords OR */
+    assert(dc_to_jvs_word(CONT_START | CONT_DPAD_LEFT, JVS_CLASS_PAD, 0xffffffu) == (JVS_START | JVS_LEFT));
+    assert(dc_to_jvs_word(CONT_A | CONT_X, JVS_CLASS_PAD, JVS_WORD_TOURNAMENT) == (JVS_M | JVS_BARRAGE));
+    /* B.O.S.S. on B (nibble 1), NONE on R (nibble 5), junk nibble */
+    assert(JVS_FUNC_MASK[JVS_FUNC_BOSS] == (JVS_M | JVS_S | JVS_A));            /* the macro: 3 bits, 1 poll */
     assert(JVS_FUNC_MASK[JVS_FUNC_NONE] == 0);
-    {
-        /* Tournament packed as a custom word must behave as the Tournament table */
-        const unsigned T = 0u | (1u << 4) | (2u << 8) | (3u << 12) | (4u << 16) | (3u << 20);
-        const unsigned btns[6] = {CONT_A, CONT_B, CONT_X, CONT_Y, CONT_LTRIG, CONT_RTRIG};
-        for (int i = 0; i < 6; i++)
-            assert(dc_to_jvs_custom(btns[i], T) == dc_to_jvs(btns[i], LAYOUT_PAD_TOURNAMENT));
-        /* B.O.S.S. on B (nibble 1) */
-        assert(dc_to_jvs_custom(CONT_B, (T & ~(0xfu << 4)) | ((unsigned)JVS_FUNC_BOSS << 4))
-               == (JVS_M | JVS_S | JVS_A));
-        /* NONE on R (nibble 5): a dead button, no stray bit */
-        assert(dc_to_jvs_custom(CONT_RTRIG, (T & ~(0xfu << 20)) | ((unsigned)JVS_FUNC_NONE << 20)) == 0);
-        /* junk nibble (menu never writes it) -> nothing */
-        assert(dc_to_jvs_custom(CONT_A, 0xfu) == 0);
-        /* Start + 8-way are layout-blind here too */
-        assert(dc_to_jvs_custom(CONT_START | CONT_DPAD_LEFT | CONT_A, T)
-               == (JVS_START | JVS_LEFT | JVS_M));
-        /* two custom buttons held OR together, as the preset tables do */
-        assert(dc_to_jvs_custom(CONT_A | CONT_X, T) == (JVS_M | JVS_BARRAGE));
-        /* the per-poll entry shims/src/main.c calls: CUSTOM routes through the
-           word, every other layout ignores it (so main.c never sees the ids) */
-        const unsigned BW = (T & ~(0xfu << 4)) | ((unsigned)JVS_FUNC_BOSS << 4);
-        assert(dc_to_jvs_port(CONT_B, LAYOUT_PAD_CUSTOM, BW) == (JVS_M | JVS_S | JVS_A));
-        assert(dc_to_jvs_port(CONT_B, LAYOUT_PAD_TOURNAMENT, BW) == JVS_S);
-        assert(dc_to_jvs_port(CONT_B, LAYOUT_STICK, BW) == 0);
-    }
+    assert(dc_to_jvs_word(CONT_B, JVS_CLASS_PAD, (JVS_WORD_TOURNAMENT & ~(0xfu << 4)) | ((unsigned)JVS_FUNC_BOSS << 4)) == (JVS_M | JVS_S | JVS_A));
+    assert(dc_to_jvs_word(CONT_RTRIG, JVS_CLASS_PAD, (JVS_WORD_TOURNAMENT & ~(0xfu << 20)) | ((unsigned)JVS_FUNC_NONE << 20)) == 0);
+    assert(dc_to_jvs_word(CONT_A, JVS_CLASS_PAD, 0xfu) == 0);
+    /* classifier (measured caps words: PAD/STICK as in the block below,
+       flycast maple_devs.cpp:85/:292) */
+    assert(jvs_pick_class(0xfe060f00u) == JVS_CLASS_PAD);
+    assert(jvs_pick_class(0xff070000u) == JVS_CLASS_STICK);
+    /* staged-flag rule */
+    assert(jvs_layout_word(1u, 0u, JVS_CLASS_PAD) == 0u);
+    assert(jvs_layout_word(0u, 0x111111u, JVS_CLASS_PAD) == JVS_WORD_TOURNAMENT);
+    assert(jvs_layout_word(2u, 0x111111u, JVS_CLASS_STICK) == JVS_WORD_ARCADE);
+    assert(jvs_layout_word(0xffffffffu, 0x111111u, JVS_CLASS_STICK) == JVS_WORD_ARCADE);
+    /* test boot: Start -> test bit, A -> Service, everything else live */
+    { unsigned tb; assert(dc_to_jvs_test(CONT_START | CONT_X, JVS_CLASS_PAD, JVS_WORD_OLD, &tb) == JVS_S && tb == 1u);
+      assert(dc_to_jvs_test(CONT_A, JVS_CLASS_PAD, JVS_WORD_OLD, &tb) == JVS_SERVICE && tb == 0u); }
 
     /* dc_cond_to_pressed: raw GetCondition words 2/3 -> the pressed mask above.
        w2 = buttons | rtrig<<16 | ltrig<<24 (buttons ACTIVE-LOW), w3 = joyx |
@@ -110,47 +87,47 @@ int main(void) {
         const unsigned STICK = 0xff070000u;         /* no analog axes at all */
         assert(dc_cond_to_pressed(0xffff, NEUTRAL3, PAD) == 0);     /* idle pad */
         /* one button held: its wire bit goes to 0 */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_START, NEUTRAL3, PAD), LAYOUT_PAD_OLD)
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff & ~CONT_START, NEUTRAL3, PAD), JVS_CLASS_PAD, JVS_WORD_OLD)
                == JVS_START);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_Y, NEUTRAL3, PAD), LAYOUT_PAD_OLD)
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff & ~CONT_Y, NEUTRAL3, PAD), JVS_CLASS_PAD, JVS_WORD_OLD)
                == JVS_BARRAGE);
         /* R trigger is analog: below 128 idle, at/above 128 -> OverDrive */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (127u << 16), NEUTRAL3, PAD), LAYOUT_PAD_OLD) == 0);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (128u << 16), NEUTRAL3, PAD), LAYOUT_PAD_OLD)
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff | (127u << 16), NEUTRAL3, PAD), JVS_CLASS_PAD, JVS_WORD_OLD) == 0);
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff | (128u << 16), NEUTRAL3, PAD), JVS_CLASS_PAD, JVS_WORD_OLD)
                == JVS_OD);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (255u << 16), NEUTRAL3, PAD), LAYOUT_PAD_OLD)
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff | (255u << 16), NEUTRAL3, PAD), JVS_CLASS_PAD, JVS_WORD_OLD)
                == JVS_OD);
         /* L trigger (bits 24-31) duplicates B/Action: same 128 threshold as R */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (127u << 24), NEUTRAL3, PAD), LAYOUT_PAD_OLD) == 0);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (128u << 24), NEUTRAL3, PAD), LAYOUT_PAD_OLD)
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff | (127u << 24), NEUTRAL3, PAD), JVS_CLASS_PAD, JVS_WORD_OLD) == 0);
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff | (128u << 24), NEUTRAL3, PAD), JVS_CLASS_PAD, JVS_WORD_OLD)
                == JVS_A);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff | (255u << 24), NEUTRAL3, PAD), LAYOUT_PAD_OLD)
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff | (255u << 24), NEUTRAL3, PAD), JVS_CLASS_PAD, JVS_WORD_OLD)
                == JVS_A);
         /* analog stick drives the same 8-way as the D-pad; neutral band
            0x40..0xc0 inclusive stays idle */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x8080803fu, PAD), LAYOUT_PAD_OLD) == JVS_LEFT);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x808080c1u, PAD), LAYOUT_PAD_OLD) == JVS_RIGHT);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x80803f80u, PAD), LAYOUT_PAD_OLD) == JVS_UP);
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x8080c180u, PAD), LAYOUT_PAD_OLD) == JVS_DOWN);
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff, 0x8080803fu, PAD), JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_LEFT);
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff, 0x808080c1u, PAD), JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_RIGHT);
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff, 0x80803f80u, PAD), JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_UP);
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff, 0x8080c180u, PAD), JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_DOWN);
         assert(dc_cond_to_pressed(0xffff, 0x80804080u, PAD) == 0);   /* band edge */
         assert(dc_cond_to_pressed(0xffff, 0x8080c080u, PAD) == 0);   /* band edge */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff, 0x80803f3fu, PAD), LAYOUT_PAD_OLD)
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff, 0x80803f3fu, PAD), JVS_CLASS_PAD, JVS_WORD_OLD)
                == (JVS_UP | JVS_LEFT));                              /* diagonal */
         /* D-pad and analog OR together, and coexist with buttons */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~(CONT_DPAD_UP | CONT_A),
-                                            0x808080c1u, PAD), LAYOUT_PAD_OLD)
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff & ~(CONT_DPAD_UP | CONT_A),
+                                            0x808080c1u, PAD), JVS_CLASS_PAD, JVS_WORD_OLD)
                == (JVS_UP | JVS_M | JVS_RIGHT));
         /* ... but an opposed pair reports NEITHER, the same mutual exclusion
            the emulator applies (maple_devs.cpp:67-71/:91-92 on the active-low
            kcode, maple_jvs.cpp:2224-2228 on the JVS word). Reachable here
            because stick and D-pad are OR'd and can disagree. */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_DPAD_RIGHT,
-                                            0x8080803fu, PAD), LAYOUT_PAD_OLD) == 0);   /* dpad R + stick L */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~CONT_DPAD_UP,
-                                            0x8080c180u, PAD), LAYOUT_PAD_OLD) == 0);   /* dpad U + stick D */
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff & ~CONT_DPAD_RIGHT,
+                                            0x8080803fu, PAD), JVS_CLASS_PAD, JVS_WORD_OLD) == 0);   /* dpad R + stick L */
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff & ~CONT_DPAD_UP,
+                                            0x8080c180u, PAD), JVS_CLASS_PAD, JVS_WORD_OLD) == 0);   /* dpad U + stick D */
         /* the exclusion is per axis and takes nothing else with it */
-        assert(dc_to_jvs(dc_cond_to_pressed(0xffff & ~(CONT_DPAD_RIGHT | CONT_A),
-                                            0x80803f3fu, PAD), LAYOUT_PAD_OLD)
+        assert(dc_to_jvs_word(dc_cond_to_pressed(0xffff & ~(CONT_DPAD_RIGHT | CONT_A),
+                                            0x80803f3fu, PAD), JVS_CLASS_PAD, JVS_WORD_OLD)
                == (JVS_UP | JVS_M));                               /* L/R cancel, UP lives */
 
         /* Arcade Stick regression (tester report 2026-09-26): the exact idle
@@ -165,30 +142,30 @@ int main(void) {
         assert(dc_cond_to_pressed(0xffffu | (0xffu << 16) | (0xffu << 24),
                                   0x00000000u, STICK) == 0);
         /* buttons still live on a stick, including the ones only it has */
-        assert(dc_to_jvs(dc_cond_to_pressed((0xffffu & ~CONT_START)
+        assert(dc_to_jvs_word(dc_cond_to_pressed((0xffffu & ~CONT_START)
                                             | (0x80u << 16) | (0x80u << 24),
-                                            NEUTRAL3, STICK), LAYOUT_PAD_OLD) == JVS_START);
-        assert(dc_to_jvs(dc_cond_to_pressed((0xffffu & ~CONT_DPAD_LEFT)
+                                            NEUTRAL3, STICK), JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_START);
+        assert(dc_to_jvs_word(dc_cond_to_pressed((0xffffu & ~CONT_DPAD_LEFT)
                                             | (0x80u << 16) | (0x80u << 24),
-                                            NEUTRAL3, STICK), LAYOUT_PAD_OLD) == JVS_LEFT);
+                                            NEUTRAL3, STICK), JVS_CLASS_PAD, JVS_WORD_OLD) == JVS_LEFT);
     }
 
     /* dc_to_jvs_test (Task 13): P1-only test-mode remap -- Start->Test
        (reported via *test_bit, NOT folded into the word: §TESTBIT-INJECT),
        A->Service (0x4000, folded into the word like any other control);
-       everything else keeps its normal dc_to_jvs() binding. */
+       everything else keeps its normal dc_to_jvs_word() binding. */
     {
         unsigned tb;
-        assert(dc_to_jvs_test(0, LAYOUT_PAD_OLD, &tb) == 0 && tb == 0);                /* idle */
-        assert(dc_to_jvs_test(CONT_START, LAYOUT_PAD_OLD, &tb) == 0 && tb == 1);       /* Start: Test only, no JVS_START */
-        assert(dc_to_jvs_test(CONT_A, LAYOUT_PAD_OLD, &tb) == JVS_SERVICE && tb == 0); /* A: Service only, no JVS_M */
-        assert(dc_to_jvs_test(CONT_START | CONT_A, LAYOUT_PAD_OLD, &tb)
+        assert(dc_to_jvs_test(0, JVS_CLASS_PAD, JVS_WORD_OLD, &tb) == 0 && tb == 0);                /* idle */
+        assert(dc_to_jvs_test(CONT_START, JVS_CLASS_PAD, JVS_WORD_OLD, &tb) == 0 && tb == 1);       /* Start: Test only, no JVS_START */
+        assert(dc_to_jvs_test(CONT_A, JVS_CLASS_PAD, JVS_WORD_OLD, &tb) == JVS_SERVICE && tb == 0); /* A: Service only, no JVS_M */
+        assert(dc_to_jvs_test(CONT_START | CONT_A, JVS_CLASS_PAD, JVS_WORD_OLD, &tb)
                == JVS_SERVICE && tb == 1);                             /* both held: both fire */
-        assert(dc_to_jvs_test(CONT_DPAD_UP, LAYOUT_PAD_OLD, &tb)
+        assert(dc_to_jvs_test(CONT_DPAD_UP, JVS_CLASS_PAD, JVS_WORD_OLD, &tb)
                == JVS_UP && tb == 0);                                  /* rest of the layout live */
-        assert(dc_to_jvs_test(CONT_START | CONT_DPAD_UP, LAYOUT_PAD_OLD, &tb)
+        assert(dc_to_jvs_test(CONT_START | CONT_DPAD_UP, JVS_CLASS_PAD, JVS_WORD_OLD, &tb)
                == JVS_UP && tb == 1);                                  /* Start doesn't leak into the word */
-        assert(dc_to_jvs_test(CONT_X | CONT_B | CONT_Y | CONT_RTRIG, LAYOUT_PAD_OLD, &tb)
+        assert(dc_to_jvs_test(CONT_X | CONT_B | CONT_Y | CONT_RTRIG, JVS_CLASS_PAD, JVS_WORD_OLD, &tb)
                == (JVS_S | JVS_A | JVS_BARRAGE | JVS_OD) && tb == 0);  /* X/B/Y/R unaffected */
     }
 

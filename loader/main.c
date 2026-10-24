@@ -462,14 +462,13 @@ int main(void) {
     *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE)) = (uint32)test_boot;
     /* SHIM_STATE[1] = GD backend from the rehearsal probe (0 raw, 1 syscall). */
     *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4) = backend;
-    /* SHIM_STATE[2] = per-port pad layout (controls spec 2026-09-27): byte0
-     * port A, byte1 port B; 0 Tournament (default), 1 Old. Unconditional:
-     * with the menu off (MENU=0) the defaults {0,0} restate the zero-fill. */
-    *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4 * SHIM_STATE_PAD_LAYOUT) =
-        (uint32)menu_pad_layout[0] | ((uint32)menu_pad_layout[1] << 8);
+    /* SHIM_STATE[2] = SHIM_STATE_LAYOUT_VALID: 0 until the library staging
+     * lands (controls-library plan Task 5): the shim uses the generated
+     * defaults (Tournament on pads, Arcade on sticks). */
+    *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4 * SHIM_STATE_LAYOUT_VALID) = 0u;
     /* SHIM_STATE[3..4] = per-port CUSTOM layout words (2026-10-15): six 4-bit
-     * function ids, nibble i = pad button i (A B X Y L R). The shim reads a
-     * port's word only when its preset byte above says CUSTOM. */
+     * function ids, nibble i = pad button i (A B X Y L R). The shim ignores
+     * them while the flag above is 0; Task 5 replaces this loop. */
     for (int p = 0; p < 2; p++) {
         uint32 w = 0;
         for (int i = 0; i < 6; i++) w |= (uint32)(menu_custom[p][i] & 0xfu) << (4 * i);

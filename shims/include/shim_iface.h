@@ -24,18 +24,20 @@
  * = 0 raw ATA (real-BIOS boots, GDEMU/optical) / 1 BIOS-syscall (DreamShell
  * isoldr). Seeded by the loader after the rehearsal probe (main.c). */
 #define SHIM_STATE_GD_BACKEND 1
-/* Controls layouts (spec 2026-09-27): per-port PAD preset word. byte0 =
- * port A, byte1 = port B; 0 = Tournament (the staged window zero-fill IS
- * the default), 1 = Old. Sticks never read it -- the shim classifies
- * per poll from DEVINFO caps (src/jvs.c jvs_pick_layout). Loader writes it
- * at staging (loader/main.c, Task 4). */
-#define SHIM_STATE_PAD_LAYOUT 2
-/* CUSTOM pad layouts (tester ask 2026-10-15): words [3] = port A, [4] = port
- * B. Six 4-bit function ids (layouts.h JVS_FUNC_*, menu_def.py FUNC_WORDS
- * order) at nibble i = PAD_BUTTONS[i] (A B X Y L R). A port's word is read
- * only when its SHIM_STATE_PAD_LAYOUT byte is PAD_SEL_CUSTOM (2); the
- * zero-fill (menu off / never visited) is therefore never consulted. */
-#define SHIM_STATE_PAD_CUSTOM 3
+/* Controls layouts (specs 2026-09-27, 2026-10-15; controls-library plan):
+ * the shim holds no presets, only RESOLVED words. Word 2 is 1 when the
+ * loader staged words 3-6 -- [3] pad port A, [4] pad port B, [5] stick port
+ * A, [6] stick port B -- each six 4-bit function ids (layouts.h JVS_FUNC_*,
+ * menu_def.py FUNC_WORDS order), nibble i = JVS_CLASS_BUTTON[cls][i]. Any
+ * other value of word 2 (0 = menu off / loader never staged, junk) makes the
+ * shim use JVS_WORD_DEFAULT[cls], so the window's zero-fill is never read as
+ * a layout (an all-zero word would be six MAIN buttons). The shim picks the
+ * class per poll from DEVINFO caps (src/jvs.c jvs_pick_class) and reads that
+ * class's word for the port (src/jvs.c jvs_layout_word). */
+#define SHIM_STATE_LAYOUT_VALID 2
+#define SHIM_STATE_PAD_CUSTOM   3   /* first word; [3]+2*cls+port */
+#define SHIM_STATE_STICK_CUSTOM 5
+#define SHIM_STATE_LAYOUT_WORD(cls, port) (SHIM_STATE_PAD_CUSTOM + 2 * (cls) + (port))
 /* Canary at the bottom of the private syscall stack (gdstack.S swaps r15 to
  * GD_STACK_TOP; isoldr's FatFs+SPI runs on it -- Cleopatra measured >2 KB,
  * we reserve 8 KB and VERIFY instead of hoping; spec decision 5). Seeded by

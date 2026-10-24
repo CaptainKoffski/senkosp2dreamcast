@@ -74,13 +74,16 @@ PAD_LAYOUTS = [
     ("OLD",        {"A": "MAIN", "B": "ACTION", "X": "SUB", "Y": "BARRAGE",
                     "LTRIG": "ACTION", "RTRIG": "OVERDRIVE"}),
 ]
-# Arcade stick: the Naomi cabinet layout, fixed (layout id 2). B deliberately
-# unmapped -- the tester's spec says "B = none". No B row on the stick page
-# (operator, round 5). Because this layout never changes, the stick page's
-# labels are fully baked (gen_menu_assets STICK_PAGE tags, 2026-10-03) --
-# menu.c blits no chips on it, and B simply has no baked row.
-STICK_LAYOUT = {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
-                "B": "NONE", "C": "OVERDRIVE"}
+# Arcade stick: the Naomi cabinet layout, entry 0 = the stock stick word
+# (JVS_WORD_ARCADE). B deliberately unmapped -- the tester's spec says "B =
+# none". No B row on the stick page (operator, round 5). Because this layout
+# never changes, the stick page's labels are fully baked (gen_menu_assets
+# STICK_PAGE tags, 2026-10-03) -- menu.c blits no chips on it, and B simply
+# has no baked row.
+STICK_LAYOUTS = [
+    ("ARCADE", {"X": "MAIN", "Y": "SUB", "Z": "BARRAGE", "A": "ACTION",
+                "B": "NONE", "C": "OVERDRIVE"}),
+]
 
 # ---- Controls page (controls spec 2026-09-27) ---------------------------
 CTL_ROW_ITEMS = ["P1 PAD LAYOUT", "P2 PAD LAYOUT", "STICK LAYOUT"]

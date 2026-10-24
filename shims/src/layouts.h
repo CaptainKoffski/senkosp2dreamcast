@@ -5,11 +5,10 @@
 #ifndef LAYOUTS_H
 #define LAYOUTS_H
 
-#define LAYOUT_PAD_TOURNAMENT 0
-#define LAYOUT_PAD_OLD        1
-#define LAYOUT_STICK          2
-#define LAYOUT_PAD_CUSTOM     3   /* per-port word: shim_iface.h SHIM_STATE_PAD_CUSTOM */
-#define PAD_SEL_CUSTOM        2   /* preset byte value meaning CUSTOM */
+/* Device classes: the shim keeps ONE resolved word per port per class
+ * (shim_iface.h SHIM_STATE_LAYOUT_WORD), not preset tables. */
+#define JVS_CLASS_PAD   0
+#define JVS_CLASS_STICK 1
 #define JVS_LAYOUT_N 6
 #define JVS_FUNC_N   7   /* 4-bit function ids, menu_def.py FUNC_WORDS order */
 #define JVS_FUNC_MAIN      0
@@ -20,25 +19,19 @@
 #define JVS_FUNC_BOSS      5
 #define JVS_FUNC_NONE      6
 
-typedef struct { unsigned dc, jvs; } jvs_map_t;
-
-/* Custom layouts: function id -> JVS mask; an id >= JVS_FUNC_N maps to nothing. */
+/* Function id -> JVS mask; an id >= JVS_FUNC_N maps to nothing. */
 static const unsigned JVS_FUNC_MASK[7] = { JVS_M, JVS_S, JVS_BARRAGE, JVS_A, JVS_OD, (JVS_M | JVS_S | JVS_A), 0 };
-/* Custom-word nibble i -> DC button (menu_def.py PAD_BUTTONS order). */
-static const unsigned JVS_PAD_BUTTON[6] = { CONT_A, CONT_B, CONT_X, CONT_Y, CONT_LTRIG, CONT_RTRIG };
-
-static const jvs_map_t JVS_LAYOUT_PAD[2][6] = {
-  { {CONT_A, JVS_M}, {CONT_B, JVS_S}, {CONT_X, JVS_BARRAGE}, {CONT_Y, JVS_A}, {CONT_LTRIG, JVS_OD}, {CONT_RTRIG, JVS_A} },   /* TOURNAMENT */
-  { {CONT_A, JVS_M}, {CONT_B, JVS_A}, {CONT_X, JVS_S}, {CONT_Y, JVS_BARRAGE}, {CONT_LTRIG, JVS_A}, {CONT_RTRIG, JVS_OD} },   /* OLD */
+/* Word nibble i -> DC button, per class (menu_def.py PAD_BUTTONS / STICK_BUTTONS order). */
+static const unsigned JVS_CLASS_BUTTON[2][6] = {
+  { CONT_A, CONT_B, CONT_X, CONT_Y, CONT_LTRIG, CONT_RTRIG },   /* JVS_CLASS_PAD */
+  { CONT_A, CONT_B, CONT_X, CONT_Y, CONT_Z, CONT_C },   /* JVS_CLASS_STICK */
 };
 
-static const jvs_map_t JVS_LAYOUT_STICK[6] = {
-  {CONT_A, JVS_A},
-  {CONT_B, 0},
-  {CONT_X, JVS_M},
-  {CONT_Y, JVS_S},
-  {CONT_Z, JVS_BARRAGE},
-  {CONT_C, JVS_OD},
-};
+/* Stock layouts packed as words (nibble i = JVS_CLASS_BUTTON[cls][i]). */
+#define JVS_WORD_TOURNAMENT 0x343210u
+#define JVS_WORD_OLD        0x432130u
+#define JVS_WORD_ARCADE     0x421063u
+/* Used when the loader staged nothing (shim_iface.h SHIM_STATE_LAYOUT_VALID). */
+static const unsigned JVS_WORD_DEFAULT[2] = { JVS_WORD_TOURNAMENT, JVS_WORD_ARCADE };
 
 #endif /* LAYOUTS_H */

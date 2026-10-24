@@ -5,7 +5,7 @@
  * controller.h, KOS tools/kos -- primary source, not copied from any
  * Cleopatra file: Cleopatra's own dc_to_jvs used raw (1u<<N) shifts inline,
  * no named CONT_* constants). cont_state_t.buttons is ACTIVE-LOW (0=pressed);
- * dc_to_jvs below takes the already-inverted PRESSED mask.
+ * dc_to_jvs_word below takes the already-inverted PRESSED mask.
  * CONT_RTRIG has no bit here -- ltrig/rtrig are separate 0-255 analog bytes
  * in cont_state_t, not part of .buttons -- so bit 16 (just past the real
  * 0-15 button field) is a shim-synthesized "digital rtrig" flag, set by
@@ -40,15 +40,16 @@
 #define JVS_TEST   (1u << 18)
 #define JVS_COIN   (1u << 19)
 
-/* GENERATED layout tables (Task-1 header; single source scripts/menu_def.py):
- * LAYOUT_* ids, jvs_map_t, JVS_LAYOUT_PAD[2][], JVS_LAYOUT_STICK[]. Included
+/* GENERATED layout constants (single source scripts/menu_def.py): device
+ * classes JVS_CLASS_*, function ids JVS_FUNC_* / JVS_FUNC_MASK[],
+ * JVS_CLASS_BUTTON[][], the stock JVS_WORD_* and JVS_WORD_DEFAULT[]. Included
  * here, after the CONT_/JVS_ defines the tables reference. */
 #include "layouts.h"
 
-/* Start + the 8-way are identical in every layout; the per-layout table maps
- * the face/trigger buttons (controls spec 2026-09-27: TOURNAMENT default /
- * OLD per-port pad presets, STICK fixed arcade layout). Callers pick the
- * layout with jvs_pick_layout() below. */
+/* Start + the 8-way are identical in every layout; the port's resolved
+ * layout word maps the face/trigger buttons (controls-library plan: the shim
+ * holds one word per port per device class, never preset tables). Callers get
+ * the class from jvs_pick_class() and the word from jvs_layout_word() below. */
 static unsigned jvs_common(unsigned dc_buttons) {   /* Start + 8-way: every layout */
     unsigned w = 0;
     if (dc_buttons & CONT_START)         w |= JVS_START;
@@ -59,41 +60,24 @@ static unsigned jvs_common(unsigned dc_buttons) {   /* Start + 8-way: every layo
     return w;
 }
 
-unsigned dc_to_jvs(unsigned dc_buttons, unsigned layout) {
-    const jvs_map_t *m = (layout == LAYOUT_STICK) ? JVS_LAYOUT_STICK
-        : JVS_LAYOUT_PAD[layout == LAYOUT_PAD_OLD ? 1 : 0];
-    unsigned w = jvs_common(dc_buttons);
-    for (unsigned i = 0; i < JVS_LAYOUT_N; i++)
-        if (dc_buttons & m[i].dc) w |= m[i].jvs;
-    return w;
-}
-
-/* CUSTOM pad layout (tester ask 2026-10-15): `word` is the port's loader-
- * staged SHIM_STATE_PAD_CUSTOM word -- six 4-bit function ids (layouts.h
- * JVS_FUNC_*, menu_def.py FUNC_WORDS order) at nibble i = JVS_PAD_BUTTON[i].
- * B.O.S.S. is a three-bit mask, so one DC button raises Main+Sub+Action in
- * the same poll: the cabinet chord, with no human timing in it. Pure:
- * host-tested. */
-unsigned dc_to_jvs_custom(unsigned dc_buttons, unsigned word) {
+/* A port's pressed mask through its resolved layout word: six 4-bit function
+ * ids (layouts.h JVS_FUNC_*, menu_def.py FUNC_WORDS order), nibble i = the
+ * DC button JVS_CLASS_BUTTON[cls][i]. B.O.S.S. is a three-bit mask, so one DC
+ * button raises Main+Sub+Action in the same poll: the cabinet chord, with no
+ * human timing in it. An id >= JVS_FUNC_N (junk nibble) maps to nothing.
+ * Pure: host-tested. */
+unsigned dc_to_jvs_word(unsigned dc_buttons, unsigned cls, unsigned word) {
     unsigned w = jvs_common(dc_buttons);
     for (unsigned i = 0; i < JVS_LAYOUT_N; i++) {
         unsigned id = (word >> (4 * i)) & 0xfu;
-        if (id < JVS_FUNC_N && (dc_buttons & JVS_PAD_BUTTON[i])) w |= JVS_FUNC_MASK[id];
+        if (id < JVS_FUNC_N && (dc_buttons & JVS_CLASS_BUTTON[cls][i])) w |= JVS_FUNC_MASK[id];
     }
     return w;
 }
 
-/* Per-poll entry (shims/src/main.c): a port's pressed mask, its picked
- * layout, and its custom word -- consulted only when the layout IS custom,
- * so the layout ids stay private to this file. Pure: host-tested. */
-unsigned dc_to_jvs_port(unsigned dc_buttons, unsigned layout, unsigned custom_word) {
-    return (layout == LAYOUT_PAD_CUSTOM) ? dc_to_jvs_custom(dc_buttons, custom_word)
-                                         : dc_to_jvs(dc_buttons, layout);
-}
-
 /* The retail DC reset combo, A+B+X+Y+Start all held (KOS dc/maple/
  * controller.h:127 CONT_RESET_BUTTONS, "used as a reset mechanism by most
- * retail games"). Takes the PRESSED mask, like dc_to_jvs. Pure: host-tested;
+ * retail games"). Takes the PRESSED mask, like dc_to_jvs_word. Pure: host-tested;
  * src/main.c mie_poll acts on it. */
 #define CONT_RESET_BUTTONS (CONT_A | CONT_B | CONT_X | CONT_Y | CONT_START)
 int dc_reset_combo(unsigned dc_buttons) {
@@ -105,7 +89,7 @@ int dc_reset_combo(unsigned dc_buttons) {
  * pad 1's Start and A -- Start advances (Test), A selects (Service), the
  * arcade convention (docs/kb/phase4-conversion.md §TESTBIT-INJECT). Only P1
  * (port 0, the same pad the boot combo itself reads) is remapped; P2 keeps
- * calling plain dc_to_jvs() untouched in src/main.c, and every OTHER P1
+ * calling plain dc_to_jvs_word() untouched in src/main.c, and every OTHER P1
  * control (D-pad, X, B, Y, R) keeps its normal game binding here too --
  * "leave the rest of the layout live" per the task brief.
  *
@@ -121,13 +105,13 @@ int dc_reset_combo(unsigned dc_buttons) {
  * the button word -- the same byte Start's 0x8000 lives in (input-map.md's
  * measured bit, §TESTBIT-INJECT: "Service *is* a bit") -- so it is folded
  * into the returned word like any other control. */
-unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned layout, unsigned *test_bit) {
+unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned cls, unsigned word, unsigned *test_bit) {
     *test_bit = (dc_buttons & CONT_START) ? 1u : 0u;
-    return dc_to_jvs(dc_buttons & ~(CONT_START | CONT_A), layout)
+    return dc_to_jvs_word(dc_buttons & ~(CONT_START | CONT_A), cls, word)
          | ((dc_buttons & CONT_A) ? JVS_SERVICE : 0u);
 }
 
-/* Raw DC GetCondition reply words -> the PRESSED mask dc_to_jvs() takes above.
+/* Raw DC GetCondition reply words -> the PRESSED mask dc_to_jvs_word() takes above.
  * This is the whole hardware-shaped half of the input path; keeping it here
  * (pure, no MMIO) is what lets test/test_host.c cover it.
  *
@@ -188,21 +172,26 @@ unsigned dc_to_jvs_test(unsigned dc_buttons, unsigned layout, unsigned *test_bit
 #define CONT_CAP_ANALOG_X (1u << 10)
 #define CONT_CAP_ANALOG_Y (1u << 11)
 
-/* Which layout drives a port right now. A device declaring NO analog axes
+/* Which device class a port is right now. A device declaring NO analog axes
  * (triggers or stick) is an arcade stick -- flycast's Ascii Stick declares
  * 0xff070000 (maple_devs.cpp:292) vs standard pad 0xfe060f00 (:85); bit
- * meanings KOS dc/maple/controller.h:258-263 -- and always gets the fixed
- * arcade layout. Anything else is a pad and takes its port's preset byte
- * (SHIM_STATE_PAD_LAYOUT word, shim_iface.h): 1 = Old, 2 = Custom (the
- * caller then maps through dc_to_jvs_custom with that port's custom word),
- * anything else (0 = default, junk) = Tournament. Pure: host-tested. */
-unsigned jvs_pick_layout(unsigned caps, unsigned pad_sel) {
+ * meanings KOS dc/maple/controller.h:258-263 -- anything else is a pad. The
+ * class picks both the button list (JVS_CLASS_BUTTON) and which of the
+ * port's staged words applies (shim_iface.h SHIM_STATE_LAYOUT_WORD). Pure:
+ * host-tested. */
+unsigned jvs_pick_class(unsigned caps) {
     if (!(caps & (CONT_CAP_RTRIG | CONT_CAP_LTRIG |
                   CONT_CAP_ANALOG_X | CONT_CAP_ANALOG_Y)))
-        return LAYOUT_STICK;
-    if (pad_sel == LAYOUT_PAD_OLD) return LAYOUT_PAD_OLD;
-    if (pad_sel == PAD_SEL_CUSTOM) return LAYOUT_PAD_CUSTOM;
-    return LAYOUT_PAD_TOURNAMENT;
+        return JVS_CLASS_STICK;
+    return JVS_CLASS_PAD;
+}
+
+/* The word a port maps through: the loader's staged one only when it flagged
+ * SHIM_STATE_LAYOUT_VALID == 1 (shim_iface.h), else the generated stock
+ * default for the class -- a zero-filled window is never read as a layout.
+ * Pure: host-tested. */
+unsigned jvs_layout_word(unsigned valid, unsigned staged, unsigned cls) {
+    return valid == 1u ? staged : JVS_WORD_DEFAULT[cls];
 }
 
 #define DC_TRIG_ON  128     /* R trigger digital threshold, 0-255 */
