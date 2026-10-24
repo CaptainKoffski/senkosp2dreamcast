@@ -152,11 +152,15 @@ static const mrect_t *ctl_value_rect(int row) {
     return s < 0 ? &CTL_STOCK_VALUE[cls][ctl_lib.sel[cls][port]] : &CTL_CUSTOM_VALUE[s];
 }
 
+static void ctl_chip(int cls, int b, unsigned char id, int hi) {
+    blit((hi ? CTL_WORD_HI : CTL_WORD)[id], CTL_ANCHOR[cls][b][0], CTL_ANCHOR[cls][b][1]);
+}
+
 static void ctl_draw_labels(int row) {
     const int cls = ctl_cls(row);
     const unsigned char *f = ctl_funcs(&ctl_lib, cls, ctl_port(row));
     for (int i = 0; i < CTL_N_BUTTONS; i++)
-        blit(CTL_WORD[f[i]], CTL_ANCHOR[cls][i][0], CTL_ANCHOR[cls][i][1]);
+        ctl_chip(cls, i, f[i], 0);
 }
 
 static void ctl_draw_rows(int cur) {
@@ -185,11 +189,12 @@ static void ctl_draw_all(int cur) {
 
 /* Edit-mode cursor: a 2-px frame just OUTSIDE chip `b`'s cell, so re-blitting
  * the chip never clips it. On = MENU_HI_COLOR; off restores the page's own
- * pixels from ctl_page_bin(cls) -- a leader line ends at the chip's edge,
- * right under the frame, and a flat BG fill would nick it. The stick's right
- * column has 1-px gaps (C/B, B/A), so a frame covers a neighbour's padding
- * row: frames go on after the chips, and the old frame goes off (page = BG
- * there) before the new one goes on. The blob is read byte-wise (LE RGB565,
+ * pixels from ctl_page_bin(cls) (the page-pixel rule: whatever the page has
+ * under the ring comes back; on both shipped pages that is plain BG under
+ * every ring, checked 2026-10-25). The stick's right column has 1-px gaps
+ * (C/B, B/A), so a frame covers a neighbour's padding row: frames go on
+ * after the chips, and the old frame goes off (page = BG there) before the
+ * new one goes on. The blob is read byte-wise (LE RGB565,
  * as bmp2rgb565.py wrote it): an objcopy'd blob has no alignment guarantee
  * and SH4 faults on a misaligned uint16 load (the draw_logo lesson). */
 static void ctl_cursor(int cls, int b, int on) {
@@ -203,10 +208,6 @@ static void ctl_cursor(int cls, int b, int on) {
             const int i = y * 640 + x;
             vram_s[i] = on ? MENU_HI_COLOR : (uint16)(bin[2 * i] | (bin[2 * i + 1] << 8));
         }
-}
-
-static void ctl_chip(int cls, int b, unsigned char id, int hi) {
-    blit((hi ? CTL_WORD_HI : CTL_WORD)[id], CTL_ANCHOR[cls][b][0], CTL_ANCHOR[cls][b][1]);
 }
 
 /* Chip editor (spec §3), on the layout row `row` shows. The d-pad moves the

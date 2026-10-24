@@ -246,7 +246,7 @@ static void put1(u32 rcv, u32 w) { *(volatile u32 *)P2ADDR(rcv) = w; }
  *
  * TEST mode (Task 13, criterion 4): SHIM_STATE[0] is seeded by the loader's
  * boot combo (loader/main.c, Task 10). Only P1's word/branch changes -- P2
- * always takes the plain dc_to_jvs() path below, live in both modes -- and
+ * always takes the plain dc_to_jvs_word() path below, live in both modes -- and
  * the else-branch for P1 is untouched from Task 12, so a NORMAL boot (the
  * idle-frame equivalence assert's own regime) executes the exact same
  * instructions it always did. */

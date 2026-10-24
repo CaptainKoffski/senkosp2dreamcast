@@ -76,7 +76,7 @@ static void probe_devinfo(unsigned int port) {
 /* Returns the PRESSED mask (src/jvs.c dc_cond_to_pressed: buttons inverted,
  * analog stick folded into the D-pad bits, rtrig as CONT_RTRIG) for the given
  * DC Maple port (A=0, B=1), or 0 (= nothing pressed) if there is no controller
- * on that port / the reply failed -- so dc_to_jvs() reads idle and P2 stays
+ * on that port / the reply failed -- so dc_to_jvs_word() reads idle and P2 stays
  * idle when only one pad is plugged in. (Task 12: Cleopatra returned the raw
  * ACTIVE-LOW word and inverted inside its own dc_to_jvs; this port's dc_to_jvs
  * was written in Task 6 to take an already-normalized pressed mask, and it has

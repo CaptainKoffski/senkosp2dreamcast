@@ -467,8 +467,9 @@ int main(void) {
      * staged. SHIM_STATE_LAYOUT_WORD(cls, port) = that (class, port)'s
      * resolved layout from the controls library (ctl_pack: six 4-bit function
      * ids, nibble i = the class's button i); the shim picks the class per poll
-     * from DEVINFO caps (shim_iface.h). Unconditional: with the menu compiled
-     * out ctl_lib is its .bss defaults, so this stages Tournament / Arcade. */
+     * from DEVINFO caps (jvs_pick_class, shims/src/jvs.c). Unconditional: with
+     * the menu compiled out ctl_lib is its .bss defaults, so this stages
+     * Tournament / Arcade. */
     *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4 * SHIM_STATE_LAYOUT_VALID) = 1u;
     for (int c = 0; c < CTL_N_CLASS; c++)
         for (int p = 0; p < CTL_PORTS; p++)
