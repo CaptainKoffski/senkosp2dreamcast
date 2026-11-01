@@ -2240,10 +2240,9 @@ released.
     `loader/menu_sheet.png`, which is the preview and the source for the
     previews' crops.
   - **Self-check:** `scripts/test_gen_menu_sheet.py` (in `make test`) checks
-    that the blob's palette lookup equals `rgb565()` of the PNG. It samples
-    every 7th row and every 5th column, not every pixel (the comment says
-    "whole-sheet exactness"; the Task 2 review noted it as a strided
-    compare).
+    that the blob's palette lookup equals `rgb565()` of the PNG for every
+    one of the 640×1280 pixels (exhaustive since `5611201`; it was a
+    strided sample before the final review), ~0.5 s.
   - **Build:** `loader/Makefile` `menu_sheet_blob.o: menu_sheet.pal8`
     objcopies the blob straight in (`sh-elf-objcopy -I binary -O elf32-shl
     -B sh4`, symbols renamed to `_menu_sheet_bin`/`_menu_sheet_bin_end`),

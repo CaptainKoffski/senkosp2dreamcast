@@ -3542,10 +3542,12 @@ commits):
   layout and selection returns to defaults after a reset. This is by design
   (session-only, spec §8), not a defect to file; VMU persistence is the
   follow-up task.
-- **Operator legs: pending.** (1) The emulator walkthrough. (2) The
-  hardware round on a real DC with GDEmu, pad in one port and stick in the
-  other. Checklist: spec §Verification "Operator legs". The fork cannot
-  inject pad input, so no agent-run leg has exercised the controls page.
+- **Operator legs: hardware round PASS (operator, 2026-11-01).** Real DC +
+  GDEmu serving the GDI master, verdict "work fine" (checklist: spec
+  §Verification "Operator legs" (2)). Single-rig evidence; the CDI master
+  was not run on hardware this round. Merged to `main` as `0.21.0`. The
+  fork cannot inject pad input, so no agent-run leg exercised the controls
+  page; the operator's round is the claim gate, as for every input feature.
 
 **Plan-mandated interim behaviours that no longer apply** (they were true
 only between tasks; none is in `3a76736`):

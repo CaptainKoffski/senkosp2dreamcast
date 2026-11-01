@@ -330,11 +330,16 @@ accepts the simultaneous three-bit press (tester's claim — confirmed on hardwa
 
 ### Controls library (2026-10-24, branch `feat/controls-library`)
 
-**Status: operator legs pending, not released.** Host tests and one emulator
-boot smoke only. The controls page itself has not run with input on any
-target: the Flycast fork cannot inject pad input on macOS (Lua is off on
-Apple builds, `tooling.md` §RAWFB), so walking the page is the operator's
-leg (below).
+**HARDWARE VERIFICATION: PASS (operator, 2026-11-01).** The operator ran
+the hardware round on a real Dreamcast + GDEmu serving the GDI master and
+reported "work fine" (spec §Verification "Operator legs" (2): per-port
+custom layouts in play, B.O.S.S., stick custom, hot-swap). Single-rig
+evidence per the project's standing caveat; the CDI master was not run on
+hardware this round (it builds and passes its region assert). Merged to
+`main` and released as tag `0.21.0` (2026-11-01). Before that round: host
+tests and one emulator boot smoke only — the Flycast fork cannot inject pad
+input on macOS (Lua is off on Apple builds, `tooling.md` §RAWFB), so walking
+the page was the operator's leg.
 
 **Origin.** Operator review (2026-10-24) of the `0.20.0` CUSTOM (§Custom pad
 layout above) against the tester's round-2 message (`CONTROLS_TASK.MD`
@@ -506,9 +511,9 @@ was dropped, which is the spec §7 rule's first step. The plan's ROWS_CUSTOM
 never carried `UP/DOWN: ROW`, so neither rows strip advertises UP/DOWN now.
 The other five strips are as the plan wrote them.
 
-**Verification:** host tests (`make test`) and an emulator boot smoke (leg
-below). **Operator legs pending** (emulator walkthrough + hardware; spec
-§Verification).
+**Verification:** host tests (`make test`), an emulator boot smoke (leg
+below), and the operator's hardware round — **PASS 2026-11-01** (real DC +
+GDEmu, GDI master; see the status line at the top of this section).
 - **Host tests:**
   - `shims/test/test_host.c`: all three stock words against the old literals
     for every button; the classifier from the measured caps words; stick
