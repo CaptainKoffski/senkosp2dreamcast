@@ -1,12 +1,32 @@
 # Project status
 
+**VMU persistence — emulator-proven; hardware round pending (branch
+`feat/vmu-persistence`, 2026-11-01, not merged).** The pre-game menu saves
+the settings record and the whole controls library to a memory card as one
+2-block file, `SENKOSP_SYS`, so a layout survives power-off and the in-game
+warm boot. There is no save button: it saves when Controls or Settings is
+left with changes and at START GAME. The loader writes silently only to the
+card this session loaded from or got an A on; any other card is asked first
+(REPLACE if it already holds a save), B declines for the session, and one
+status line on the top page says what happened. A missing, full or foreign
+card never stops the game starting. Proven on the emulator and host:
+two-boot save then load with the file decoded and its icon viewed, a no-card
+boot, `make test`, and `make test-vmu` PASS on the shipped menu build; loader
+3,209,876 B (limit 3,538,944). Not proven: any key press (the fork cannot
+inject pad input) and the BIOS file manager, so the eight operator legs on
+the real Dreamcast are the claim gate. VMU-safety (criterion 6) is unchanged
+for the game, which still never touches a VMU; the loader is now the one
+writer, in the menu, after consent, verified by the canary on the menu build.
+Record, status-line table and checklist: `phase7-polishing.md` §T21. Spec:
+`docs/superpowers/specs/2026-11-01-vmu-persistence-design.md`.
+
 **Controls library — hardware-verified by the operator 2026-11-01 (real DC
 + GDEmu, GDI master: "work fine"), merged to `main` and released as
 `0.21.0`.** Built on branch `feat/controls-library` (2026-10-24/25); the
-CDI master was not run on hardware this round. Next task: VMU persistence
-(now load-bearing — the in-game warm boot resets the library; spec
-amendment 2026-10-25). This replaces the `0.20.0` per-port
-CUSTOM with one shared custom-layout library per device class (pad, stick).
+CDI master was not run on hardware this round. VMU persistence followed
+(load-bearing: the in-game warm boot resets the library; spec amendment
+2026-10-25), see above. This replaces the `0.20.0` per-port CUSTOM with one
+shared custom-layout library per device class (pad, stick).
 The page has four rows (P1/P2 PAD, P1/P2 STICK). LEFT/RIGHT cycles through
 the stock layouts, then CUSTOM 1–8. A on any row edits what the row shows:
 the first kept change forks a stock layout into the lowest free slot, and an

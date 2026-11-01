@@ -1473,7 +1473,7 @@ stale); one non-gating `TEXERR code=6` (watch item). Verdict:
   dcload console protocol). Same disc in the drive serves both release
   and debug uploads — the disc's own boot region is bypassed.
 
-## VMU canary harness (Task 29, 2026-09-03)
+## VMU canary harness (Task 29, 2026-09-03; hardened 2026-11-01, see §VMU persistence tooling)
 
 Cleopatra's VMU-safety harness ported near-verbatim
 (`../cleopatra/scripts/test_vmu_untouched.sh`; design spec
@@ -2374,15 +2374,15 @@ connector fatigue is a non-issue.
   loader no longer matches that byte size — only the menu-strip property
   holds.
   The menu waits indefinitely with no idle auto-start (design decision), so
-  **every unattended emulator leg that must reach attract on its own now
-  needs a `make gdi MENU=0` build first** — this includes `make test-vmu` /
-  `test-vmu-play` (`scripts/test_vmu_untouched.sh`, which just launches
-  whatever `build/disc.gdi` currently is): a menu build left in place wedges
-  those scripts at the menu forever. `MENUDIAG=1` (pair with `SERIAL=1` to
-  hear it, `MENU=0` to run unattended) → `-DLOADER_MENUDIAG=1`, force-feeds
-  the Task-18 easy record through the poke path for an unattended
-  end-to-end check (`MENUEE` line + a visibly easier campaign); never
-  shipped.
+  **every unattended emulator leg that must reach attract on its own needs
+  a `make gdi MENU=0` build first** — a menu build left in place wedges it
+  at the menu forever; the exception since 2026-11-01 is `make test-vmu`,
+  which runs on the shipped `MENU=1` image (§VMU persistence tooling).
+  `MENUDIAG=1` (pair with `SERIAL=1` to hear it, `MENU=0` to run
+  unattended) → `-DLOADER_MENUDIAG=1`, force-feeds the Task-18 easy record
+  through the poke path for an unattended end-to-end check (`MENUEE` line +
+  a visibly easier campaign); never shipped. `VMUDIAG=1` (with `SERIAL=1`)
+  → `-DLOADER_VMUDIAG=1`: VMU leg hook, never shipped (same section).
 - **The poke (Task 6, `loader/main.c`):** `EEPROM_IMG_ADDR` is the linked
   address of `mie_sub03` (the generated MIE sub-`0x03` reply blob,
   `shims/build/mie_blobs.c` — the live session-EEPROM path, `mie_86()`
@@ -3355,3 +3355,139 @@ self-check is `python3 test_gdemu_deploy.py`, which needs cdrtools
 - On the real card `isoinfo -x /LIST.INI` prints "Short read" and nothing
   else: GDMenu's `track01.iso` is shorter than the volume size its header
   claims. Read the list by walking the root directory record instead.
+
+## VMU persistence tooling (2026-11-01, branch `feat/vmu-persistence`)
+
+No tool installs: system `python3` (stdlib only) and the existing Flycast fork
+build and `tools/kos`. Everything here is test-only and never shipped. The
+feature record, status-line table and operator checklist are in
+`phase7-polishing.md` §T21; evidence is under `captures/vmu-save/`
+(gitignored: logs, `vmu_save_A1.bin`, `decode.txt`, `icon.png`,
+`menu_fb.png`, run transcripts, `prev/` for discarded attempts).
+
+### `VMUDIAG=1` build knob
+
+Top `Makefile`, right after the `MENUDIAG` block: `VMUDIAG=1` →
+`-DLOADER_VMUDIAG=1`. Pair with `SERIAL=1` to hear it; the menu stays
+compiled in (unlike `MENUDIAG`, which wants `MENU=0`) because the VMU code
+hangs off `menu_run`. `menu_run` does the boot load, logs `VMUSAVE load=<0|-1>
+home=<xx|-0> cards=<n>`, then:
+- file loaded: logs `VMUSAVE payload=<280 hex>`, the loaded state
+  re-serialized (not the card's bytes: reserved bytes 5..7 are not checked);
+- nothing loaded: forces setting 0 (GAME DIFFICULTY) to HARD `0x02` and pad
+  CUSTOM 1 = `CUSTOM_DEMO` selected on P1 PAD, writes to the first readable
+  card (the one write path that bypasses the consent decision) and logs
+  `VMUSAVE write=<rc> slot=<xx>`.
+
+It then shows the splash and returns without waiting for input, so the leg
+goes on to attract (`boot: MAIN image` in the log). Recipe: `make objclean &&
+make gdi VMUDIAG=1 SERIAL=1` (1,876,040 B), and `make objclean && make gdi`
+afterwards (3,209,876 B) — `build/disc.gdi` is whatever was built last, and
+the `show` leg and the canary need the plain image. Knob flips leave stale
+objects, so always `objclean` first, as for every other knob.
+
+### `scripts/test_vmu_save.sh diag [vmudir] | show <vmudir>`
+
+Emulator legs in a redirected VMU directory (the canary's `-config`
+technique), logs and PNGs into `captures/vmu-save/`. Seconds per boot:
+`VMU_LEG_SECS` (default 60). Refuses to start (exit 2) if any `Flycast`
+process is running (`pgrep -x`).
+- `diag` (needs the `VMUDIAG=1 SERIAL=1` disc; about 185 s): boot 1 blank
+  A1 → `load=-1 home=-0 cards=1`, `write=0 slot=A1`, `boot: MAIN image`;
+  `vmu_decode.py` on the card is checked field by field against
+  `scripts/menu_def.py`. Boot 2 same directory → `load=0 home=A1`, the
+  `payload=` line equals the decoder's payload hex (whole-line match), A1
+  byte-identical. Boot 3 no card (fresh directory, A1 = `MDT_None`) →
+  `load=-1 home=-0 cards=0` and `boot: MAIN image` (the game still starts).
+- `show` (needs the plain disc; 40 s): boots the `diag` directory, sends
+  `kill -USR2` once the fork's handler is installed to dump the scan-out
+  framebuffer (`FLYCAST_SHOT_RAWFB`, §RAWFB) to `captures/vmu-save/menu_fb.png`,
+  and checks A1 is byte-identical. The PNG still has to be looked at.
+- Launch idiom: Flycast is a direct child (`$!`), quit by SIGTERM (stdout is
+  block-buffered when redirected, so the graceful quit is what flushes the
+  `VMUSAVE` lines), SIGKILL only as a warned fallback. An SH4 vmem `Verify
+  Failed` start-up flake is set aside as `<name>.flakeN.stdout.log` and
+  relaunched (max 3); any other early exit is a FAIL.
+- Pins: pad on A, VMU on A1 only, A2 and B..D `MDT_None`, so the card count
+  is the leg's, not `emu.cfg`'s (which has a pad and two VMUs on B).
+  `-config input:device1.1=10` is `MDT_None` (fork
+  `core/hw/maple/maple_cfg.h:18`); `0` would be `MDT_SegaController`
+  (`:8`), `1` is `MDT_SegaVMU` (`:9`).
+- **Serial key, a known wart.** The script passes `-config
+  Debug:SerialConsoleEnabled=yes`, the spelling §Phase 7: build knobs ("Flag
+  spelling matters", above) records as wrong: the option's section is
+  `config` (`core/cfg/option.cpp:132`, `option.h:107`), so the CLI form is
+  `config:Debug.SerialConsoleEnabled=yes`. The `VMUSAVE` lines reached stdout
+  anyway because the persisted pref in `~/Library/Application
+  Support/Flycast/emu.cfg` (line 17) already reads `Debug.SerialConsoleEnabled
+  = yes` — the same trap as before. Serial lines need a `SERIAL=1` build and
+  that key; on a host without the persisted pref the script's `require`
+  greps would FAIL for lack of lines (untested: the pref was never turned
+  off).
+
+### `FLYCAST_HEADLESS=1` (fork commit `a54f70116`, 2026-10-23)
+
+Environment knob of the Flycast fork. With it set, the SDL window is created
+hidden (`SDL_WINDOW_HIDDEN`, `core/sdl/sdl.cpp:841-843`), the app is a
+background app that never activates (`SDL_HINT_MAC_BACKGROUND_APP` and
+`NSApplicationActivationPolicyProhibited`, `:965-975`: no focus steal, no Dock
+icon), and the audio backend is forced to null (`core/audio/audiostream.cpp:70-74`).
+GL still renders offscreen, so `FLYCAST_SHOT_RAWFB` plus `kill -USR2` still
+works: `menu_fb.png` was written under it and is identical to the headed dump.
+The built app carries the string (`grep -c FLYCAST_HEADLESS` on the binary
+= 1). Nobody watched the screen; that no window appeared rests on the source
+lines above and on full-length runs that exited rc 0 and still produced the
+dump. Convention (user instruction 2026-11-01): unattended legs run headless
+(`test_vmu_save.sh` exports it once at the top; `test_vmu_untouched.sh` sets
+it in `attract` mode only); headed `play` modes stay headed.
+
+### `scripts/vmu_decode.py <image> [--icon out.png]`
+
+Decodes `SENKOSP_SYS` out of a Flycast VMU image (256 × 512 B blocks; root at
+block 255, directory and file followed through the FAT; layouts cited in the
+script header against KOS `vmufs.h`/`vmu_pkg.h` and the fork's block write
+at `Block*512`, `core/hw/maple/maple_devs.cpp:681-715`; the script headers
+cite the earlier 679-707).
+Prints `key value` lines: header fields, `crc_ok 0|1`, `payload <hex>`, the
+settings and layouts by name (from `menu_def.py`). Exit codes: **0** the file
+is there and valid; **1** no `SENKOSP_SYS`, unreadable root or image;
+**3** the file is there but its CRC is bad or the payload does not decode.
+The CRC is KOS's `net_crc16ccitt` (poly 0x1021, init 0) over the 780 B
+`total_size` with the crc field zeroed, not over the 1024 B block-padded file
+(`tools/kos/kernel/arch/dreamcast/util/vmu_pkg.c:154,166`). `--icon` writes the
+32×32 4 bpp ARGB4444 icon as a PNG enlarged 8× (stdlib only) to be looked at.
+`scripts/test_vmu_decode.py` (in `make test`) covers the CRC vector, payload
+names, a synthetic card with out-of-order FAT chains and a flipped byte, and
+the exit codes. The canary reads exit 1 as "absent" and anything else as "a
+save is there".
+
+### Canary changes (`scripts/test_vmu_untouched.sh`, `make test-vmu`)
+
+Hardened on this branch (the loader now writes a file, so the canary watches
+it); the original harness is §VMU canary harness above.
+- Runs on the shipped `MENU=1` image — the earlier "needs a `MENU=0` build"
+  no longer applies to `make test-vmu` (§T9 release candidate). The menu sits
+  idle for the 150 s window: the three `0xA5` cards are not readable (the
+  loader skips them), B1 is readable and empty (Flycast auto-formats a
+  missing or all-zero file, `maple_devs.cpp:433-476`), nothing is dirty,
+  nothing is written. The window never reaches the game, so the game's own maple path
+  (the 2026-09-03 coverage) needs a `MENU=0` build; it was not re-run here
+  (`loader/main.c` and `shims/src` unchanged).
+- New: B1, the one card the loader can read, must hold no `SENKOSP_SYS`
+  (`vmu_decode.py` exit exactly 1; 0, 3 or anything else FAILs). Before this a
+  menu write to B1 still printed PASS, since B1 only had to be non-zero.
+  Negative control (check lines run on a scratch card): a save copied to B1 →
+  `FAIL B1 holds a SENKOSP_SYS (menu wrote)`.
+- New: transient `-config config:pvr.rend=0` (a leftover `pvr.rend = 4` in
+  `emu.cfg` segfaults the bundle in `VulkanRenderer::Init`, §RAWFB "Launch
+  gotcha") and a 1 s liveness poll: Flycast gone before the window ends is
+  `FAIL: Flycast exited early after N s`. The old script printed `PASS: no VMU
+  writes` on an emulator that had died ~1 s after launch, having observed
+  nothing; with `pvr.rend=4` forced back the new one FAILs after 2 s. The poll
+  also turned four SH4 vmem `Verify Failed` flakes (host low on memory, ~60 MB
+  free) into loud FAILs in one session; the canary does not retry, so rerun it.
+- `attract` runs headless (`FLYCAST_HEADLESS=1`, above).
+- PASS 153 s wall, headless, on the menu build
+  (`captures/vmu-save/test-vmu-headless.txt`): `OK` ×3 canaries unchanged, `OK
+  control B1 auto-formatted`, `OK no SENKOSP_SYS on B1`, `PASS: no VMU
+  writes`.

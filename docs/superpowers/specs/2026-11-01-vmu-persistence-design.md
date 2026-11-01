@@ -338,6 +338,17 @@ values, prints the decoded layouts by name, and writes the icon out as a
 PNG to be looked at (verification discipline: decoded, viewed, not a byte
 echo). Test-only, never shipped.
 
+**Amendment 2026-11-01 (as built).** The shipped diag prints `VMUSAVE
+load=<0|-1> home=<xx|-0> cards=<n>`: `home=-0` when there is no home (the
+spec wrote `home=<xx|->`), and `cards=` is appended. With nothing loaded it
+forces setting 0 (GAME DIFFICULTY) to HARD `0x02`, not "the Task-18 easy
+record": an unambiguous grep token, and a non-default byte proves the record
+round-trips. The logged `payload=` is the loaded state re-serialized, not the
+card's bytes (reserved bytes 5..7 are not checked on load). The host
+decoder is `scripts/vmu_decode.py` (with `scripts/test_vmu_decode.py`) and the
+two-boot driver is `scripts/test_vmu_save.sh diag|show`, not
+`scripts/test_vmu_save.py`.
+
 ## Hardware verification (operator legs, the claim gate)
 
 1. Fresh card in A1: boot → blank line. Build a layout, B → prompt names

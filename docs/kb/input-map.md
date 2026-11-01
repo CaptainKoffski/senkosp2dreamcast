@@ -287,7 +287,8 @@ fill would nick it). The table and the cone rule have a host self-check,
 every chip is reachable from the first, so an anchor redesign that strands
 a chip fails at generation time. The footer is unchanged: the "A edits
 CUSTOM" affordance has no on-screen hint yet (tester-facing lab feature). Session-only like every
-menu setting — nothing is written to a VMU; power-off reverts to Tournament.
+menu setting — nothing was written to a VMU; power-off reverted to Tournament
+(superseded 2026-11-01: §Controls library → Persistence).
 Both ports are edited from the first enumerated pad, as the presets are.
 
 **Verification.** Host tests (`shims/test/test_host.c`): the classifier
@@ -365,15 +366,33 @@ function ids in `FUNC_WORDS` order (unchanged). State is
 `CTL_N_STOCK[cls]` is a stock id; above it, it means `CTL_N_STOCK[cls]` +
 slot. A custom layout belongs to nobody: two rows that select CUSTOM 1 share
 one object, so editing it from either row changes both (operator requirement
-8, spec §2). The state is session-only. The all-zero `.bss` instance is the
+8, spec §2). The state is session-only unless saved to a VMU (Persistence,
+below). The all-zero `.bss` instance is the
 defaults (every pad row TOURNAMENT, every stick row ARCADE; KOS clears
 `.bss`: `arch_main` memsets `_bss_start`, `tools/kos/kernel/arch/dreamcast/
 kernel/init.c:299`). The in-game A+B+X+Y+Start warm boot reloads the loader
 from disc (`shims/src/main.c` `pad_reboot`, §Warm boot to the menu) and KOS
 clears `.bss` on entry (`init.c:299`), so every custom layout and selection
-is back to defaults after it; VMU persistence is the follow-up task. The
-arrays are laid out for the future VMU task to serialize as-is (spec §8).
-Nothing writes a VMU.
+is back to defaults after it, unless a VMU save restores them (Persistence,
+below). The arrays are serialized as-is into the save (spec §8). The game and
+the shim write nothing to a VMU; the loader's menu is the one writer.
+
+**Persistence (2026-11-01, branch `feat/vmu-persistence`; emulator-proven,
+hardware round pending).** The record (`menu_game_record`, 16 bytes) and
+`ctl_lib_t` (116 bytes) are saved as one 2-block file `SENKOSP_SYS` on a
+memory card, with no save button; full record, status-line table and operator
+checklist in `phase7-polishing.md` §T21.
+- **Load:** once, at boot, from the first readable card with a valid file,
+  scanning A1, A2, B1 … D2 (KOS `hardware/maple/maple_enum.c:35-50`, under
+  `tools/kos/kernel/arch/dreamcast/`). A card inserted later is never loaded
+  into the live state; the warm boot loads it.
+- **Save:** when Controls or Settings is left with changes, and at START GAME
+  if changes are still unsaved. Nothing is written when nothing changed.
+- **Consent:** the loader writes silently only to the card this session
+  loaded from or got an A on, checked at write time by slot and the root
+  block's format timestamp. Any other card is asked first (REPLACE when it
+  already holds a save), and B declines for the session. The top page's
+  status line says what happened.
 
 **Rows page.** There are four fixed rows, class-major: P1 PAD, P2 PAD,
 P1 STICK, P2 STICK (`CTL_ROW_ITEMS`, generated from `CTL_PORTS` = 2 × the

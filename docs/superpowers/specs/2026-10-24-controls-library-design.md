@@ -343,3 +343,6 @@ and selection returns to defaults. This is session-only by design (§8), but it
 makes VMU persistence load-bearing for the "build, keep and share" intent: a
 tester who builds layouts loses them on any reset. VMU persistence is
 therefore the next task.
+
+Closed by `docs/superpowers/specs/2026-11-01-vmu-persistence-design.md`
+(2026-11-01; built on `feat/vmu-persistence`, hardware round pending).
