@@ -69,7 +69,9 @@ if [ "$MODE" = play ]; then
     echo "Play as long as you like; quit Flycast when done."
     "$BIN" $CFG "$DISC" || true
 else
-    "$BIN" $CFG "$DISC" &
+    # Headless (attract only; `play` is for a human): hidden window, no focus steal, null audio --
+    # ../flycast4naomi2dreamcast/core/sdl/sdl.cpp:841-843,965-975.
+    FLYCAST_HEADLESS=1 "$BIN" $CFG "$DISC" &
     PID=$!
     echo "Attract run ${SECS}s (PID $PID)..."
     # Liveness: a Flycast that died early (renderer segfault, SH4 vmem flake)

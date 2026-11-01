@@ -37,6 +37,9 @@ cd "$REPO"
 
 defaults write com.flyinghead.Flycast ApplePersistenceIgnoreState -bool YES 2>/dev/null || true
 defaults write com.flyinghead.Flycast NSQuitAlwaysKeepsWindows -bool false 2>/dev/null || true
+# Headless: hidden window, app never activated (no Dock icon / focus steal), null audio; GL still renders
+# offscreen so the RAWFB dump works -- ../flycast4naomi2dreamcast/core/sdl/sdl.cpp:841-843,965-975.
+export FLYCAST_HEADLESS=1
 
 # fly <name> <secs> <a1dev> <vmudir> [usr2_at]
 # Pad on port A with VMU A1 only (a1dev 1 = MDT_SegaVMU, 10 = MDT_None; NOT 0,
