@@ -361,11 +361,12 @@ static int vmu_line = MENU_VMU_NONE, vmu_tok;      /* status line shown, and its
 
 static int vmu_slot_of(const vmu_card_t *c) { return c->port * 2 + c->unit - 1; }
 
-/* Status band: rows MENU_VMU_LINE_Y.. (24), page grey, then the strip and its
- * slot token. line MENU_VMU_NONE leaves the band cleared. */
+/* Status band: MENU_VMU_LINE[0].h rows from MENU_VMU_LINE_Y (every strip has
+ * the same height), page grey, then the strip and its slot token. line
+ * MENU_VMU_NONE leaves the band cleared. */
 static void vmu_show(int line, int tok) {
     uint16 *p = vram_s + MENU_VMU_LINE_Y * 640;
-    for (int i = 0; i < 24 * 640; i++) p[i] = MENU_BG_COLOR;
+    for (int i = 0; i < MENU_VMU_LINE[0].h * 640; i++) p[i] = MENU_BG_COLOR;
     if (line < 0) return;
     blit(MENU_VMU_LINE[line], MENU_VMU_LINE_X[line], MENU_VMU_LINE_Y);
     if (MENU_VMU_HAS_TOKEN[line])
@@ -441,6 +442,17 @@ static void vmu_do_write(const vmu_card_t *c) {
     vmu_show(vmu_line, vmu_tok);
 }
 
+/* Spec §The status line: a NO VMU line is re-checked against a fresh scan each
+ * time the top page is drawn, so the warning never lies (a card plugged in
+ * since turns it blank). Read-only; once the line clears the scan stops, and
+ * with no card present the scan is an empty enumeration. 1 = line cleared. */
+static int vmu_nocard_clear(void) {
+    vmu_card_t cards[8];
+    if (vmu_line != MENU_VMU_NOCARD || vmu_scan(cards) <= 0) return 0;
+    vmu_line = MENU_VMU_NONE;
+    return 1;
+}
+
 /* Spec §Sync. Clean: touch nothing on the card; only let a stale NO VMU line
  * clear once a card shows up. Dirty: fresh scan, then vmu_decide -- a silent
  * write only to home, else NO VMU / declined line / the prompt. Always
@@ -449,7 +461,7 @@ static void vmu_sync(void) {
     vmu_card_t cards[8];
     int n, d, i;
     if (!vmu_dirty()) {
-        if (vmu_line == MENU_VMU_NOCARD && vmu_scan(cards) > 0) vmu_line = MENU_VMU_NONE;
+        vmu_nocard_clear();
         return;
     }
     n = vmu_scan(cards);
@@ -472,8 +484,10 @@ static void vmu_sync(void) {
  * Logs what the boot load found; with nothing loaded, forces a known library
  * (pad CUSTOM 1 = CUSTOM_DEMO, P1 pad selecting it, setting 0 = its third
  * value) and writes it to the first readable card -- consent granted by the
- * define, the one write path that bypasses vmu_decide/the prompt. Test-only. */
-#include <kos/dbglog.h>
+ * define, the one write path that bypasses vmu_decide/the prompt. Test-only.
+ * VMUSAVE payload= is vmu_saved: the loaded state RE-SERIALIZED into payload
+ * form, not a dump of the card's bytes (the parser does not check the reserved
+ * bytes 5..7, so they may differ from the file). */
 static void vmu_diag(void) {
     vmu_card_t cards[8];
     int n = vmu_scan(cards), i;
@@ -520,6 +534,8 @@ void menu_run(void) {
         }
         if (e & CONT_DPAD_UP)   { cur = (cur + 2) % 3; draw_top(cur); }
         if (e & CONT_DPAD_DOWN) { cur = (cur + 1) % 3; draw_top(cur); }
+        if ((e & (CONT_DPAD_UP | CONT_DPAD_DOWN)) && vmu_nocard_clear())
+            vmu_show(vmu_line, vmu_tok);         /* top page redrawn: the NO VMU warning must not lie */
         if (e & CONT_A) {
             if (cur == 0) break;
             if (cur == 1) settings_screen();
