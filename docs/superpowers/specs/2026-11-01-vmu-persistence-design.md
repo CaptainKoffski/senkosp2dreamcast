@@ -113,15 +113,16 @@ to their cards", and with many ports in the pipeline that adds up.
 - Filenames are 12 bytes, no terminator, matched with `strncmp(…, 12)`
   (`include/dc/vmufs.h:79`, `vmufs.c` `vmufs_dir_find`).
 - The root block is block 255 and starts with 16 bytes of 0x55
-  (`vmufs.c` `vmufs_root_read`; `include/dc/vmufs.h:57` `magic[16]`). KOS
+  (`vmufs.c` `vmufs_root_read`; `include/dc/vmufs.h:56` `magic[16]`). KOS
   does not validate it: `vmufs_setup` (`vmufs.c:482-`) checks only that the
   device is valid and a memory card, then mallocs `dir_size * 512` and
   `fat_size * 512` straight from the root; `vmufs_find_block` and
   `vmufs_fat_free` index the one-block FAT (256 entries) by `root->blk_cnt`
-  with no bound (`vmufs.c:291-321`, `:446-457`). Hence the root guard
+  with no bound (`vmufs.c:291-321`, `:448-457`). Hence the root guard
   below.
-- The root block carries the format timestamp (`vmu_timestamp_t`, 8 BCD
-  bytes, `include/dc/vmufs.h:37-46,58`), written when the card is formatted.
+- The root block carries the format timestamp (8 BCD bytes,
+  `vmu_timestamp_t` `include/dc/vmufs.h:41-50`, root field `:60`),
+  written when the card is formatted.
   It is the cheapest stable identity a card offers, and we hold the root
   block anyway for the guard.
 - `maple_enum_type(n, MAPLE_FUNC_MEMCARD)` walks ports A..D then units 0..5
@@ -129,20 +130,21 @@ to their cards", and with many ports in the pipeline that adds up.
   "first card" is A1, A2, B1, B2, C1, C2, D1, D2. KOS's own slot spelling is
   `port + 'A'`, `unit + '0'` (every `vmufs.c` dbglog).
 - Hot-plug: the vblank handler re-sends DEVINFO per port/unit and marks
-  disconnects (`hardware/maple/maple_irq.c:32-230`, `maple_vbl_irq_hnd` →
+  disconnects (`hardware/maple/maple_irq.c:32-251`, `maple_vbl_irq_hnd` →
   `vbl_autodetect` / `vbl_chk_disconnect`), so an enumeration at save time
   sees the cards present now, not at boot.
 - `vmufs_free_blocks(dev)` reports free blocks (`include/dc/vmufs.h:383`);
-  `VMUFS_OVERWRITE` deletes the old file before writing (`vmufs.c:689+`
-  lines 23-34 of the function), so overwriting our own 2-block file needs
+  `VMUFS_OVERWRITE` deletes the old file before writing (`vmufs.c:711-727`,
+  documented at `include/dc/vmufs.h:355`), so overwriting our own 2-block file needs
   no extra space.
 - Warm boot: the in-game A+B+X+Y+Start path reloads the loader from disc;
   `arch_main` clears .bss
   (`tools/kos/kernel/arch/dreamcast/kernel/init.c:299`). Everything the
   menu holds is therefore rebuilt from the card on every boot.
 - Emulator: Flycast writes VMU flash straight to `vmu_save_A1.bin` etc.
-  (`../flycast4naomi2dreamcast/core/hw/maple/maple_devs.cpp:679-707`) and
-  auto-formats only a missing or all-zero file (`:436-474`), as the canary
+  (`../flycast4naomi2dreamcast/core/hw/maple/maple_devs.cpp:681-715`) and
+  auto-formats only a missing or all-zero file (the all-zero check `:469-475`
+  calls `initializeVmu`, `:420-431`), as the canary
   script `scripts/test_vmu_untouched.sh` already relies on.
 
 ## The file
@@ -179,6 +181,14 @@ the file is treated as absent (defaults; the next consented save overwrites
 it). Rationale: the record is poked into the game's EEPROM image, the
 library into the shim's layout words; a card is an outside input.
 
+**Amendment 2026-11-01 (as built).** Unused custom slots are written as
+zeros rather than "as laid out in memory": `ctl_delete` keeps a freed slot's
+bytes and the built payload is also the dirty test, so a create-then-delete
+would otherwise ask to save a change that is not one. The host tests pin the
+v1 dimensions (`CTL_N_STOCK` {2,1}, `CTL_N_FUNC` 7, `CTL_N_CUSTOM` 8,
+`CTL_N_CLASS` 2, `CTL_PORTS` 2) and the `FUNC_WORDS` order; changing any of
+them means bumping the version byte.
+
 Icon: 32×32, ≤ 16 colours, drawn by the generator from text in the menu
 font and colours (my call: the letters `SR` on the menu grey with an amber
 band, in the style of the top page; builder may do better, the bar is
@@ -202,6 +212,20 @@ two cards formatted in the same second, swapped in the same slot
 mid-session after an A. Emulator cards may share a canned timestamp
 (Flycast auto-format); there the slot still separates them and a
 mid-session swap in one slot is not a scenario.
+
+**Amendment 2026-11-01 (as built).** The fingerprint is 16 bytes: the root
+timestamp, then our `SENKOSP_SYS` dirent's timestamp (`vmu_dir_t.timestamp`,
+`include/dc/vmufs.h:80`; 8 zero bytes when the card has no file). It is
+re-checked in full right before every write, and re-read after a successful
+one, because KOS restamps the dirent from the RTC on every write
+(`fs/vmufs.c:743` → `vmufs_dir_fill_time`, `:61-77`): `home` takes the new
+value, and if the re-read fails `home` is cleared and the next change asks.
+Reason: root stamps collide more often than "the same second" suggests
+(every Flycast blank card carries `1998-11-27 00:00:59`, and the review
+reports that date for a console with a flat clock battery, not verified
+here), and another player's card in the same slot is the named anti-goal.
+The narrow hole becomes: two cards whose root stamps collide and that both
+lack a file, or whose files were written in the same second.
 
 ### State (loader, session)
 
@@ -255,6 +279,10 @@ by itself. `home` is kept on failure: the player consented to that card,
 and while that same card (fingerprint) sits in that slot it is retried
 silently, never re-asked. Swap it and the asking path returns.
 
+**Amendment 2026-11-01 (as built).** At sync point 2 a `NEED 2 FREE BLOCKS`
+or `SAVE FAILED` line stays up 1 s before the splash, so the failure can be
+read rather than flashed.
+
 ### The prompt
 
 The status line becomes `SAVE SETTINGS TO VMU xx` when the shown card has
@@ -267,6 +295,15 @@ UP/DOWN and START are ignored while it shows. A or B ends it and the normal
 footer `UP/DOWN: MOVE   A: SELECT` returns. The candidate list is taken
 once when the prompt opens; a card pulled between the prompt and the write
 surfaces as `SAVE FAILED ON VMU xx`.
+
+**Amendment 2026-11-01 (as built).** A and B are ignored for the first
+~0.5 s (30 polls) after the prompt opens, then act on release; A on the top
+page and the B that leaves Controls or Settings act on release too (the
+menu waits for it before the sync point). Reason: the A+B+X+Y+START reboot
+lands over several frames, so an A or B arriving first must reboot instead
+of consenting, declining or saving the edits being abandoned, and a B mashed
+out of a sub-screen during the scan (~250 ms a card) must not decline a
+prompt nobody saw. LEFT/RIGHT stay live from the start.
 
 ### The status line
 
@@ -317,6 +354,16 @@ they are until the next sync (no nagging when `home` is pulled).
 - The save path runs only inside the menu, before the handoff; the shim and
   the game never see a maple memory-card frame (unchanged phase-6
   guarantee; `scripts/test_maple_literals.py` still gates the build).
+
+**Amendment 2026-11-01 (as built).** `blk_cnt ≤ 255`, not 256: KOS
+`vmufs_file_delete` lets a chain entry equal to `blk_cnt` through
+(`fs/vmufs.c:425`) and indexes the 256-entry FAT with it. A card whose root
+reads but whose directory read fails is skipped, never reported as having
+no file. A `SENKOSP_SYS` is loaded only if its dirent says 1 to 8 blocks
+(KOS mallocs and reads `filesize` blocks, bounded by nothing else,
+`fs/vmufs.c:243-276`, `:616-617`), and the loader reads that exact dirent
+(`vmufs_read_dirent`, `:669-686`). KOS itself refuses `fat_size > 1`
+(`fs/vmufs.c:174`), after mallocing `fat_size × 512` (`:525-526`).
 
 ## Unattended check (emulator, build-time diag)
 
@@ -370,6 +417,12 @@ two-boot driver is `scripts/test_vmu_save.sh diag|show`, not
    that card's file unchanged. Warm boot → `LOADED FROM VMU A1` with that
    card's layouts.
 8. `make test-vmu` on the shipped `MENU=1` build: PASS.
+
+**Amendment 2026-11-01 (as built).** Leg 9: with the prompt up, and from
+Settings with changes and a home card, press A+B+X+Y+START several times
+(A or B first on purpose) → every time the console reboots and the card is
+unchanged. Leg 1 also checks a second save with no prompt (home follows the
+file's new stamp). Checklist: `phase7-polishing.md` §T21.
 
 ## Code shape (boundaries; the rest is the builder's)
 

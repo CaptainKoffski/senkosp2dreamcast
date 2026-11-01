@@ -8,15 +8,20 @@ warm boot. There is no save button: it saves when Controls or Settings is
 left with changes and at START GAME. The loader writes silently only to the
 card this session loaded from or got an A on; any other card is asked first
 (REPLACE if it already holds a save), B declines for the session, and one
-status line on the top page says what happened. A missing, full or foreign
-card never stops the game starting. Proven on the emulator and host:
-two-boot save then load with the file decoded and its icon viewed, a no-card
-boot, `make test`, and `make test-vmu` PASS on the shipped menu build; loader
-3,209,876 B (limit 3,538,944). Not proven: any key press (the fork cannot
-inject pad input) and the BIOS file manager, so the eight operator legs on
-the real Dreamcast are the claim gate. VMU-safety (criterion 6) is unchanged
-for the game, which still never touches a VMU; the loader is now the one
-writer, in the menu, after consent, verified by the canary on the menu build.
+status line on the top page says what happened. A card counts as the same
+card by its root and save-file timestamps (16 bytes, refreshed after each
+write), and every press that could lead to a write acts on release, so the
+A+B+X+Y+START reboot should never save (by code; operator leg 9 checks
+it). By code and host test only: a missing, full or foreign card never stops
+the game starting. Proven on the emulator and host: two-boot save then load
+with the file decoded and its icon viewed, a no-card boot, `make test`, and
+`make test-vmu` PASS on the shipped menu build, all re-run after the final
+review fixes; loader 3,209,876 B (limit 3,538,944). Not proven: any key press
+(the fork cannot inject pad input) and the BIOS file manager, so the nine
+operator legs on the real Dreamcast are the claim gate. VMU-safety
+(criterion 6) is unchanged for the game, which still never touches a VMU;
+the loader is now the one writer, in the menu, after consent, verified by
+the canary on the menu build.
 Record, status-line table and checklist: `phase7-polishing.md` §T21. Spec:
 `docs/superpowers/specs/2026-11-01-vmu-persistence-design.md`.
 

@@ -389,10 +389,12 @@ checklist in `phase7-polishing.md` §T21.
 - **Save:** when Controls or Settings is left with changes, and at START GAME
   if changes are still unsaved. Nothing is written when nothing changed.
 - **Consent:** the loader writes silently only to the card this session
-  loaded from or got an A on, checked at write time by slot and the root
-  block's format timestamp. Any other card is asked first (REPLACE when it
-  already holds a save), and B declines for the session. The top page's
-  status line says what happened.
+  loaded from or got an A on, checked at write time by slot and a 16-byte
+  identity: the root block's format timestamp plus the save file's own
+  timestamp (zeros without a file), refreshed after every write
+  (`phase7-polishing.md` §T21 "Consent rule"). Any other card is asked first
+  (REPLACE when it already holds a save), and B declines for the session.
+  The top page's status line says what happened.
 
 **Rows page.** There are four fixed rows, class-major: P1 PAD, P2 PAD,
 P1 STICK, P2 STICK (`CTL_ROW_ITEMS`, generated from `CTL_PORTS` = 2 × the

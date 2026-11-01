@@ -3603,19 +3603,50 @@ Payload v1 (140 B, `loader/vmu_save.c`): offset 0 magic `SKSP`; 4 version = 1;
 5..7 reserved, written 0, not checked on load (the version byte is the
 compatibility gate); 8 the 16-byte record; 24 `ctl_lib_t` as laid out in
 memory (`custom[2][8][6]` 96 + `used[2][8]` 16 + `sel[2][2]` 4; the host test
-static-asserts 116). A loaded file is accepted only if the CRC parses, magic
-and version match, `data_len` is 140, every function id is ≤ 6, every `used`
-is 0 or 1, every `sel` is in range and names a used slot, and the record
-equals the menu's own table (`loader/menu_layout.h`). One verdict for the
-whole file: anything off and it is treated as absent.
+static-asserts 116). Unused custom slots are written as zeros: `ctl_delete`
+keeps a freed slot's bytes, and the built payload is also the dirty test, so
+a create-then-delete would otherwise prompt for a save that changes nothing.
+The host test pins the v1 dimensions (`CTL_N_STOCK` {2,1}, `CTL_N_FUNC` 7,
+`CTL_N_CUSTOM` 8, `CTL_N_CLASS` 2, `CTL_PORTS` 2) and
+`scripts/test_vmu_decode.py` pins the `FUNC_WORDS` order: `sel` is an offset
+from `CTL_N_STOCK[cls]` and ids index `FUNC_WORDS`, so changing either
+without bumping the version byte would load old saves remapped. A loaded
+file is accepted only if its dirent says 1 to 8 blocks (KOS mallocs
+`filesize × 512` and reads that many blocks, bounded by nothing else, a
+looping FAT chain included: `fs/vmufs.c:243-276`, `:616-617`; the loader
+then reads exactly that dirent with `vmufs_read_dirent`, `:669-686`), the
+CRC parses, magic and version match, `data_len` is 140, every function id is
+≤ 6, every `used` is 0 or 1, every `sel` is in range and names a used slot,
+and the record equals the menu's own table (`loader/menu_layout.h`). One
+verdict for the whole file: anything off and it is treated as absent.
 
 **Consent rule.** The loader writes silently only to `home`, the card this
 session loaded from or the one the player pressed A for, and only while the
-card in that slot still carries the same root-block timestamp
-(`include/dc/vmufs.h:37-46,58`) as when `home` was set. Any other card is
-asked first, at the first save (never at boot, never when nothing changed);
-the question says REPLACE when the card already carries a `SENKOSP_SYS`, and
-B declines for the session.
+card in that slot still carries the same 16-byte identity as when `home` was
+set: the root block's timestamp (8 BCD bytes, `vmu_timestamp_t`
+`include/dc/vmufs.h:41-50`, root field `:60`) followed by our `SENKOSP_SYS`
+dirent's timestamp (`vmu_dir_t.timestamp`, `:80`; zeros when the card has no
+file). `vmu_write` re-checks all 16 bytes right before writing. KOS stamps
+the dirent from the RTC on every write (`fs/vmufs.c:743` →
+`vmufs_dir_fill_time`, `:61-77`), so after a successful write the loader
+re-reads the card and `home` takes the new identity; if that re-read fails,
+`home` is dropped and the next change asks again. Any other card is asked
+first, at the first save (never at boot, never when nothing changed); the
+question says REPLACE when the card already carries a `SENKOSP_SYS`, and B
+declines for the session.
+
+Why two halves (spec amendment 2026-11-01, final review): root stamps
+collide. Every Flycast blank card carries the same one, `1998-11-27
+00:00:59` (bytes `1998112700005904`, the fork's `vmu_default`,
+`core/hw/maple/maple_devs.cpp:331`, unpacked by `initializeVmu` `:420-431`;
+read off the decompressed image and every leg card 2026-11-01), and the
+review reports the same date for a console whose clock battery is flat (not
+verified here). Another player's card in the same slot is the spec's named
+anti-goal. The bytes are compared, never interpreted: the leg card's dirent
+stamp reads `1a261101214928ff` (2026-11-01 21:49:28; KOS writes the century
+as `0x19 +` BCD of `tm_year / 100`, `fs/vmufs.c:69`, and Sunday's weekday as
+`0xff`, `:76`). Residual hole: two cards whose root stamps collide and that
+either both have no file or got their files in the same second.
 
 **Behaviour in short.**
 - Boot is the only load. Cards are scanned in enumeration order A1, A2, B1,
@@ -3630,26 +3661,48 @@ B declines for the session.
   A+B+X+Y reboot is not a save point.
 - A card is *readable* only if it reports `MAPLE_FUNC_MEMCARD`, block 255
   reads, the first 16 bytes are 0x55, `fat_size == 1`, `1 ≤ dir_size ≤ 13`,
-  `blk_cnt ≤ 256`, and `fat_loc`/`dir_loc` < 256. KOS validates none of it
-  and sizes two mallocs and the FAT index from those fields
-  (`fs/vmufs.c:482-`, `:291-321`), so `vmu_root_ok` does; anything else is
-  skipped silently and never written.
+  `blk_cnt ≤ 255`, `fat_loc`/`dir_loc` < 256, and its directory reads
+  (`vmufs_readdir`). KOS itself only refuses `fat_size > 1`
+  (`fs/vmufs.c:174`); it mallocs `dir_size`/`fat_size × 512` straight from
+  the root (`:501-526`) and indexes the 256-entry FAT by `blk_cnt`
+  (`:291-321`, `:448-457`) and by chain entries up to `blk_cnt` inclusive
+  (`vmufs_file_delete`, `:425`, so 256 would touch `fat[256]`, past the
+  512-byte FAT). `vmu_root_ok` does the rest. Anything else is skipped
+  silently and never written; a card whose root reads but whose directory
+  does not is skipped too, never shown as "no file" (it could hold one).
 - Hot-plug: a fresh enumeration at save time sees the cards present now
-  (`hardware/maple/maple_irq.c:32-230`).
+  (`hardware/maple/maple_irq.c:32-251`, `maple_vbl_irq_hnd` at `:230`).
 - Space: free blocks plus the blocks of an existing `SENKOSP_SYS` must be ≥ 2
   (`include/dc/vmufs.h:383`; `VMUFS_OVERWRITE` deletes the old file first,
-  `fs/vmufs.c:689+`). A failed write leaves the state dirty and keeps `home`,
-  so the next save point retries silently while the same card sits in that
-  slot.
+  `fs/vmufs.c:711-727`, documented at `include/dc/vmufs.h:355`). A failed
+  write leaves the state dirty and keeps `home`, so the next save point
+  retries silently while the same card sits in that slot.
 - START GAME is never blocked: no card, a full card, a declined prompt or a
   failed write all fall through to the game (a pending prompt waits for A or
-  B, then the game starts).
+  B, then the game starts). A `NEED 2 FREE BLOCKS` or `SAVE FAILED` line at
+  START stays up 1 s before the splash covers it.
+- Reset combo and input timing (`loader/menu.c`): `edge()` reboots once
+  A+B+X+Y+START are all held, but five buttons rarely land in one frame. So
+  every press that could lead to a write acts on release, as START already
+  did: A and B in the prompt, A on the top page, and the B that leaves
+  Settings or Controls (the menu waits for its release before the save
+  point). A combo that starts with any of them reboots with the card
+  untouched. The prompt also ignores A and B for its first 30 polls
+  (~0.5 s): the scan before it costs about 15 block reads a card (the root,
+  then `vmufs_readdir` reads the root again and the 13 directory blocks,
+  `fs/vmufs.c:110-152`), each queued and waited on
+  (`hardware/maple/vmu.c:420-445`) and sent from the VBL handler
+  (`hardware/maple/maple_irq.c:248-250`), so roughly 250 ms a card (an
+  estimate, not measured), and a B mashed out of a sub-screen in that time
+  no longer declines, for the session, a prompt nobody saw. LEFT/RIGHT work
+  from the start.
 
 **Status line** (one 24 px strip at y 416 on the top page, baked by the
 generator; `xx` is the slot token `A1`…`D2`; prompt footers
 `A: YES   B: NO` and `A: YES   B: NO   LEFT/RIGHT: OTHER VMU`, LEFT/RIGHT
 cycling the readable cards with wrap; UP/DOWN and START are ignored while
-the prompt shows):
+the prompt shows, A and B for its first ~0.5 s, and A or B counts on
+release):
 
 | Line | When |
 |---|---|
@@ -3680,26 +3733,42 @@ the prompt shows):
   are untouched; every VMU call hangs off `menu_run`.
 - `53c4b8f`, `0f6197c`, `541b4e4`, `1ae3c07` the emulator legs, the decoder
   and the canary hardening (`tooling.md` §VMU persistence tooling).
+- Final review fixes: `32cfa47` the 16-byte identity, skipping a card whose
+  directory fails, the dirent size bound, `blk_cnt ≤ 255`, zeroed unused
+  slots, the v1 schema pin; `eb178b3` act-on-release in the prompt and around
+  the sub-screens, the 0.5 s prompt dead time, the 1 s hold on a failed START
+  save; `2f6c9f7` decoder exit codes 4/5 and the exact-4 canary check, the
+  serial key spelling, Flycast/KOS cites.
 
 **Verification state** (all emulator or host; nothing on hardware yet):
 - **Loader size:** plain `make gdi` → `build/1ST_READ.BIN` = **3,209,876 B**
-  against the 3,538,944 B limit (headroom 329,068 B). The `VMUDIAG=1
-  SERIAL=1` image is 1,876,040 B: `menu_run` returns before its loop, so
-  `--gc-sections` drops the sub-screens and their page blobs (test-only; the
-  size gate is the plain build).
-- **Host:** `make test` green (`test_vmu_save`, `test_vmu_decode`,
-  `test_gen_menu_sheet`, `test_gen_menu_nav`, `test_ctl_lib`, the maple-literal
-  gate "no unclassified vmu/maple references");
-  `captures/vmu-save/make-test-fix2.txt`.
-- **Two-boot save/load, headless** (`scripts/test_vmu_save.sh diag`, PASS,
-  185 s, no retries; `captures/vmu-save/diag-run4-headless.txt`; logs
-  `boot1.stdout.log`, `boot2.stdout.log`, `nocard.stdout.log`). Boot 1,
-  blank A1: `VMUSAVE load=-1 home=-0 cards=1`, `VMUSAVE write=0 slot=A1`,
-  `boot: MAIN image`. Boot 2, same directory: `VMUSAVE load=0 home=A1
-  cards=1`, `VMUSAVE payload=` equal to the decoder's payload hex (280
-  chars), A1 byte-identical afterwards. No-card boot (A1 = `MDT_None`):
-  `VMUSAVE load=-1 home=-0 cards=0`, then `boot: MAIN image` (the game still
-  starts).
+  against the 3,538,944 B limit (headroom 329,068 B), unchanged by the final
+  fixes: `.text` ends at `0x8c03d870` and `.init` sits at the next 8 KiB
+  boundary, `0x8c03e000` (`sh-elf-objdump -h loader/loader.elf`), because
+  the KOS link script puts ten `.subN : ALIGN(ICACHE_SIZE)` sections, empty
+  here, between them (`tools/kos/utils/ldscripts/shlelf.xc:11`
+  `ICACHE_SIZE = 0x2000`, `:25-84`). The image therefore grows in 8 KiB
+  steps; 1,936 B of `.text` fit before the next one. The `VMUDIAG=1
+  SERIAL=1` image is 1,876,040 B, the size gate is the plain build. Inferred,
+  not checked symbol by symbol: `menu_run` returns before its loop in that
+  build, so `--gc-sections` drops the sub-screens and their page blobs.
+- **Host:** `make test` green (`test_vmu_save` incl. the 16-byte decide
+  cases, `blk_cnt` 255/256, unused-slot zeroing and the schema pin;
+  `test_vmu_decode` incl. exit codes 4/5 and the `FUNC_WORDS` pin;
+  `test_gen_menu_sheet`, `test_gen_menu_nav`, `test_ctl_lib`, the
+  maple-literal gate "no unclassified vmu/maple references").
+- **Two-boot save/load, headless**, re-run after the final fixes
+  (`scripts/test_vmu_save.sh diag`, PASS, no retries;
+  `captures/vmu-save/diag-run5-finalfix.txt`; logs `boot1.stdout.log`,
+  `boot2.stdout.log`, `nocard.stdout.log`). Boot 1, blank A1: `VMUSAVE
+  load=-1 home=-0 cards=1`, `VMUSAVE write=0 slot=A1`, `boot: MAIN image`;
+  `write=0` is now `VMU_WRITE_OK`, which `vmu_write` returns only after
+  re-reading the card's identity (1 would mean written but not re-read).
+  Boot 2, same directory: `VMUSAVE load=0 home=A1 cards=1` (the scan read
+  root and directory, the load passed the dirent size bound and
+  `vmufs_read_dirent`), `VMUSAVE payload=` equal to the decoder's payload
+  hex (280 chars), A1 byte-identical afterwards. No-card boot (A1 =
+  `MDT_None`): `VMUSAVE load=-1 home=-0 cards=0`, then `boot: MAIN image`.
 - **Decoded card** (`scripts/vmu_decode.py captures/vmu-save/vmu_save_A1.bin`,
   full text `captures/vmu-save/decode.txt`): `file SENKOSP_SYS bytes 1024`,
   header fields as the table above, `data_len 140`, `crc_ok 1`, `setting
@@ -3710,21 +3779,31 @@ the prompt shows):
   (780 B), as KOS `vmu_pkg_parse` does (`util/vmu_pkg.c:154,166`), not over
   the 1024 B block.
 - **Looked at, not byte-checked** (`scripts/test_vmu_save.sh show <dir>`, PASS,
-  `captures/vmu-save/show-run3-headless.txt`): the scan-out dump
+  `captures/vmu-save/show-run4-finalfix.txt`, re-run after the final fixes
+  on the diag directory above): the scan-out dump
   `captures/vmu-save/menu_fb.png` shows `LOADED FROM VMU A1` centred between
   CONTROLS and the footer, logo and three items intact; the icon,
   `captures/vmu-save/icon.png` (8× enlargement), shows dark `SR` on light
   grey over an amber band. A1 stayed byte-identical while the menu sat idle.
-- **Canary:** `make test-vmu` on the shipped `MENU=1` image, headless, PASS in
-  153 s (`captures/vmu-save/test-vmu-headless.txt`): the three `0xA5` cards
-  unchanged, B1 auto-formatted, and B1 holds no `SENKOSP_SYS`. Negative
-  control: a save copied to B1 → `FAIL B1 holds a SENKOSP_SYS` (the check
-  lines run against a scratch card, no emulator).
+- **Canary:** `make test-vmu` on the shipped `MENU=1` image, headless, PASS,
+  re-run after the final fixes (`captures/vmu-save/test-vmu-finalfix.txt`):
+  the three `0xA5` cards unchanged, B1 auto-formatted, and `OK   no
+  SENKOSP_SYS on B1 (vmu_decode.py rc=4: root valid, directory walked)`.
+  Negative control (the canary's check lines, copied verbatim, against
+  scratch cards, no emulator): the diag leg's saved card as B1 → `FAIL B1
+  holds a SENKOSP_SYS: the menu wrote (vmu_decode.py rc=0)`; Flycast's own
+  blank card (the fork's `vmu_default`, decompressed) → `OK` rc 4; an
+  all-zero image → `FAIL B1 not decodable (vmu_decode.py rc=5): absence
+  unproven`.
 - **Not covered:** every key press (the fork cannot inject pad input,
-  `tooling.md` §RAWFB), so the prompt, LEFT/RIGHT, A/B and the sync points
-  were not driven, and the consent decision (`vmu_decide`) is host-tested
-  only (the emulator write was the `VMUDIAG` one, which bypasses it); the BIOS
-  file manager; any real card. The `MENU=0` canary (game attract depth) was
+  `tooling.md` §RAWFB), so the prompt, LEFT/RIGHT, A/B, the act-on-release
+  waits, the prompt's dead time, the 1 s hold and the sync points were not
+  driven, and the consent decision (`vmu_decide`) is host-tested only (the
+  emulator write was the `VMUDIAG` one, which bypasses it, and discards the
+  refreshed identity); "a missing, full or foreign card never stops the
+  game" rests on the code and the host tests, not on an emulator run (the
+  no-card boot is `VMUDIAG`, which skips `vmu_sync`); the BIOS file manager;
+  any real card. The `MENU=0` canary (game attract depth) was
   not re-run on this branch: the game side is unchanged (`loader/main.c`,
   `shims/src` untouched).
 
@@ -3739,7 +3818,11 @@ B1, the one card the loader can read, ever gains a `SENKOSP_SYS`.
 there is no home, and forces setting 0 (GAME DIFFICULTY) to HARD `0x02`;
 the spec's unattended-check paragraph had `home=<xx|->` and "the Task-18
 easy record". Reason: an unambiguous grep token, and a non-default byte
-proves the record round-trips. Marked in the spec.
+proves the record round-trips. Marked in the spec. The final review added
+amendments, also marked in the spec: the 16-byte card identity (§Card
+identity), act-on-release and the 0.5 s dead time (§The prompt), the 1 s
+hold on a failed START save (§Sync), and `blk_cnt ≤ 255`, the directory-read
+skip and the dirent size bound (§Hardening).
 
 **Operator checklist** (the claim gate: a real Dreamcast, as in the earlier
 rounds GDEmu serving the GDI master; spec §Hardware verification):
@@ -3747,7 +3830,9 @@ rounds GDEmu serving the GDI master; spec §Hardware verification):
   A on a row, D-PAD to a button, A, LEFT/RIGHT to change its function, A to
   keep, then B (editor) and B (rows page) back to the top page: line
   `SAVE SETTINGS TO VMU A1`, footer `A: YES   B: NO`. A: `SAVING TO VMU A1`,
-  then `SAVED TO VMU A1`. Power cycle: `LOADED FROM VMU A1` and the layout is
+  then `SAVED TO VMU A1`. Without power-cycling, change something again and
+  back out: `SAVING`/`SAVED TO VMU A1` with no prompt (`home` follows the
+  file's new stamp). Power cycle: `LOADED FROM VMU A1` and the layout is
   there. BIOS file manager shows `SENKO NO RONDE`, 2 blocks, a legible icon.
 - [ ] **2 Decline.** Fresh card, edit, B at the prompt: `NOT SAVED: KEPT
   UNTIL POWER OFF`. START: no prompt, the game starts. File manager shows no
@@ -3771,18 +3856,24 @@ rounds GDEmu serving the GDI master; spec §Hardware verification):
   card's layouts.
 - [ ] **8 Canary.** `make test-vmu` on the shipped `MENU=1` build: PASS
   (emulator run PASS 2026-11-01, 153 s; repeat on the release image).
+- [ ] **9 Reset combo never saves.** With a card that has a save (note its
+  layouts): (a) edit, back out so the prompt shows, then press A+B+X+Y+START
+  several times, letting A or B land first on purpose; (b) boot from that
+  card (`LOADED FROM VMU xx`), go into Settings, change a value, and press
+  the combo from there several times, B first. Expected every time: the
+  console reboots, the next boot says `LOADED FROM VMU xx` with the old
+  values, and the file manager shows the file unchanged (no
+  `SAVING`/`SAVED` line ever appears).
 
 Things to try during the round (found in review, not specified):
-- B in the prompt declines for the session. A double-tapped B backing out of
-  Settings (first B returns to the top page, a quick second B lands in the
-  prompt) can decline by accident; try it in leg 2. An "ignore input until
-  buttons are released" step at prompt open would fix it if it annoys.
-- A in the prompt acts on press, while START elsewhere acts on release
-  (`loader/menu.c` `menu_run`); the spec counts A as consent.
+- The prompt's 0.5 s dead time (A and B ignored after it opens): check it
+  does not feel like a dropped press in legs 1 to 3; `VMU_PROMPT_DEAD` in
+  `loader/menu.c` is the knob.
 - Icon palette index 15 is opaque (`VMU_ICON_PAL[15]` = `0xf111`, the dark
-  foreground), while KOS's own `.ico` importer treats index 15 as transparent
-  (`util/vmu_pkg.c:318-332`). Check how the BIOS file manager renders the
-  icon in leg 1.
+  foreground), while KOS's own `.ico` importer keeps index 15 for
+  transparent pixels (`util/vmu_pkg.c:212` limits the palette to 15
+  colours for it, `:239` sets `icon_pal[15] = 0`, `:318-332` maps masked
+  pixels to 15). Check how the BIOS file manager renders the icon in leg 1.
 - With the NO VMU line shown and an unreadable (unformatted or foreign) card
   inserted, each cursor move does one root-block read: read-only and
   bounded, by design (re-check on every top-page redraw).

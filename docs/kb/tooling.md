@@ -3413,17 +3413,11 @@ process is running (`pgrep -x`).
   `-config input:device1.1=10` is `MDT_None` (fork
   `core/hw/maple/maple_cfg.h:18`); `0` would be `MDT_SegaController`
   (`:8`), `1` is `MDT_SegaVMU` (`:9`).
-- **Serial key, a known wart.** The script passes `-config
-  Debug:SerialConsoleEnabled=yes`, the spelling §Phase 7: build knobs ("Flag
-  spelling matters", above) records as wrong: the option's section is
-  `config` (`core/cfg/option.cpp:132`, `option.h:107`), so the CLI form is
-  `config:Debug.SerialConsoleEnabled=yes`. The `VMUSAVE` lines reached stdout
-  anyway because the persisted pref in `~/Library/Application
-  Support/Flycast/emu.cfg` (line 17) already reads `Debug.SerialConsoleEnabled
-  = yes` — the same trap as before. Serial lines need a `SERIAL=1` build and
-  that key; on a host without the persisted pref the script's `require`
-  greps would FAIL for lack of lines (untested: the pref was never turned
-  off).
+- Serial key: `-config config:Debug.SerialConsoleEnabled=yes` (fork
+  `core/cfg/option.cpp:132`, default section `config`, `option.h:107`);
+  fixed 2026-11-01 from `Debug:SerialConsoleEnabled`, which Flycast never
+  read. Control on the `VMUDIAG` disc, 45 s each, persisted pref `yes`:
+  transient `config:…=no` → 0 `VMUSAVE` lines, old `Debug:…=no` → 2 lines.
 
 ### `FLYCAST_HEADLESS=1` (fork commit `a54f70116`, 2026-10-23)
 
@@ -3433,7 +3427,8 @@ background app that never activates (`SDL_HINT_MAC_BACKGROUND_APP` and
 `NSApplicationActivationPolicyProhibited`, `:965-975`: no focus steal, no Dock
 icon), and the audio backend is forced to null (`core/audio/audiostream.cpp:70-74`).
 GL still renders offscreen, so `FLYCAST_SHOT_RAWFB` plus `kill -USR2` still
-works: `menu_fb.png` was written under it and is identical to the headed dump.
+works: `menu_fb.png` was written under it and shows the same layout as the
+headed dump (viewed, not byte-compared).
 The built app carries the string (`grep -c FLYCAST_HEADLESS` on the binary
 = 1). Nobody watched the screen; that no window appeared rests on the source
 lines above and on full-length runs that exited rc 0 and still produced the
@@ -3446,20 +3441,24 @@ it in `attract` mode only); headed `play` modes stay headed.
 Decodes `SENKOSP_SYS` out of a Flycast VMU image (256 × 512 B blocks; root at
 block 255, directory and file followed through the FAT; layouts cited in the
 script header against KOS `vmufs.h`/`vmu_pkg.h` and the fork's block write
-at `Block*512`, `core/hw/maple/maple_devs.cpp:681-715`; the script headers
-cite the earlier 679-707).
+at `Block*512`, `core/hw/maple/maple_devs.cpp:681-715`).
 Prints `key value` lines: header fields, `crc_ok 0|1`, `payload <hex>`, the
 settings and layouts by name (from `menu_def.py`). Exit codes: **0** the file
-is there and valid; **1** no `SENKOSP_SYS`, unreadable root or image;
-**3** the file is there but its CRC is bad or the payload does not decode.
+is there and valid; **3** the file is there but its CRC is bad or the
+payload does not decode; **4** absent: valid root, whole directory walked,
+no `SENKOSP_SYS`; **5** unreadable: wrong image size, no valid root, or a
+FAT chain (directory or file) that runs off the card or never ends. 1 is
+Python's own code for an uncaught exception and 2 argparse's usage error;
+neither is returned on purpose (until 2026-11-01, 1 also meant "absent").
 The CRC is KOS's `net_crc16ccitt` (poly 0x1021, init 0) over the 780 B
 `total_size` with the crc field zeroed, not over the 1024 B block-padded file
 (`tools/kos/kernel/arch/dreamcast/util/vmu_pkg.c:154,166`). `--icon` writes the
 32×32 4 bpp ARGB4444 icon as a PNG enlarged 8× (stdlib only) to be looked at.
 `scripts/test_vmu_decode.py` (in `make test`) covers the CRC vector, payload
 names, a synthetic card with out-of-order FAT chains and a flipped byte, and
-the exit codes. The canary reads exit 1 as "absent" and anything else as "a
-save is there".
+the exit codes (4 and 5 incl. looping directory and file chains), and pins
+the `FUNC_WORDS` order the payload's function ids index. The canary accepts
+exactly 4 as "absent".
 
 ### Canary changes (`scripts/test_vmu_untouched.sh`, `make test-vmu`)
 
@@ -3469,15 +3468,22 @@ it); the original harness is §VMU canary harness above.
   no longer applies to `make test-vmu` (§T9 release candidate). The menu sits
   idle for the 150 s window: the three `0xA5` cards are not readable (the
   loader skips them), B1 is readable and empty (Flycast auto-formats a
-  missing or all-zero file, `maple_devs.cpp:433-476`), nothing is dirty,
+  missing or all-zero file: the all-zero check `maple_devs.cpp:469-475`
+  calls `initializeVmu`, `:420-431`), nothing is dirty,
   nothing is written. The window never reaches the game, so the game's own maple path
   (the 2026-09-03 coverage) needs a `MENU=0` build; it was not re-run here
   (`loader/main.c` and `shims/src` unchanged).
 - New: B1, the one card the loader can read, must hold no `SENKOSP_SYS`
-  (`vmu_decode.py` exit exactly 1; 0, 3 or anything else FAILs). Before this a
-  menu write to B1 still printed PASS, since B1 only had to be non-zero.
-  Negative control (check lines run on a scratch card): a save copied to B1 →
-  `FAIL B1 holds a SENKOSP_SYS (menu wrote)`.
+  (`vmu_decode.py` exit exactly 4: `OK   no SENKOSP_SYS on B1 (vmu_decode.py
+  rc=4: root valid, directory walked)`; 0 or 3 → `FAIL B1 holds a
+  SENKOSP_SYS: the menu wrote`, anything else → `FAIL B1 not decodable …:
+  absence unproven`). Before this a menu write to B1 still printed PASS,
+  since B1 only had to be non-zero; and until the final review the check took
+  exit 1, which a Python crash or a broken image also gives. Negative control
+  (the check lines copied verbatim, run on scratch cards, 2026-11-01): the
+  diag leg's saved card → FAIL rc 0; Flycast's own blank card (the fork's
+  `vmu_default`, `maple_devs.cpp:331`, zlib-decompressed) → OK rc 4; an
+  all-zero image → FAIL rc 5.
 - New: transient `-config config:pvr.rend=0` (a leftover `pvr.rend = 4` in
   `emu.cfg` segfaults the bundle in `VulkanRenderer::Init`, §RAWFB "Launch
   gotcha") and a 1 s liveness poll: Flycast gone before the window ends is
@@ -3490,4 +3496,5 @@ it); the original harness is §VMU canary harness above.
 - PASS 153 s wall, headless, on the menu build
   (`captures/vmu-save/test-vmu-headless.txt`): `OK` ×3 canaries unchanged, `OK
   control B1 auto-formatted`, `OK no SENKOSP_SYS on B1`, `PASS: no VMU
-  writes`.
+  writes`. Re-run after the final fixes, PASS with the rc=4 line
+  (`captures/vmu-save/test-vmu-finalfix.txt`).
