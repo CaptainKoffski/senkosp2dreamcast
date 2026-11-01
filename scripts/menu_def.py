@@ -142,4 +142,20 @@ CTL_CLASSES = [("PAD", PAD_BUTTONS, PAD_LAYOUTS, PAD_ANCHORS),
 CTL_ROW_ITEMS = [f"P{p + 1} {name} LAYOUT" for name, *_ in CTL_CLASSES
                  for p in range(CTL_PORTS)]
 
-SHEET_W, SHEET_H = 640, 1280    # fixed; generator asserts everything fits
+# ---- VMU persistence (spec docs/superpowers/specs/2026-11-01-vmu-persistence-design.md) --
+# Status line under the top menu: "{}" = the VMU slot token, always the last
+# word (the generator blits message + token as two strips so the token can be
+# any of VMU_SLOTS). Dict order = the MENU_VMU_* index in menu_layout.h.
+VMU_SLOTS = ["A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2"]      # index = port*2 + unit-1
+VMU_LINES = {                                                     # dict order = MENU_VMU_* index; "{}" = slot token, always last
+    "LOADED": "LOADED FROM VMU {}", "SAVED": "SAVED TO VMU {}", "SAVING": "SAVING TO VMU {}",
+    "ASK": "SAVE SETTINGS TO VMU {}", "REPLACE": "REPLACE SAVE ON VMU {}",
+    "FULL": "NEED 2 FREE BLOCKS ON VMU {}", "FAILED": "SAVE FAILED ON VMU {}",
+    "NOCARD": "NO VMU: CHANGES WON'T BE KEPT", "DECLINED": "NOT SAVED: KEPT UNTIL POWER OFF",
+}
+VMU_PROMPT_FOOTERS = ["A: YES   B: NO", "A: YES   B: NO   LEFT/RIGHT: OTHER VMU"]   # [1] when > 1 card
+VMU_ICON_TEXT = "SR"
+VMU_FILE = {"name": "SENKOSP_SYS", "short": "SENKO NO RONDE",
+            "long": "DC PORT SETTINGS AND CONTROLS", "app": "SENKOSP2DC"}
+
+SHEET_W, SHEET_H = 640, 1536    # fixed; generator asserts everything fits

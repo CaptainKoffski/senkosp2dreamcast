@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """T9 offline asset generator (Pillow -- NOT a build dependency; outputs are
-committed). Renders loader/menu_sheet.pal8 (640x1280 8bpp palettized sprite
+committed). Renders loader/menu_sheet.pal8 (640x1536 8bpp palettized sprite
 sheet) + its decoded preview menu_sheet.png and the two controls pages,
 loader/controls_pad.png / controls_stick.png (640x480), and
 emits loader/menu_layout.h (sheet rects + dest coordinates + the settings byte
@@ -14,6 +14,7 @@ composite the label chips onto the pages exactly as the C code blits them, and
 are the only check that an anchor actually lands beside its button.
     python3 scripts/gen_menu_assets.py
 """
+import math
 import os
 import re
 import sys
@@ -112,6 +113,8 @@ LOGO_X, LOGO_Y = (640 - LOGO_W) // 2, 16   # menu_layout.h is stable even when
 CTL_ROW_LABEL_X = 48
 CTL_ROW_VALUE_X = 344
 CTL_FOOTER_Y = 452              # same line as the top/settings footers
+VMU_LINE_Y = 416                # VMU status line: 24 px between the top items (end 399)
+                                # and the footer (452)
 
 # The two controls-page label columns. chip_x is where menu.c blits the
 # function chip (== menu_def's anchor x); chips are bare function words since
@@ -595,6 +598,71 @@ def main():
         put_centered(draw, r, text, F_ROW, GREY)
         ctl_footer_rects.append(r)
 
+    # VMU status line (menu_def VMU_LINES): menu.c blits the message strip
+    # (text-width, left-aligned, trailing space kept when tokened) and then one
+    # of the 8 equal-width slot-token strips right after it, so the sheet holds
+    # 9 + 8 strips instead of 72 baked combinations. No side padding (pad=0):
+    # the strips butt, so message + token read as one string with its natural
+    # space (pad 2 looked like a double space). Checked: no glyph of any strip
+    # inks left of its origin or past its advance, so nothing is clipped.
+    slot_text_w = {t: draw.textlength(t, font=F_ROW) for t in M.VMU_SLOTS}
+    widest_slot = max(slot_text_w, key=slot_text_w.get)
+    tok_w = math.ceil(slot_text_w[widest_slot])
+    vmu_line_rects, vmu_line_x, vmu_has_token = [], [], []
+    for text in M.VMU_LINES.values():
+        tokened = "{}" in text
+        assert not tokened or (text.endswith(" {}") and text.count("{}") == 1), \
+            f"{text!r}: the slot token must be the last word, once"
+        msg = text.replace("{}", "")
+        check_fits(draw, 640, 24, msg + (widest_slot if tokened else ""), F_ROW)
+        msg_w = math.ceil(draw.textlength(msg, font=F_ROW))
+        r = shelf.place(msg_w, 24)
+        put_left(draw, r, msg, F_ROW, FG, pad=0)
+        vmu_line_rects.append(r)
+        vmu_line_x.append((640 - (msg_w + (tok_w if tokened else 0))) // 2)
+        vmu_has_token.append(int(tokened))
+    vmu_slot_rects = []
+    for t in M.VMU_SLOTS:
+        r = shelf.place(tok_w, 24)
+        put_left(draw, r, t, F_ROW, FG, pad=0)
+        vmu_slot_rects.append(r)
+    vmu_foot_rects = []
+    for text in M.VMU_PROMPT_FOOTERS:
+        r = shelf.place(640, 24)
+        check_fits(draw, 640, 24, text, F_ROW)
+        put_centered(draw, r, text, F_ROW, GREY)
+        vmu_foot_rects.append(r)
+
+    # VMU save icon (the file's 32x32 4bpp icon, vmu_pkg.h icon_pal/icon_data):
+    # only the letters + flat menu-colour bands, no game art. Packed the way
+    # KOS reads it -- 2 px/byte, high nibble = left pixel, rows top-down
+    # (tools/kos/kernel/arch/dreamcast/util/vmu_pkg.c:318-332, 512 B/frame) --
+    # palette ARGB4444 by the same truncation as vmu_pkg.c:225-230.
+    icon = Image.new("RGB", (32, 32), BG)
+    idraw = ImageDraw.Draw(icon)
+    idraw.rectangle([0, 22, 31, 31], fill=AMBER)
+    isize = 40
+    while True:                     # largest size whose ink fits 32 px, margin 2
+        ifont = ImageFont.truetype(FONT_PATH, isize)
+        ibox = idraw.textbbox((0, 0), M.VMU_ICON_TEXT, font=ifont)
+        if ibox[2] - ibox[0] <= 32 - 2:
+            break
+        isize -= 1
+    check_fits(idraw, 32, 22, M.VMU_ICON_TEXT, ifont, margin=2)
+    idraw.text((16 - (ibox[0] + ibox[2]) // 2, 11 - (ibox[1] + ibox[3]) // 2),
+               M.VMU_ICON_TEXT, font=ifont, fill=FG)
+    iq = icon.quantize(16, dither=Image.Dither.NONE)
+    ipal = (iq.getpalette() + [0] * 48)[:48]
+    vmu_icon_pal = [0xF000 | (r >> 4) << 8 | (g >> 4) << 4 | (b >> 4)
+                    for r, g, b in zip(ipal[0::3], ipal[1::3], ipal[2::3])]
+    ipx = iq.tobytes()
+    assert len(set(ipx)) >= 2 and max(ipx) < 16, "icon quantized to one colour"
+    vmu_icon = bytes(ipx[i] << 4 | ipx[i + 1] for i in range(0, 1024, 2))
+    assert len(vmu_icon) == 512
+    vf = M.VMU_FILE        # vmu_hdr_t: desc_short[16], desc_long[32], app_id[16]
+    assert len(vf["short"]) <= 16 and len(vf["long"]) <= 32 and len(vf["app"]) <= 16 \
+        and len(vf["name"]) <= 12, "VMU_FILE strings exceed the vmu_hdr_t / dirent fields"
+
     assert shelf.bottom <= M.SHEET_H, \
         f"sheet content {shelf.bottom}px exceeds {M.SHEET_H}px budget"
     # Canvas was allocated at the full sheet size up front and pre-filled with
@@ -686,6 +754,11 @@ def main():
         print("gen_menu_assets: logo.png missing (gitignored branded art) -- "
               "logo_strip.pal8 not regenerated; loader build needs it")
 
+    top_dest_y = [275, 319, 363]    # below the logo strip (was 178..302
+                                    # centered, pre-logo); footer 452 unmoved
+    assert top_dest_y[-1] + 36 <= VMU_LINE_Y and VMU_LINE_Y + 24 <= 452, \
+        "VMU status line must sit between the top items and the footer"
+
     # ---- previews (verification discipline: chips composited exactly as
     # the C code blits them, so the anchors are checked against the truth)
     build_dir = os.path.join(REPO, "build")
@@ -740,9 +813,36 @@ def main():
     preview("pad_full", 0, pad["TOURNAMENT"], 0,
             [tourn, custom[7], arcade, arcade], "FULL")
 
+    def vmu_preview(name, line, slot, foot_rect):
+        """Top page as menu.c will draw it: logo, three labels (item 0
+        highlighted), the footer strip at (0, 452), then the status line --
+        band cleared to BG, message strip, slot token right after it."""
+        pv = Image.new("RGB", (640, 480), BG)
+        logo_png = os.path.join(LOADER_DIR, "logo_strip.png")
+        if os.path.exists(logo_png):
+            pv.paste(Image.open(logo_png), (LOGO_X, LOGO_Y))
+        for i, (norm, hi) in enumerate(top_label_rects):
+            pv.paste(sheet.crop(box_of(hi if i == 0 else norm)),
+                     ((640 - norm[2]) // 2, top_dest_y[i]))
+        pv.paste(sheet.crop(box_of(foot_rect)), (0, 452))
+        fill_rect(ImageDraw.Draw(pv), (0, VMU_LINE_Y, 640, 24), BG)
+        i = list(M.VMU_LINES).index(line)
+        pv.paste(sheet.crop(box_of(vmu_line_rects[i])), (vmu_line_x[i], VMU_LINE_Y))
+        if vmu_has_token[i]:
+            pv.paste(sheet.crop(box_of(vmu_slot_rects[M.VMU_SLOTS.index(slot)])),
+                     (vmu_line_x[i] + vmu_line_rects[i][2], VMU_LINE_Y))
+        pv.save(os.path.join(build_dir, f"preview_{name}.png"))
+
+    vmu_preview("top_vmu", "LOADED", "A1", top_footer_rect)
+    vmu_preview("top_vmu_prompt", "REPLACE", "B1", vmu_foot_rects[1])
+    # the icon as the card will show it: decoded from the emitted palette +
+    # packed bytes (high nibble first), x8 nearest
+    dec = Image.new("RGB", (32, 32))
+    dec.putdata([tuple(((vmu_icon_pal[n] >> sh) & 0xF) * 17 for sh in (8, 4, 0))
+                 for b in vmu_icon for n in (b >> 4, b & 15)])
+    dec.resize((256, 256), Image.NEAREST).save(os.path.join(build_dir, "vmu_icon.png"))
+
     # ---- loader/menu_layout.h -------------------------------------------
-    top_dest_y = [275, 319, 363]    # below the logo strip (was 178..302
-                                    # centered, pre-logo); footer 452 unmoved
     lines = [
         "/* GENERATED by scripts/gen_menu_assets.py from scripts/menu_def.py --"
         " do not edit. Committed alongside the PNGs it describes. */",
@@ -927,6 +1027,46 @@ def main():
     lines.append(f"#define CTL_ROW_LABEL_X {CTL_ROW_LABEL_X}")
     lines.append(f"#define CTL_ROW_VALUE_X {CTL_ROW_VALUE_X}")
     lines.append(f"#define CTL_ROW_Y(i) ({CTL_ROW_Y(0)} + (i) * 34 + ((i) / CTL_PORTS) * 12)")
+    lines.append("")
+    lines.append("/* ---- VMU persistence (docs/superpowers/specs/2026-11-01-vmu-persistence-design.md) ----"
+                 "\n * Status line: clear the 24-px band at MENU_VMU_LINE_Y to MENU_BG_COLOR, blit"
+                 "\n * MENU_VMU_LINE[l] at (MENU_VMU_LINE_X[l], MENU_VMU_LINE_Y) and, when"
+                 "\n * MENU_VMU_HAS_TOKEN[l], MENU_VMU_SLOT[port*2 + unit-1] at (MENU_VMU_LINE_X[l] +"
+                 "\n * MENU_VMU_LINE[l].w, MENU_VMU_LINE_Y). The prompt footers replace the top"
+                 "\n * footer: blit at (0, MENU_TOP_FOOTER_Y). Icon: vmu_pkg_t icon_pal / icon_data"
+                 "\n * (tools/kos/kernel/arch/dreamcast/include/dc/vmu_pkg.h), packed as"
+                 "\n * vmu_pkg.c:318-332 reads it. */")
+    lines.append(f"#define MENU_VMU_LINE_Y {VMU_LINE_Y}")
+    lines.append("#define MENU_VMU_NONE (-1)")
+    for i, key in enumerate(M.VMU_LINES):
+        lines.append(f"#define MENU_VMU_{key} {i}")
+    lines.append(f"#define MENU_VMU_N_LINES {len(M.VMU_LINES)}")
+    lines.append(f"static const mrect_t MENU_VMU_LINE[{len(M.VMU_LINES)}] = {{"
+                 + ", ".join(R(r) for r in vmu_line_rects) + "};   /* "
+                 + ", ".join(M.VMU_LINES) + " */")
+    lines.append(f"static const unsigned short MENU_VMU_LINE_X[{len(M.VMU_LINES)}] = {{"
+                 + ", ".join(map(str, vmu_line_x)) + "};")
+    lines.append(f"static const unsigned char MENU_VMU_HAS_TOKEN[{len(M.VMU_LINES)}] = {{"
+                 + ", ".join(map(str, vmu_has_token)) + "};")
+    lines.append(f"static const mrect_t MENU_VMU_SLOT[{len(M.VMU_SLOTS)}] = {{"
+                 + ", ".join(R(r) for r in vmu_slot_rects) + "};   /* index = port*2 + unit-1: "
+                 + ", ".join(M.VMU_SLOTS) + " */")
+    lines.append(f"static const mrect_t MENU_VMU_FOOT[{len(M.VMU_PROMPT_FOOTERS)}] = {{"
+                 + ", ".join(R(r) for r in vmu_foot_rects) + "};   /* [1] when > 1 card */")
+    lines.append(f"static const unsigned char CTL_DEMO_FUNC[CTL_N_BUTTONS] = {{"
+                 + ", ".join(str(M.FUNC_WORDS.index(M.CUSTOM_DEMO[b])) for b in M.PAD_BUTTONS)
+                 + "};   /* CUSTOM_DEMO in PAD_BUTTONS order: "
+                 + ", ".join(cid(M.CUSTOM_DEMO[b]) for b in M.PAD_BUTTONS) + " */")
+    lines.append(f'#define VMU_FILE_NAME_STR "{vf["name"]}"')
+    lines.append(f'#define VMU_DESC_SHORT "{vf["short"]}"')
+    lines.append(f'#define VMU_DESC_LONG "{vf["long"]}"')
+    lines.append(f'#define VMU_APP_ID "{vf["app"]}"')
+    lines.append("static const unsigned short VMU_ICON_PAL[16] = {"
+                 + ", ".join(f"0x{c:04x}" for c in vmu_icon_pal) + "};   /* ARGB4444, alpha 0xF */")
+    lines.append("static const unsigned char VMU_ICON[512] = {   /* 32x32 4bpp, row-major top-down, high nibble = left pixel */")
+    for y in range(32):
+        lines.append("  " + ", ".join(f"0x{b:02x}" for b in vmu_icon[y * 16:y * 16 + 16]) + ",")
+    lines.append("};")
     lines.append("")
     lines.append("#endif /* MENU_LAYOUT_H */")
 
