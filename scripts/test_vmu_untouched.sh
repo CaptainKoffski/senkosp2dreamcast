@@ -6,6 +6,7 @@
 #   attract [secs]  -- unattended: boot + attract, auto-quit after secs
 #                      (default 150 -- senkosp's BIOS anim + NOW LOADING
 #                      stream is slower than Cleopatra's 90 s window).
+#                      FAILs (exit 1) if Flycast is gone before the window ends.
 #   play            -- headed: tester plays as long as they like, quits Flycast;
 #                      the longer/wider the session, the more paths observed.
 #
@@ -48,9 +49,14 @@ ZERO_SUM="$(shasum -a 256 "$VMUDIR/vmu_save_B1.bin" | cut -d' ' -f1)"
 
 # Transient config (cfg keys: flycast core/cfg/option.cpp:145,201-215,234,238):
 # VMU dir redirect, no per-game VMU, no MapleLink physical VMU, vsync off
-# (unfocused-window deadlock), controller+VMUs pinned on ports A and B.
+# (unfocused-window deadlock), controller+VMUs pinned on ports A and B,
+# pvr.rend=0 (OpenGL): a leftover `pvr.rend = 4` (Vulkan) in emu.cfg segfaults
+# this bundle in VulkanRenderer::Init (no MoltenVK), ~1 s after launch --
+# docs/kb/tooling.md §RAWFB ("Launch gotcha"); every unattended leg passes it
+# (capture_rawfb_leg.sh). Without it the run dies before the window opens.
 CFG="-config config:Dreamcast.VMUPath=$VMUDIR -config config:PerGameVmu=no \
  -config config:UsePhysicalVmuMemory=no -config config:rend.vsync=no \
+ -config config:pvr.rend=0 \
  -config input:device1=0 -config input:device1.1=1 -config input:device1.2=1 \
  -config input:device2=0 -config input:device2.1=1 -config input:device2.2=1"
 
@@ -62,7 +68,15 @@ else
     "$BIN" $CFG "$DISC" &
     PID=$!
     echo "Attract run ${SECS}s (PID $PID)..."
-    sleep "$SECS"
+    # Liveness: a Flycast that died early (renderer segfault, SH4 vmem flake)
+    # observed nothing, so "unchanged" proves nothing -- FAIL, never PASS.
+    t=0
+    while [ "$t" -lt "$SECS" ] && kill -0 "$PID" 2>/dev/null; do sleep 1; t=$((t+1)); done
+    if ! kill -0 "$PID" 2>/dev/null; then
+        rc=0; wait "$PID" 2>/dev/null || rc=$?
+        echo "FAIL: Flycast exited early after $t s (rc=$rc); kept $VMUDIR for forensics"
+        exit 1
+    fi
     # Graceful quit, NOT kill -9: VMU fwrites are stdio-buffered and only
     # guaranteed on-disk after clean fclose (maple_devs.cpp fullSave/BlockWrite
     # have no fflush) -- a SIGKILL could hide a small write = false PASS.

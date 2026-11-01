@@ -39,8 +39,11 @@ defaults write com.flyinghead.Flycast ApplePersistenceIgnoreState -bool YES 2>/d
 defaults write com.flyinghead.Flycast NSQuitAlwaysKeepsWindows -bool false 2>/dev/null || true
 
 # fly <name> <secs> <a1dev> <vmudir> [usr2_at]
-# Pad on port A with VMU A1 only (a1dev 1 = VMU, 10 = MDT_None: maple_cfg.h) --
-# ports B..D and A2 pinned to None so the card count is the leg's, not emu.cfg's.
+# Pad on port A with VMU A1 only (a1dev 1 = MDT_SegaVMU, 10 = MDT_None; NOT 0,
+# which is MDT_SegaController): MapleDeviceType values at
+# ../flycast4naomi2dreamcast/core/hw/maple/maple_cfg.h:8 (SegaController = 0),
+# :9 (SegaVMU = 1), :18 (MDT_None = 10). Ports B..D and A2 are pinned to None so
+# the card count is the leg's, not emu.cfg's (which has a pad + two VMUs on B).
 # pvr.rend=0: a leftover Vulkan setting segfaults this bundle (tooling.md §RAWFB).
 # Log: $OUT/<name>.stdout.log; a startup SH4 vmem "Verify Failed" (known host
 # flake) is set aside as <name>.flakeN.stdout.log and relaunched, up to 3 tries.
