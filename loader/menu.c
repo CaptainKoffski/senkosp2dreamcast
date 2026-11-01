@@ -407,18 +407,28 @@ static void vmu_boot(void) {
 /* The consent prompt (spec §The prompt). Waits for A (index of the shown
  * card) or B (-1). LEFT/RIGHT cycle the shown card with wrap; the line is
  * redrawn only when the selection changes. UP/DOWN/START are ignored; edge()
- * keeps the reset combo live. */
+ * keeps the reset combo live. A and B are dead for the first
+ * VMU_PROMPT_DEAD polls (~0.5 s): the scan before the prompt takes ~250 ms
+ * a card, so a B mashed out of a sub-screen would otherwise answer a prompt
+ * nobody saw, for the whole session. Then they act on RELEASE, like START in
+ * menu_run: an A or B that is the first of A+B+X+Y+START to land must reboot
+ * (edge() sees the combo while we wait), not consent or decline. */
+#define VMU_PROMPT_DEAD 30
 static int vmu_prompt(const vmu_card_t *cards, int n) {
     int i = 0, shown = -1;
     blit(MENU_VMU_FOOT[n > 1], MENU_TOP_FOOTER_X, MENU_TOP_FOOTER_Y);
-    for (;;) {
+    for (int t = 0;; t++) {
         if (i != shown) {
             shown = i;
             vmu_show(cards[i].has_file ? MENU_VMU_REPLACE : MENU_VMU_ASK, vmu_slot_of(&cards[i]));
         }
         uint32 e = edge();
-        if (e & CONT_B) { i = -1; break; }
-        if (e & CONT_A) break;
+        if (t < VMU_PROMPT_DEAD) e &= ~(uint32)(CONT_A | CONT_B);
+        if (e & (CONT_A | CONT_B)) {
+            while (held & (CONT_A | CONT_B)) edge();
+            if (e & CONT_B) i = -1;                      /* B wins a same-frame A+B, as before */
+            break;
+        }
         if (e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT))      /* n == 1: stays 0 */
             i = (i + ((e & CONT_DPAD_RIGHT) ? 1 : n - 1)) % n;
     }
@@ -544,9 +554,15 @@ void menu_run(void) {
         if ((e & (CONT_DPAD_UP | CONT_DPAD_DOWN)) && vmu_nocard_clear())
             vmu_show(vmu_line, vmu_tok);         /* top page redrawn: the NO VMU warning must not lie */
         if (e & CONT_A) {
+            /* A acts on release too, for the same reason; and both
+             * sub-screens return on a B press, so wait that B out before
+             * vmu_sync: a B that starts the combo must reboot, not save the
+             * edits it was abandoning. */
+            while (held & CONT_A) edge();
             if (cur == 0) break;
             if (cur == 1) settings_screen();
             else          controls_screen();
+            while (held & CONT_B) edge();
             clear_bg();                          /* sub-screen leftovers */
             draw_logo();
             draw_top(cur);
@@ -555,5 +571,7 @@ void menu_run(void) {
         }
     }
     vmu_sync();                                  /* sync point 2: START, or A on START GAME; the game starts after it */
+    if (vmu_line == MENU_VMU_FULL || vmu_line == MENU_VMU_FAILED)
+        thd_sleep(1000);                         /* let the failure be read before the splash covers it */
     memcpy(vram_s, splash_bin, 640 * 480 * 2);   /* today's load screen */
 }
