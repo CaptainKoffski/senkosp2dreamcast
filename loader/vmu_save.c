@@ -4,12 +4,18 @@
 #include <string.h>
 #include "vmu_save.h"
 
+/* Unused slots go out as zeros: ctl_delete keeps a freed slot's bytes, and
+ * vmu_dirty compares built payloads, so leftovers would read as a change. */
 void vmu_payload_build(unsigned char out[VMU_PAYLOAD_LEN], const unsigned char rec[16], const ctl_lib_t *L) {
+    ctl_lib_t t = *L;
+    for (int cls = 0; cls < CTL_N_CLASS; cls++)
+        for (int s = 0; s < CTL_N_CUSTOM; s++)
+            if (!t.used[cls][s]) memset(t.custom[cls][s], 0, CTL_N_BUTTONS);
     memset(out, 0, 8);
     memcpy(out, "SKSP", 4);
     out[4] = 1;
     memcpy(out + 8, rec, 16);
-    memcpy(out + 24, L, sizeof *L);
+    memcpy(out + 24, &t, sizeof t);
 }
 
 /* Validate everything into locals; touch rec/L only once the whole file passed. */
@@ -50,12 +56,13 @@ int vmu_payload_parse(const unsigned char *buf, unsigned len, unsigned char rec[
 static unsigned le16(const unsigned char *r, int off) { return r[off] | (unsigned)r[off + 1] << 8; }
 
 /* Offsets: vmu_save.h. Bounds: dir_size/fat_size feed KOS mallocs, blk_cnt
- * and the *_loc fields index the 256-block card / 256-entry FAT. */
+ * and the *_loc fields index the 256-block card / 256-entry FAT; blk_cnt
+ * <= 255 because KOS indexes fat[blk_cnt] itself (vmu_save.h). */
 int vmu_root_ok(const unsigned char root[512]) {
     int i;
     for (i = 0; i < 16; i++) if (root[i] != 0x55) return 0;
     return le16(root, 0x48) == 1 && le16(root, 0x4c) >= 1 && le16(root, 0x4c) <= 13 &&
-           le16(root, 0x50) <= 256 && le16(root, 0x46) < 256 && le16(root, 0x4a) < 256;
+           le16(root, 0x50) <= 255 && le16(root, 0x46) < 256 && le16(root, 0x4a) < 256;
 }
 
 int vmu_decide(const vmu_home_t *home, int declined, const vmu_card_t *cards, int n) {
@@ -98,28 +105,41 @@ static const vmu_dir_t *find_ours(const vmu_dir_t *dir, int cnt) {
  * and apply vmu_root_ok BEFORE any vmufs_* call: those trust the root's
  * sizes (the header comment). Zeroed first: vmu_block_read copies only
  * (data_len - 2) * 4 bytes of the response (hardware/maple/vmu.c:475), so a
- * short reply would otherwise leave the previous card's root in a reused
- * buffer (vmu_scan reuses one). */
+ * short reply would otherwise leave stale stack bytes in the root. */
 static int read_root(maple_device_t *dev, unsigned char root[512]) {
     memset(root, 0, 512);
     return vmu_block_read(dev, 255, root) == 0 && vmu_root_ok(root);
 }
 
+/* The card's identity (vmu_save.h) and a copy of our dirent (filetype 0 when
+ * there is none). 0 ok; -1 root unreadable or invalid, or the directory read
+ * failed -- such a card is skipped, never reported as "no file". */
+static int read_card(maple_device_t *dev, unsigned char fp[VMU_FP_LEN], vmu_dir_t *ours) {
+    unsigned char root[512];
+    vmu_dir_t *dir = NULL;   /* vmufs_readdir mallocs it (fs/vmufs.c:564-611): caller frees; NULL on failure */
+    const vmu_dir_t *o;
+    int cnt = 0;
+    if (!read_root(dev, root) || vmufs_readdir(dev, &dir, &cnt) != 0) { free(dir); return -1; }
+    o = find_ours(dir, cnt);
+    memset(ours, 0, sizeof *ours);
+    if (o) *ours = *o;
+    free(dir);
+    memcpy(fp, root + VMU_ROOT_FP_OFF, 8);
+    memcpy(fp + 8, &ours->timestamp, 8);
+    return 0;
+}
+
 /* Read-only. Units 1 and 2 of each port only (the menu's 8-slot table). */
 int vmu_scan(vmu_card_t out[8]) {
-    unsigned char root[512];
     maple_device_t *dev;
+    vmu_dir_t ours;
     int n = 0, i;
 
     for (i = 0; n < 8 && (dev = maple_enum_type(i, MAPLE_FUNC_MEMCARD)) != NULL; i++) {
-        vmu_dir_t *dir = NULL;   /* vmufs_readdir mallocs it (fs/vmufs.c:564-): caller frees; NULL on failure */
-        int cnt = 0;
-        if ((dev->unit != 1 && dev->unit != 2) || !read_root(dev, root)) continue;
+        if ((dev->unit != 1 && dev->unit != 2) || read_card(dev, out[n].fp, &ours) != 0) continue;
         out[n].port = dev->port;
         out[n].unit = dev->unit;
-        memcpy(out[n].fp, root + VMU_ROOT_FP_OFF, VMU_FP_LEN);
-        out[n].has_file = vmufs_readdir(dev, &dir, &cnt) == 0 && find_ours(dir, cnt) != NULL;
-        free(dir);
+        out[n].has_file = ours.filetype != 0;
         n++;
     }
     return n;
@@ -129,18 +149,23 @@ int vmu_scan(vmu_card_t out[8]) {
  * the whole payload validated. */
 int vmu_load(const vmu_card_t *c, unsigned char rec[16], ctl_lib_t *L) {
     maple_device_t *dev = maple_enum_dev(c->port, c->unit);
-    unsigned char root[512];
+    unsigned char fp[VMU_FP_LEN];
+    vmu_dir_t ours;
     void *buf;
     int size, rc = -1;
     vmu_pkg_t pkg;
 
-    /* The card may have changed since vmu_scan: vmufs_read trusts the root's
-     * sizes (the header comment), so prove the root again right before it. The
-     * fingerprint is not required here, only a root the KOS mallocs can trust. */
-    if (!dev || !read_root(dev, root)) return -1;
-    /* vmufs_read mallocs dirent->filesize * 512 bytes (fs/vmufs.c:616-617) and
-     * leaves buf NULL on failure; a zero-block dirent yields an empty buffer. */
-    if (vmufs_read(dev, VMU_FILE_NAME, &buf, &size) != 0) return -1;
+    /* The card may have changed since vmu_scan: the vmufs_* calls trust the
+     * root's sizes (the header comment), so prove the root again right before
+     * them. The fingerprint is not required here, only a root the KOS mallocs
+     * can trust. Then the dirent: KOS mallocs filesize * 512 (fs/vmufs.c:616-617)
+     * and does one maple block read per block, bounded only by filesize
+     * (fs/vmufs.c:243-276; a cyclic FAT chain does not stop it), so a corrupt
+     * filesize could stall boot. Ours is 2 blocks; over 8 is not our file. */
+    if (!dev || read_card(dev, fp, &ours) != 0 || ours.filesize < 1 || ours.filesize > 8) return -1;
+    /* Read exactly the dirent just checked (fs/vmufs.c:669-686), not a second
+     * lookup by name. buf is NULL on failure. */
+    if (vmufs_read_dirent(dev, &ours, &buf, &size) != 0) return -1;
     /* vmu_pkg_parse reads the header before it looks at data_size
      * (util/vmu_pkg.c:149-154), so demand a whole block first. It then
      * bounds the payload by the buffer and verifies the CRC16 over total_size
@@ -154,26 +179,23 @@ int vmu_load(const vmu_card_t *c, unsigned char rec[16], ctl_lib_t *L) {
 
 /* Consent was decided by the caller; this only re-proves the card is the one
  * that was consented to, then writes. */
-int vmu_write(const vmu_card_t *c, const unsigned char rec[16], const ctl_lib_t *L) {
+int vmu_write(vmu_card_t *c, const unsigned char rec[16], const ctl_lib_t *L) {
     maple_device_t *dev = maple_enum_dev(c->port, c->unit);
-    unsigned char root[512], payload[VMU_PAYLOAD_LEN], blk[VMU_BLOCKS * 512];
-    const vmu_dir_t *ours;
-    vmu_dir_t *dir = NULL;
+    unsigned char fp[VMU_FP_LEN], payload[VMU_PAYLOAD_LEN], blk[VMU_BLOCKS * 512];
+    vmu_dir_t ours;
     vmu_pkg_t pkg;
     uint8_t *vms;
-    int cnt, vms_len, existing = 0, avail, rc;
+    int vms_len, existing, avail, rc;
 
     /* Closes the swap window after a consented-but-failed first write: the
-     * card in the slot must still carry the fingerprint the user agreed to. */
-    if (!dev || !read_root(dev, root) || memcmp(root + VMU_ROOT_FP_OFF, c->fp, VMU_FP_LEN) != 0)
+     * card in the slot must still carry the whole fingerprint (root and
+     * dirent stamps) the user agreed to. */
+    if (!dev || read_card(dev, fp, &ours) != 0 || memcmp(fp, c->fp, VMU_FP_LEN) != 0)
         return VMU_WRITE_FAIL;
 
     /* VMUFS_OVERWRITE deletes our old file first (fs/vmufs.c:711-727), so its
-     * blocks count as available. */
-    if (vmufs_readdir(dev, &dir, &cnt) != 0) return VMU_WRITE_FAIL;
-    ours = find_ours(dir, cnt);
-    if (ours) existing = ours->filesize;
-    free(dir);
+     * blocks count as available (ours is zeroed when there is none). */
+    existing = ours.filesize;
     avail = vmufs_free_blocks(dev);
     if (avail < 0) return VMU_WRITE_FAIL;
     if (avail + existing < VMU_BLOCKS) return VMU_WRITE_FULL;
@@ -200,6 +222,11 @@ int vmu_write(const vmu_card_t *c, const unsigned char rec[16], const ctl_lib_t 
     memcpy(blk, vms, vms_len);
     free(vms);
     rc = vmufs_write(dev, VMU_FILE_NAME, blk, sizeof blk, VMUFS_OVERWRITE);
-    return rc < 0 ? VMU_WRITE_FAIL : VMU_WRITE_OK;
+    if (rc < 0) return VMU_WRITE_FAIL;
+    /* The new dirent carries a fresh RTC stamp (fs/vmufs.c:743), so the
+     * identity moved: re-read it for the caller's home. */
+    if (read_card(dev, fp, &ours) != 0 || !ours.filetype) return VMU_WRITE_NOFP;
+    memcpy(c->fp, fp, VMU_FP_LEN);
+    return VMU_WRITE_OK;
 }
 #endif

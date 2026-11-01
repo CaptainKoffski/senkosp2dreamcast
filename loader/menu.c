@@ -349,11 +349,13 @@ static void draw_logo(void) {
  * handoff. Load happens once, at boot (vmu_boot). Saving happens at the two
  * sync points (menu_run). A write is silent only to `vmu_home` (the card the
  * boot load came from, or the one the player pressed A for); vmu_decide
- * checks slot AND root fingerprint on a fresh scan every time. Anything else
- * asks (spec §Card identity, §Sync, §The prompt); B declines for the session.
+ * checks slot AND the 16-byte fingerprint (root stamp + our dirent's stamp,
+ * vmu_save.h) on a fresh scan every time. Anything else asks (spec §Card
+ * identity, §Sync, §The prompt); B declines for the session.
  * Every vmu_scan re-enumerates: KOS's maple VBLANK autodetect keeps the
  * device table current, hot-plugged cards included
- * (tools/kos/kernel/arch/dreamcast/hardware/maple/maple_irq.c:32-230). */
+ * (tools/kos/kernel/arch/dreamcast/hardware/maple/maple_irq.c:32-251,
+ * maple_vbl_irq_hnd at :230). */
 static vmu_home_t vmu_home;
 static int vmu_declined;
 static unsigned char vmu_saved[VMU_PAYLOAD_LEN];   /* payload as last loaded / written; defaults at boot */
@@ -424,18 +426,23 @@ static int vmu_prompt(const vmu_card_t *cards, int n) {
     return i;
 }
 
-/* Consent was already settled by the caller. SAVING is drawn before the first
- * maple write (the "don't pull the card" cue). Only an OK write moves
- * vmu_saved, so a failure stays dirty and the next sync point retries. */
-static void vmu_do_write(const vmu_card_t *c) {
+/* Consent was already settled by the caller, and c is vmu_home's card. SAVING
+ * is drawn before the first maple write (the "don't pull the card" cue). Only
+ * a written file moves vmu_saved, so a failure stays dirty and the next sync
+ * point retries. A write gives our dirent a new stamp, so home takes the new
+ * fingerprint (vmu_save.h); if it could not be re-read, home is dropped and
+ * the next change asks again. A failure keeps home as it was. */
+static void vmu_do_write(vmu_card_t *c) {
     int rc;
     vmu_tok = vmu_slot_of(c);
     vmu_line = MENU_VMU_SAVING;
     vmu_show(vmu_line, vmu_tok);
     rc = vmu_write(c, menu_game_record, &ctl_lib);
-    if (rc == VMU_WRITE_OK) {
+    if (rc >= 0) {
         vmu_payload_build(vmu_saved, menu_game_record, &ctl_lib);
         vmu_line = MENU_VMU_SAVED;
+        if (rc == VMU_WRITE_OK) memcpy(vmu_home.fp, c->fp, VMU_FP_LEN);
+        else                    vmu_home.valid = 0;
     } else {
         vmu_line = rc == VMU_WRITE_FULL ? MENU_VMU_FULL : MENU_VMU_FAILED;
     }

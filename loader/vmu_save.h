@@ -15,9 +15,20 @@
  *   0x15 pad1[27]  0x30 timestamp (8 BCD bytes, vmufs.h:41-50)  0x38 pad2[8]
  *   0x40 unk1[6]   0x46 fat_loc  0x48 fat_size  0x4a dir_loc  0x4c dir_size
  *   0x4e icon_shape  0x50 blk_cnt
- * KOS validates none of it (vmufs.c:482-: it mallocs dir_size/fat_size * 512
- * and indexes the 256-entry FAT by blk_cnt, vmufs.c:291-321), hence
- * vmu_root_ok. The timestamp is the card fingerprint (VMU_FP_LEN bytes). */
+ * KOS checks little of it: it refuses fat_size > 1 (vmufs.c:174, after
+ * mallocing fat_size * 512, :525-526), mallocs dir_size * 512 straight from
+ * the root (vmufs.c:503-504) and indexes the
+ * 256-entry FAT by blk_cnt (vmufs.c:291-321, :448-457) and by chain entries
+ * up to blk_cnt inclusive (vmufs_file_delete, vmufs.c:425) -- the
+ * memory-safety bound, so blk_cnt <= 255. Hence vmu_root_ok.
+ *
+ * Card identity (fp, VMU_FP_LEN = 16): the root timestamp (8 bytes @0x30),
+ * then our SENKOSP_SYS dirent's timestamp (8 bytes, vmu_dir_t.timestamp,
+ * vmufs.h:80; zeros when there is no file). The dirent half is filled from
+ * the RTC on every vmufs_write (vmufs.c:743 -> vmufs_dir_fill_time,
+ * :61-77), so cards whose root stamps collide (formatted in the same second;
+ * every Flycast blank card carries the same one) still differ once they carry
+ * a save. */
 #ifndef VMU_SAVE_H
 #define VMU_SAVE_H
 
@@ -25,7 +36,7 @@
 
 #define VMU_FILE_NAME    "SENKOSP_SYS"
 #define VMU_PAYLOAD_LEN  140
-#define VMU_FP_LEN       8
+#define VMU_FP_LEN       16              /* root ts + our dirent ts (above) */
 #define VMU_ROOT_FP_OFF  0x30            /* vmu_root_t.timestamp: 16 magic + 1 + 4 + 27 pad */
 
 typedef struct { unsigned char port, unit, has_file, fp[VMU_FP_LEN]; } vmu_card_t;  /* a readable card; has_file: a SENKOSP_SYS dirent exists by name */
@@ -45,9 +56,14 @@ int  vmu_decide(const vmu_home_t *home, int declined, const vmu_card_t *cards, i
 /* KOS half (Task 3) */
 int  vmu_scan(vmu_card_t out[8]);                                                                    /* readable cards, enumeration order; count */
 int  vmu_load(const vmu_card_t *c, unsigned char rec[16], ctl_lib_t *L);                             /* 0 ok; < 0 absent/invalid */
+/* vmu_write re-checks all of c->fp first. After a write our dirent's timestamp
+ * is new, so it re-reads the card: OK = c->fp is the card's new identity;
+ * NOFP = written, but the re-read failed and c->fp is stale (the caller drops
+ * home, so the next change asks again). */
 #define VMU_WRITE_OK    0
+#define VMU_WRITE_NOFP  1
 #define VMU_WRITE_FULL  (-1)
 #define VMU_WRITE_FAIL  (-2)
-int  vmu_write(const vmu_card_t *c, const unsigned char rec[16], const ctl_lib_t *L);
+int  vmu_write(vmu_card_t *c, const unsigned char rec[16], const ctl_lib_t *L);
 
 #endif
