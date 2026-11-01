@@ -9,7 +9,8 @@
  * Root block (block 255, read raw into the struct: vmufs_root_read,
  * tools/kos/kernel/arch/dreamcast/fs/vmufs.c:79-88) is vmu_root_t,
  * tools/kos/kernel/arch/dreamcast/include/dc/vmufs.h:55-70, uint16_t fields
- * little-endian on the SH-4:
+ * read as host integers by a raw block read, so little-endian on the SH-4
+ * (KOS builds with -ml: tools/kos/environ_dreamcast.sh:32):
  *   0x00 magic[16] (all 0x55)  0x10 use_custom  0x11 custom_color[4]
  *   0x15 pad1[27]  0x30 timestamp (8 BCD bytes, vmufs.h:41-50)  0x38 pad2[8]
  *   0x40 unk1[6]   0x46 fat_loc  0x48 fat_size  0x4a dir_loc  0x4c dir_size

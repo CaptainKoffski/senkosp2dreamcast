@@ -75,6 +75,13 @@ int main(void) {
     memcpy(buf, out, sizeof buf); buf[24 + 112] = CTL_N_STOCK[0] + 3;    rejects(buf, 140);   /* sel names unused slot 3 */
     memcpy(buf, out, sizeof buf); buf[8 + 0] ^= 1;                       rejects(buf, 140);   /* fixed record byte */
     memcpy(buf, out, sizeof buf); buf[8 + MENU_SET_IDX[0]] = 0x7f;       rejects(buf, 140);   /* setting byte off-table */
+    memcpy(buf, out, sizeof buf); buf[8 + MENU_SET_IDX[4]] = 0x00;      rejects(buf, 140);   /* padding slot 7 of MENU_SET_BYTE[4] (NVAL 7) */
+    {   /* stick class: sel names unused custom slot 3 (CTL_N_STOCK[1] + 3) */
+        ctl_lib_t Ls = L;
+        assert(Ls.used[1][3] == 0);
+        Ls.sel[1][0] = CTL_N_STOCK[1] + 3;
+        vmu_payload_build(buf, rec, &Ls);                                rejects(buf, 140);
+    }
 
     /* root guard */
     unsigned char r[512];
@@ -102,6 +109,8 @@ int main(void) {
     assert(vmu_decide(&h, 0, cards, 2) == VMU_ASK);                        /* same slot, other card */
     h = home(1, 0, 0, "11111111");
     assert(vmu_decide(&h, 0, cards + 1, 1) == VMU_ASK);                    /* home's card gone */
+    h = home(1, 0, 0, "1111111X");
+    assert(vmu_decide(&h, 0, cards, 2) == VMU_ASK);                        /* only the last fingerprint byte differs */
     h = home(0, 0, 0, "11111111");
     assert(vmu_decide(&h, 0, cards, 2) == VMU_ASK);                        /* invalid home never matches */
     vmu_card_t dup[2] = {card(1, 0, "11111111"), card(0, 1, "11111111")};  /* B1, A2: A1's fingerprint, wrong slot */
