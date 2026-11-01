@@ -96,8 +96,12 @@ static const vmu_dir_t *find_ours(const vmu_dir_t *dir, int cnt) {
 
 /* Block 255 is the root (KOS assumes it too: fs/vmufs.c:79-82). Read it raw
  * and apply vmu_root_ok BEFORE any vmufs_* call: those trust the root's
- * sizes (the header comment). */
+ * sizes (the header comment). Zeroed first: vmu_block_read copies only
+ * (data_len - 2) * 4 bytes of the response (hardware/maple/vmu.c:475), so a
+ * short reply would otherwise leave the previous card's root in a reused
+ * buffer (vmu_scan reuses one). */
 static int read_root(maple_device_t *dev, unsigned char root[512]) {
+    memset(root, 0, 512);
     return vmu_block_read(dev, 255, root) == 0 && vmu_root_ok(root);
 }
 
@@ -125,17 +129,23 @@ int vmu_scan(vmu_card_t out[8]) {
  * the whole payload validated. */
 int vmu_load(const vmu_card_t *c, unsigned char rec[16], ctl_lib_t *L) {
     maple_device_t *dev = maple_enum_dev(c->port, c->unit);
+    unsigned char root[512];
     void *buf;
     int size, rc = -1;
     vmu_pkg_t pkg;
 
+    /* The card may have changed since vmu_scan: vmufs_read trusts the root's
+     * sizes (the header comment), so prove the root again right before it. The
+     * fingerprint is not required here, only a root the KOS mallocs can trust. */
+    if (!dev || !read_root(dev, root)) return -1;
     /* vmufs_read mallocs dirent->filesize * 512 bytes (fs/vmufs.c:616-617) and
      * leaves buf NULL on failure; a zero-block dirent yields an empty buffer. */
-    if (!dev || vmufs_read(dev, VMU_FILE_NAME, &buf, &size) != 0) return -1;
+    if (vmufs_read(dev, VMU_FILE_NAME, &buf, &size) != 0) return -1;
     /* vmu_pkg_parse reads the header before it looks at data_size
      * (util/vmu_pkg.c:149-154), so demand a whole block first. It then
-     * bounds the payload by the buffer and verifies the CRC16 over the whole
-     * file (util/vmu_pkg.c:154-171). */
+     * bounds the payload by the buffer and verifies the CRC16 over total_size
+     * (util/vmu_pkg.c:154,166): header + icon + payload = 780 bytes here, not
+     * the whole 1024-byte file buffer. */
     if (size >= 512 && vmu_pkg_parse(buf, size, &pkg) == 0)
         rc = vmu_payload_parse(pkg.data, pkg.data_len, rec, L);
     free(buf);

@@ -162,6 +162,12 @@ endif
 ifeq ($(MENUDIAG),1)
 DEFS += -DLOADER_MENUDIAG=1
 endif
+# VMUDIAG=1 (pair with SERIAL=1 to hear it; menu stays compiled in): menu_run
+# loads from the card, logs VMUSAVE lines, force-writes a known library when
+# nothing was loaded, and returns without waiting for input. Test-only, never shipped.
+ifeq ($(VMUDIAG),1)
+DEFS += -DLOADER_VMUDIAG=1
+endif
 # CDI=1 (internal -- the `cdi` target sets it): rebuild shim + loader with
 # the cart at the CD-R FAD instead of the GDI donor FAD. Audio/data MIL-CD
 # (the mature cdi4dc mode; its beta data/data mode failed on GDEMU --

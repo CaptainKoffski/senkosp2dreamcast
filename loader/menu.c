@@ -1,13 +1,15 @@
 /* T9 pre-game menu: START GAME / SETTINGS / CONTROLS, drawn by blitting
  * rects from the offline-generated sheet (menu_layout.h -- regenerate with
  * scripts/gen_menu_assets.py after any scripts/menu_def.py change). Pad 1
- * polled the same way main.c's boot-combo check does. Stateless: the record
- * starts at MENU_DEFAULT_RECORD every boot; the staged-EEPROM poke consuming
- * menu_game_record (unconditional since 2026-09-30) lives in main.c. */
+ * polled the same way main.c's boot-combo check does. The record starts at
+ * MENU_DEFAULT_RECORD every boot unless a VMU save replaces it (vmu_boot,
+ * below); the staged-EEPROM poke consuming menu_game_record (unconditional
+ * since 2026-09-30) lives in main.c. */
 #include <kos.h>
 #include "menu.h"
 #include "menu_layout.h"
 #include "ctl_lib.h"
+#include "vmu_save.h"
 
 extern uint8 splash_bin[];
 extern uint8 menu_sheet_bin[];
@@ -23,9 +25,10 @@ unsigned char menu_game_record[16] = MENU_DEFAULT_RECORD;
 /* Controls state is not here: it is the shared layout library ctl_lib
  * (ctl_lib.h, controls-library plan) -- per class (pad, stick) the stock
  * layouts plus CTL_N_CUSTOM user slots, and per (class, port) the selected
- * one. Session-only like the record above (.bss zero = every port on stock
- * layout 0). main.c stages ctl_pack() of each (class, port) as that port's
- * resolved SHIM_STATE_LAYOUT_WORD; the shim picks the class per poll. */
+ * one. Like the record above it starts at defaults (.bss zero = every port on
+ * stock layout 0) and lives for the session unless a VMU save restores it.
+ * main.c stages ctl_pack() of each (class, port) as that port's resolved
+ * SHIM_STATE_LAYOUT_WORD; the shim picks the class per poll. */
 
 /* menu_sheet_bin = menu_sheet.pal8: 256 x RGB565-LE palette (512 B) then
  * MENU_SHEET_W x MENU_SHEET_H 8bpp indices. The palette lives in a static
@@ -341,12 +344,171 @@ static void draw_logo(void) {
     }
 }
 
+/* ---- VMU persistence (spec 2026-11-01-vmu-persistence-design.md) ----
+ * The loader's only memory-card traffic: one file, in the menu, before the
+ * handoff. Load happens once, at boot (vmu_boot). Saving happens at the two
+ * sync points (menu_run). A write is silent only to `vmu_home` (the card the
+ * boot load came from, or the one the player pressed A for); vmu_decide
+ * checks slot AND root fingerprint on a fresh scan every time. Anything else
+ * asks (spec §Card identity, §Sync, §The prompt); B declines for the session.
+ * Every vmu_scan re-enumerates: KOS's maple VBLANK autodetect keeps the
+ * device table current, hot-plugged cards included
+ * (tools/kos/kernel/arch/dreamcast/hardware/maple/maple_irq.c:32-230). */
+static vmu_home_t vmu_home;
+static int vmu_declined;
+static unsigned char vmu_saved[VMU_PAYLOAD_LEN];   /* payload as last loaded / written; defaults at boot */
+static int vmu_line = MENU_VMU_NONE, vmu_tok;      /* status line shown, and its slot token */
+
+static int vmu_slot_of(const vmu_card_t *c) { return c->port * 2 + c->unit - 1; }
+
+/* Status band: rows MENU_VMU_LINE_Y.. (24), page grey, then the strip and its
+ * slot token. line MENU_VMU_NONE leaves the band cleared. */
+static void vmu_show(int line, int tok) {
+    uint16 *p = vram_s + MENU_VMU_LINE_Y * 640;
+    for (int i = 0; i < 24 * 640; i++) p[i] = MENU_BG_COLOR;
+    if (line < 0) return;
+    blit(MENU_VMU_LINE[line], MENU_VMU_LINE_X[line], MENU_VMU_LINE_Y);
+    if (MENU_VMU_HAS_TOKEN[line])
+        blit(MENU_VMU_SLOT[tok], MENU_VMU_LINE_X[line] + MENU_VMU_LINE[line].w, MENU_VMU_LINE_Y);
+}
+
+static int vmu_dirty(void) {
+    unsigned char now[VMU_PAYLOAD_LEN];
+    vmu_payload_build(now, menu_game_record, &ctl_lib);
+    return memcmp(now, vmu_saved, sizeof now) != 0;
+}
+
+/* menu_run entry: the live record/library are still the defaults here, so the
+ * defaults are what a clean menu is compared against. First readable card
+ * holding a valid file wins (vmu_load leaves the live state untouched unless
+ * the whole file validated). Never prompts, never writes. */
+static void vmu_boot(void) {
+    vmu_card_t cards[8];
+    int n, i;
+    vmu_payload_build(vmu_saved, menu_game_record, &ctl_lib);
+    n = vmu_scan(cards);
+    vmu_line = n ? MENU_VMU_NONE : MENU_VMU_NOCARD;
+    for (i = 0; i < n; i++) {
+        if (vmu_load(&cards[i], menu_game_record, &ctl_lib) != 0) continue;
+        vmu_home.valid = 1;
+        vmu_home.port = cards[i].port;
+        vmu_home.unit = cards[i].unit;
+        memcpy(vmu_home.fp, cards[i].fp, VMU_FP_LEN);
+        vmu_payload_build(vmu_saved, menu_game_record, &ctl_lib);
+        vmu_line = MENU_VMU_LOADED;
+        vmu_tok = vmu_slot_of(&cards[i]);
+        return;
+    }
+}
+
+/* The consent prompt (spec §The prompt). Waits for A (index of the shown
+ * card) or B (-1). LEFT/RIGHT cycle the shown card with wrap; the line is
+ * redrawn only when the selection changes. UP/DOWN/START are ignored; edge()
+ * keeps the reset combo live. */
+static int vmu_prompt(const vmu_card_t *cards, int n) {
+    int i = 0, shown = -1;
+    blit(MENU_VMU_FOOT[n > 1], MENU_TOP_FOOTER_X, MENU_TOP_FOOTER_Y);
+    for (;;) {
+        if (i != shown) {
+            shown = i;
+            vmu_show(cards[i].has_file ? MENU_VMU_REPLACE : MENU_VMU_ASK, vmu_slot_of(&cards[i]));
+        }
+        uint32 e = edge();
+        if (e & CONT_B) { i = -1; break; }
+        if (e & CONT_A) break;
+        if (e & (CONT_DPAD_LEFT | CONT_DPAD_RIGHT))      /* n == 1: stays 0 */
+            i = (i + ((e & CONT_DPAD_RIGHT) ? 1 : n - 1)) % n;
+    }
+    blit(MENU_TOP_FOOTER, MENU_TOP_FOOTER_X, MENU_TOP_FOOTER_Y);
+    return i;
+}
+
+/* Consent was already settled by the caller. SAVING is drawn before the first
+ * maple write (the "don't pull the card" cue). Only an OK write moves
+ * vmu_saved, so a failure stays dirty and the next sync point retries. */
+static void vmu_do_write(const vmu_card_t *c) {
+    int rc;
+    vmu_tok = vmu_slot_of(c);
+    vmu_line = MENU_VMU_SAVING;
+    vmu_show(vmu_line, vmu_tok);
+    rc = vmu_write(c, menu_game_record, &ctl_lib);
+    if (rc == VMU_WRITE_OK) {
+        vmu_payload_build(vmu_saved, menu_game_record, &ctl_lib);
+        vmu_line = MENU_VMU_SAVED;
+    } else {
+        vmu_line = rc == VMU_WRITE_FULL ? MENU_VMU_FULL : MENU_VMU_FAILED;
+    }
+    vmu_show(vmu_line, vmu_tok);
+}
+
+/* Spec §Sync. Clean: touch nothing on the card; only let a stale NO VMU line
+ * clear once a card shows up. Dirty: fresh scan, then vmu_decide -- a silent
+ * write only to home, else NO VMU / declined line / the prompt. Always
+ * returns (the caller starts the game or redraws regardless). */
+static void vmu_sync(void) {
+    vmu_card_t cards[8];
+    int n, d, i;
+    if (!vmu_dirty()) {
+        if (vmu_line == MENU_VMU_NOCARD && vmu_scan(cards) > 0) vmu_line = MENU_VMU_NONE;
+        return;
+    }
+    n = vmu_scan(cards);
+    d = vmu_decide(&vmu_home, vmu_declined, cards, n);
+    if (d >= 0) { vmu_do_write(&cards[d]); return; }
+    vmu_home.valid = 0;                                  /* gone or swapped: no silence left */
+    if (d == VMU_NO_CARD) { vmu_line = MENU_VMU_NOCARD; return; }
+    if (d == VMU_DECLINED) { vmu_line = MENU_VMU_DECLINED; return; }
+    i = vmu_prompt(cards, n);                            /* VMU_ASK */
+    if (i < 0) { vmu_declined = 1; vmu_line = MENU_VMU_DECLINED; return; }
+    vmu_home.valid = 1;
+    vmu_home.port = cards[i].port;
+    vmu_home.unit = cards[i].unit;
+    memcpy(vmu_home.fp, cards[i].fp, VMU_FP_LEN);
+    vmu_do_write(&cards[i]);
+}
+
+#if LOADER_VMUDIAG
+/* VMUDIAG=1 (top Makefile; pair with SERIAL=1): the unattended emulator leg.
+ * Logs what the boot load found; with nothing loaded, forces a known library
+ * (pad CUSTOM 1 = CUSTOM_DEMO, P1 pad selecting it, setting 0 = its third
+ * value) and writes it to the first readable card -- consent granted by the
+ * define, the one write path that bypasses vmu_decide/the prompt. Test-only. */
+#include <kos/dbglog.h>
+static void vmu_diag(void) {
+    vmu_card_t cards[8];
+    int n = vmu_scan(cards), i;
+    dbglog(DBG_INFO, "VMUSAVE load=%d home=%c%d cards=%d\n", vmu_home.valid ? 0 : -1,
+           vmu_home.valid ? 'A' + vmu_home.port : '-', vmu_home.valid ? vmu_home.unit : 0, n);
+    if (vmu_home.valid) {
+        char hex[2 * VMU_PAYLOAD_LEN + 1];
+        for (i = 0; i < VMU_PAYLOAD_LEN; i++) sprintf(hex + 2 * i, "%02x", vmu_saved[i]);
+        dbglog(DBG_INFO, "VMUSAVE payload=%s\n", hex);
+        return;
+    }
+    memcpy(ctl_lib.custom[0][0], CTL_DEMO_FUNC, CTL_N_BUTTONS);
+    ctl_lib.used[0][0] = 1;
+    ctl_lib.sel[0][0] = CTL_N_STOCK[0];
+    menu_game_record[MENU_SET_IDX[0]] = MENU_SET_BYTE[0][2];
+    if (n > 0) {
+        int rc = vmu_write(&cards[0], menu_game_record, &ctl_lib);
+        dbglog(DBG_INFO, "VMUSAVE write=%d slot=%c%d\n", rc, 'A' + cards[0].port, cards[0].unit);
+    }
+}
+#endif
+
 void menu_run(void) {
     int cur = 0;
     memcpy(sheet_pal, menu_sheet_bin, sizeof sheet_pal);
+    vmu_boot();
+#if LOADER_VMUDIAG
+    vmu_diag();                                   /* logs; forces + writes when nothing loaded */
+    memcpy(vram_s, splash_bin, 640 * 480 * 2);
+    return;                                       /* no input wait: unattended leg goes on to attract */
+#endif
     clear_bg();
     draw_logo();
     draw_top(cur);
+    vmu_show(vmu_line, vmu_tok);
     for (;;) {
         uint32 e = edge();
         /* Start from anywhere -- on RELEASE: a START landing a frame before
@@ -365,7 +527,10 @@ void menu_run(void) {
             clear_bg();                          /* sub-screen leftovers */
             draw_logo();
             draw_top(cur);
+            vmu_sync();                          /* sync point 1: back on the top page */
+            vmu_show(vmu_line, vmu_tok);
         }
     }
+    vmu_sync();                                  /* sync point 2: START, or A on START GAME; the game starts after it */
     memcpy(vram_s, splash_bin, 640 * 480 * 2);   /* today's load screen */
 }
