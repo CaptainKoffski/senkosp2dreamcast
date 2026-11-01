@@ -3733,11 +3733,11 @@ release):
   are untouched; every VMU call hangs off `menu_run`.
 - `53c4b8f`, `0f6197c`, `541b4e4`, `1ae3c07` the emulator legs, the decoder
   and the canary hardening (`tooling.md` §VMU persistence tooling).
-- Final review fixes: `32cfa47` the 16-byte identity, skipping a card whose
+- Final review fixes: `5e4ea55` the 16-byte identity, skipping a card whose
   directory fails, the dirent size bound, `blk_cnt ≤ 255`, zeroed unused
-  slots, the v1 schema pin; `eb178b3` act-on-release in the prompt and around
+  slots, the v1 schema pin; `b2611d3` act-on-release in the prompt and around
   the sub-screens, the 0.5 s prompt dead time, the 1 s hold on a failed START
-  save; `2f6c9f7` decoder exit codes 4/5 and the exact-4 canary check, the
+  save; `9e964f9` decoder exit codes 4/5 and the exact-4 canary check, the
   serial key spelling, Flycast/KOS cites.
 
 **Verification state** (all emulator or host; nothing on hardware yet):
