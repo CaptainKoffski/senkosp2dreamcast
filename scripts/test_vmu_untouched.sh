@@ -17,6 +17,10 @@
 #     maple_devs.cpp:436-474). So: 0xA5 canaries must stay byte-identical,
 #     and the all-zero control file MUST change -- proving the VMUPath
 #     redirect, VMU attachment, and hash logic are wired (control test).
+#   - B1 is the one card the loader can read (the 0xA5 cards fail its root
+#     check), so the only write it could make lands there: after the run the
+#     B1 image must also hold NO SENKOSP_SYS file (scripts/vmu_decode.py; exit
+#     1 = absent, anything else = a save file is there, written by the menu).
 # The user's real VMU saves are never touched: everything runs in a temp dir
 # via transient CLI config (-config goes through setTransient(), never saved
 # back -- cfg/cl.cpp:163; the graceful quit does rewrite emu.cfg's normal
@@ -52,7 +56,7 @@ ZERO_SUM="$(shasum -a 256 "$VMUDIR/vmu_save_B1.bin" | cut -d' ' -f1)"
 # (unfocused-window deadlock), controller+VMUs pinned on ports A and B,
 # pvr.rend=0 (OpenGL): a leftover `pvr.rend = 4` (Vulkan) in emu.cfg segfaults
 # this bundle in VulkanRenderer::Init (no MoltenVK), ~1 s after launch --
-# docs/kb/tooling.md §RAWFB ("Launch gotcha"); every unattended leg passes it
+# docs/kb/tooling.md:3245-3246 (§RAWFB); every unattended leg passes it
 # (capture_rawfb_leg.sh). Without it the run dies before the window opens.
 CFG="-config config:Dreamcast.VMUPath=$VMUDIR -config config:PerGameVmu=no \
  -config config:UsePhysicalVmuMemory=no -config config:rend.vsync=no \
@@ -108,6 +112,15 @@ if [ "$B1_SUM" != "$ZERO_SUM" ]; then
     echo "OK   control B1 auto-formatted (harness wired)"
 else
     echo "FAIL control B1 unchanged: VMUPath redirect NOT wired -- run proves nothing"
+    FAIL=1
+fi
+# Non-zero alone only proves Flycast's auto-format ran; a save written by the
+# menu would be non-zero too. Exactly rc 1 = decoder found no SENKOSP_SYS.
+DEC=0; python3 "$REPO/scripts/vmu_decode.py" "$VMUDIR/vmu_save_B1.bin" >/dev/null 2>&1 || DEC=$?
+if [ "$DEC" = 1 ]; then
+    echo "OK   no SENKOSP_SYS on B1"
+else
+    echo "FAIL B1 holds a SENKOSP_SYS (menu wrote) (vmu_decode.py rc=$DEC)"
     FAIL=1
 fi
 if [ "$FAIL" = 0 ]; then

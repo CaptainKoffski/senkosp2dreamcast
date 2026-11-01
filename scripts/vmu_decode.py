@@ -4,8 +4,10 @@
     vmu_decode.py <vmu_save.bin> [--icon out.png]
 
 Prints header fields (key value, one per line), crc_ok, the payload hex and
-the payload decoded by name (menu_def.py). Exit 1 when the card has no
-SENKOSP_SYS file (or no valid root).
+the payload decoded by name (menu_def.py). Exit codes: 0 = SENKOSP_SYS found
+and its CRC ok; 1 = no SENKOSP_SYS (or no valid root / unreadable image);
+3 = SENKOSP_SYS found but its CRC is bad or it does not decode. (The canary
+treats anything but 1 as "a save file is there".)
 
 Sources (primary):
   - Image = 256 blocks x 512 B; a block write lands at Block*512 (Flycast
@@ -28,6 +30,7 @@ Sources (primary):
     init 0, unreflected) over header+icons+eyecatch+payload with the crc
     field zeroed -- total_size, not the block-padded file (vmu_pkg.c:149-166).
 """
+import argparse
 import os
 import struct
 import sys
@@ -49,10 +52,7 @@ def crc16ccitt(data, start=0):
 
 
 def read_image(path):
-    img = open(path, "rb").read()
-    if len(img) != IMG_SIZE:
-        raise ValueError(f"{path}: {len(img)} bytes, want {IMG_SIZE}")
-    return img
+    return open(path, "rb").read()
 
 
 def _chain(img, fat_loc, first):
@@ -137,43 +137,40 @@ def icon_png(vms, out):
 
 
 def main(argv):
-    args = [a for a in argv[1:] if a != "--icon"]
-    icon_out = argv[argv.index("--icon") + 1] if "--icon" in argv else None
-    if icon_out:
-        args.remove(icon_out)
-    if len(args) != 1:
-        print("usage: vmu_decode.py <vmu_save.bin> [--icon out.png]", file=sys.stderr)
-        return 2
+    ap = argparse.ArgumentParser(prog="vmu_decode.py", description=__doc__.split("\n")[0])
+    ap.add_argument("image", metavar="vmu_save.bin")
+    ap.add_argument("--icon", metavar="out.png")
+    a = ap.parse_args(argv[1:])
+    name, f = M.VMU_FILE["name"], None
     try:
-        f = find_file(read_image(args[0]), M.VMU_FILE["name"])
-    except ValueError as e:
+        f = find_file(read_image(a.image), name)
+        if f is None:
+            raise ValueError(f"no {name} on {a.image}")
+        v = parse_vms(f)
+        print(f"file {name} bytes {len(f)}")
+        for k in ("desc_short", "desc_long", "app_id", "icon_cnt", "eyecatch_type", "data_len"):
+            print(f"{k} {v[k]}")
+        print(f"crc 0x{v['crc']:04x}")
+        print(f"crc_ok {1 if v['crc_ok'] else 0}")
+        print(f"payload {v['payload'].hex()}")
+        if a.icon:
+            icon_png(v, a.icon)
+            print(f"icon {a.icon}")
+        d = decode_payload(v["payload"])
+        print(f"version {d['version']}")
+        for sname, label in d["settings"].items():
+            print(f"setting {sname} = {label}")
+        for cname, _b, _l, _a in M.CTL_CLASSES:
+            c = d[cname.lower()]
+            for s, lay in enumerate(c["slots"]):
+                if lay:
+                    print(f"{cname.lower()} slot {s} = " + " ".join(f"{b}={w}" for b, w in lay.items()))
+            for port, sel in enumerate(c["sel"]):
+                print(f"P{port + 1} {cname} = {sel}")
+        return 0 if v["crc_ok"] else 3
+    except (ValueError, struct.error, OSError) as e:
         print(f"ERROR {e}")
-        return 1
-    if f is None:
-        print(f"ERROR no {M.VMU_FILE['name']} on {args[0]}")
-        return 1
-    v = parse_vms(f)
-    print(f"file {M.VMU_FILE['name']} bytes {len(f)}")
-    for k in ("desc_short", "desc_long", "app_id", "icon_cnt", "eyecatch_type", "data_len"):
-        print(f"{k} {v[k]}")
-    print(f"crc 0x{v['crc']:04x}")
-    print(f"crc_ok {1 if v['crc_ok'] else 0}")
-    print(f"payload {v['payload'].hex()}")
-    if icon_out:
-        icon_png(v, icon_out)
-        print(f"icon {icon_out}")
-    d = decode_payload(v["payload"])
-    print(f"version {d['version']}")
-    for name, label in d["settings"].items():
-        print(f"setting {name} = {label}")
-    for cname, _b, _l, _a in M.CTL_CLASSES:
-        c = d[cname.lower()]
-        for s, lay in enumerate(c["slots"]):
-            if lay:
-                print(f"{cname.lower()} slot {s} = " + " ".join(f"{b}={w}" for b, w in lay.items()))
-        for port, sel in enumerate(c["sel"]):
-            print(f"P{port + 1} {cname} = {sel}")
-    return 0 if v["crc_ok"] else 1
+        return 1 if f is None else 3     # found-then-failed is 3, never "absent"
 
 
 if __name__ == "__main__":

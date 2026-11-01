@@ -80,19 +80,22 @@ fly() {
         fi
         rc=0; wait "$pid" 2>/dev/null || rc=$?
         echo "  $name: Flycast exit rc=$rc, alive ${t}s of ${secs}s"
-        [ "$t" -lt "$secs" ] && echo "WARN: $name exited on its own before the ${secs}s window"
         if grep -q "Verify Failed" "$log" && [ "$try" -lt 3 ]; then
             echo "flake: SH4 vmem Verify Failed -- log kept as $name.flake$try.stdout.log, relaunching"
             mv "$log" "$OUT/$name.flake$try.stdout.log"
             try=$((try+1)); continue
+        fi
+        if [ "$t" -lt "$secs" ]; then
+            echo "FAIL $name: Flycast exited on its own after ${t}s, before the ${secs}s window"
+            FAILS=$((FAILS+1))
         fi
         break
     done
 }
 
 FAILS=0
-require() {   # <logfile> <fixed string> <what>
-    if grep -qF -- "$2" "$1"; then echo "OK   $3"; else echo "FAIL $3 (missing: $2 in $1)"; FAILS=$((FAILS+1)); fi
+require() {   # <logfile> <fixed string> <what> [x]  (x: whole-line match; the serial log is CRLF)
+    if tr -d '\r' < "$1" | grep -qF${4:-} -- "$2"; then echo "OK   $3"; else echo "FAIL $3 (missing: $2 in $1)"; FAILS=$((FAILS+1)); fi
 }
 sum() { shasum -a 256 "$1" | cut -d' ' -f1; }
 blank_vmu() { head -c 131072 /dev/zero > "$1/vmu_save_A1.bin"; }   # Flycast auto-formats an all-zero image (maple_devs.cpp:436-474)
@@ -102,7 +105,9 @@ if [ "$MODE" = show ]; then
     PNG="$OUT/menu_fb.png"
     rm -f "$PNG"
     BEFORE="$(sum "$DIR/vmu_save_A1.bin")"
-    FLYCAST_SHOT_RAWFB="$PNG" fly show 40 1 "$DIR" 35   # USR2 at 35 s, quit 5 s later
+    export FLYCAST_SHOT_RAWFB="$PNG"
+    fly show 40 1 "$DIR" 35   # USR2 at 35 s, quit 5 s later
+    unset FLYCAST_SHOT_RAWFB
     [ -s "$PNG" ] && echo "OK   menu_fb.png written ($PNG)" || { echo "FAIL no framebuffer dump at $PNG"; FAILS=$((FAILS+1)); }
     [ "$(sum "$DIR/vmu_save_A1.bin")" = "$BEFORE" ] && echo "OK   A1 unchanged by the idle menu" || { echo "FAIL A1 was rewritten by the idle menu"; FAILS=$((FAILS+1)); }
     [ "$FAILS" = 0 ] && echo "PASS show" || echo "FAIL show"
@@ -122,9 +127,10 @@ require "$L1" "VMUSAVE write=0 slot=A1" "boot1 write=0 slot=A1"
 cp "$A1" "$OUT/vmu_save_A1.bin"
 if python3 "$REPO/scripts/vmu_decode.py" "$A1" --icon "$OUT/icon.png" > "$OUT/decode.txt"; then echo "OK   vmu_decode.py exit 0"; else echo "FAIL vmu_decode.py exit $?"; FAILS=$((FAILS+1)); fi
 cat "$OUT/decode.txt"
-python3 - <<'EOF' > "$OUT/expect.txt"
+python3 - > "$OUT/expect.txt" <<'EOF' || { echo "FAIL could not build the expected lines from menu_def.py"; FAILS=$((FAILS+1)); }
 import sys; sys.path.insert(0, "scripts"); import menu_def as M
 f = M.VMU_FILE; name, _, labels, *_ = M.SETTINGS[0]
+print(f"file {f['name']} bytes 1024")                           # 2 blocks (loader/vmu_save.c VMU_BLOCKS)
 print(f"desc_short {f['short']}"); print(f"desc_long {f['long']}"); print(f"app_id {f['app']}")
 print("data_len 140"); print("crc_ok 1")
 print(f"setting {name} = {labels[2][0]}")                      # MENU_SET_BYTE[0][2] = the third value
@@ -142,7 +148,7 @@ echo "== boot2: same dir -> loaded back"
 fly boot2 "$SECS" 1 "$DIR"
 L2="$OUT/boot2.stdout.log"
 require "$L2" "VMUSAVE load=0 home=A1" "boot2 load=0 home=A1"
-require "$L2" "VMUSAVE payload=$HEX" "boot2 payload == decoder payload hex"
+require "$L2" "VMUSAVE payload=$HEX" "boot2 payload == decoder payload hex" x
 [ "$(sum "$A1")" = "$SUM1" ] && echo "OK   boot2 left A1 byte-identical" || { echo "FAIL boot2 rewrote A1"; FAILS=$((FAILS+1)); }
 
 echo "== boot3: no card"
