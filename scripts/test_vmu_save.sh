@@ -48,6 +48,9 @@ export FLYCAST_HEADLESS=1
 # :9 (SegaVMU = 1), :18 (MDT_None = 10). Ports B..D and A2 are pinned to None so
 # the card count is the leg's, not emu.cfg's (which has a pad + two VMUs on B).
 # pvr.rend=0: a leftover Vulkan setting segfaults this bundle (tooling.md §RAWFB).
+# Serial console: Option "Debug.SerialConsoleEnabled" lives in the default
+# `config` section (fork core/cfg/option.cpp:132, option.h:107), hence
+# config:Debug.SerialConsoleEnabled -- not a "Debug:" section.
 # Log: $OUT/<name>.stdout.log; a startup SH4 vmem "Verify Failed" (known host
 # flake) is set aside as <name>.flakeN.stdout.log and relaunched, up to 3 tries.
 # usr2_at: seconds after launch to send SIGUSR2 (RAWFB dump) -- once the fork's
@@ -57,7 +60,7 @@ fly() {
     case "$vdir" in *" "*) echo "ERROR: VMU dir with spaces: $vdir" >&2; exit 1 ;; esac
     cfg="-config config:Dreamcast.VMUPath=$vdir -config config:PerGameVmu=no \
  -config config:UsePhysicalVmuMemory=no -config config:rend.vsync=no \
- -config Debug:SerialConsoleEnabled=yes -config config:pvr.rend=0 \
+ -config config:Debug.SerialConsoleEnabled=yes -config config:pvr.rend=0 \
  -config input:device1=0 -config input:device1.1=$a1 -config input:device1.2=10 \
  -config input:device2=10 -config input:device2.1=10 -config input:device2.2=10 \
  -config input:device3=10 -config input:device4=10"
@@ -101,7 +104,7 @@ require() {   # <logfile> <fixed string> <what> [x]  (x: whole-line match; the s
     if tr -d '\r' < "$1" | grep -qF${4:-} -- "$2"; then echo "OK   $3"; else echo "FAIL $3 (missing: $2 in $1)"; FAILS=$((FAILS+1)); fi
 }
 sum() { shasum -a 256 "$1" | cut -d' ' -f1; }
-blank_vmu() { head -c 131072 /dev/zero > "$1/vmu_save_A1.bin"; }   # Flycast auto-formats an all-zero image (maple_devs.cpp:436-474)
+blank_vmu() { head -c 131072 /dev/zero > "$1/vmu_save_A1.bin"; }   # Flycast auto-formats an all-zero image (maple_devs.cpp:469-475 -> initializeVmu :420-431)
 
 if [ "$MODE" = show ]; then
     [ -d "$DIR" ] && [ -f "$DIR/vmu_save_A1.bin" ] || { echo "usage: $0 show <vmudir from diag>" >&2; exit 2; }

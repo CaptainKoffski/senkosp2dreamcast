@@ -12,15 +12,18 @@
 #
 # Oracle (Flycast source, ../flycast4naomi2dreamcast -- the same build we run):
 #   - VMU flash writes hit the backing vmu_save_*.bin immediately
-#     (core/hw/maple/maple_devs.cpp:679-707, MDCF_BlockWrite -> fwrite).
-#   - Startup rewrites a VMU file ONLY if missing or all-zero (auto-format,
-#     maple_devs.cpp:436-474). So: 0xA5 canaries must stay byte-identical,
+#     (core/hw/maple/maple_devs.cpp:681-715, MDCF_BlockWrite -> fwrite).
+#   - Startup rewrites a VMU file ONLY if missing or all-zero (auto-format:
+#     the all-zero check maple_devs.cpp:469-475 calls initializeVmu, :420-431;
+#     a missing file reads as zeros, :435-450). So: 0xA5 canaries must stay byte-identical,
 #     and the all-zero control file MUST change -- proving the VMUPath
 #     redirect, VMU attachment, and hash logic are wired (control test).
 #   - B1 is the one card the loader can read (the 0xA5 cards fail its root
 #     check), so the only write it could make lands there: after the run the
-#     B1 image must also hold NO SENKOSP_SYS file (scripts/vmu_decode.py; exit
-#     1 = absent, anything else = a save file is there, written by the menu).
+#     B1 image must also hold NO SENKOSP_SYS file (scripts/vmu_decode.py exit
+#     4 = valid root, directory walked, no SENKOSP_SYS; 0/3 = a save file is
+#     there; anything else = the image could not be read, so "absent" is
+#     unproven -- both FAIL).
 # The user's real VMU saves are never touched: everything runs in a temp dir
 # via transient CLI config (-config goes through setTransient(), never saved
 # back -- cfg/cl.cpp:163; the graceful quit does rewrite emu.cfg's normal
@@ -117,14 +120,14 @@ else
     FAIL=1
 fi
 # Non-zero alone only proves Flycast's auto-format ran; a save written by the
-# menu would be non-zero too. Exactly rc 1 = decoder found no SENKOSP_SYS.
+# menu would be non-zero too. Exactly rc 4 = valid root, directory walked, no
+# SENKOSP_SYS (vmu_decode.py header). 1 would be a Python crash, never "absent".
 DEC=0; python3 "$REPO/scripts/vmu_decode.py" "$VMUDIR/vmu_save_B1.bin" >/dev/null 2>&1 || DEC=$?
-if [ "$DEC" = 1 ]; then
-    echo "OK   no SENKOSP_SYS on B1"
-else
-    echo "FAIL B1 holds a SENKOSP_SYS (menu wrote) (vmu_decode.py rc=$DEC)"
-    FAIL=1
-fi
+case "$DEC" in
+    4)   echo "OK   no SENKOSP_SYS on B1 (vmu_decode.py rc=4: root valid, directory walked)" ;;
+    0|3) echo "FAIL B1 holds a SENKOSP_SYS: the menu wrote (vmu_decode.py rc=$DEC)"; FAIL=1 ;;
+    *)   echo "FAIL B1 not decodable (vmu_decode.py rc=$DEC): absence unproven"; FAIL=1 ;;
+esac
 if [ "$FAIL" = 0 ]; then
     echo "PASS: no VMU writes"
     rm -rf "$VMUDIR"

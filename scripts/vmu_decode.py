@@ -4,19 +4,23 @@
     vmu_decode.py <vmu_save.bin> [--icon out.png]
 
 Prints header fields (key value, one per line), crc_ok, the payload hex and
-the payload decoded by name (menu_def.py). Exit codes: 0 = SENKOSP_SYS found
-and its CRC ok; 1 = no SENKOSP_SYS (or no valid root / unreadable image);
-3 = SENKOSP_SYS found but its CRC is bad or it does not decode. (The canary
-treats anything but 1 as "a save file is there".)
+the payload decoded by name (menu_def.py). Exit codes:
+  0  SENKOSP_SYS found, CRC ok, payload decoded
+  3  SENKOSP_SYS found and read, but its CRC is bad or it does not decode
+  4  ABSENT: valid root, whole directory walked, no SENKOSP_SYS
+  5  not readable: wrong image size, no valid root, or a FAT chain (the
+     directory's or the file's) that runs off the card or never ends
+(1 is Python's own code for an uncaught exception, 2 argparse's usage error;
+neither is ever returned on purpose.) The canary requires exactly 4.
 
 Sources (primary):
   - Image = 256 blocks x 512 B; a block write lands at Block*512 (Flycast
-    core/hw/maple/maple_devs.cpp:679-707, write_adr = Block*512 + ...).
+    core/hw/maple/maple_devs.cpp:681-715, write_adr = Block*512 + ...).
   - Root at block 255, vmu_root_t (KOS tools/kos/kernel/arch/dreamcast/
     include/dc/vmufs.h:55-70): magic[16]=0x55 @0, fat_loc u16 @0x46,
     fat_size @0x48, dir_loc @0x4a, dir_size @0x4c, icon_shape @0x4e,
     blk_cnt @0x50 (little-endian).
-  - Directory entry 32 B, vmu_dir_t (vmufs.h:71-86): filetype @0, firstblk
+  - Directory entry 32 B, vmu_dir_t (vmufs.h:75-85): filetype @0, firstblk
     u16 @2, filename[12] @4 (no NUL), filesize u16 @24, hdroff u16 @26.
   - FAT = one u16 per block at fat_loc; the directory (from dir_loc) and a
     file (from its firstblk) are chains through it, 0xfffa = last block,
@@ -141,11 +145,16 @@ def main(argv):
     ap.add_argument("image", metavar="vmu_save.bin")
     ap.add_argument("--icon", metavar="out.png")
     a = ap.parse_args(argv[1:])
-    name, f = M.VMU_FILE["name"], None
+    name = M.VMU_FILE["name"]
     try:
         f = find_file(read_image(a.image), name)
-        if f is None:
-            raise ValueError(f"no {name} on {a.image}")
+    except (ValueError, struct.error, OSError) as e:
+        print(f"ERROR {e}")
+        return 5
+    if f is None:
+        print(f"ERROR no {name} on {a.image}")
+        return 4
+    try:
         v = parse_vms(f)
         print(f"file {name} bytes {len(f)}")
         for k in ("desc_short", "desc_long", "app_id", "icon_cnt", "eyecatch_type", "data_len"):
@@ -170,7 +179,7 @@ def main(argv):
         return 0 if v["crc_ok"] else 3
     except (ValueError, struct.error, OSError) as e:
         print(f"ERROR {e}")
-        return 1 if f is None else 3     # found-then-failed is 3, never "absent"
+        return 3                         # found-then-failed, never "absent"
 
 
 if __name__ == "__main__":

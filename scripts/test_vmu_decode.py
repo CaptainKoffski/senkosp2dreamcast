@@ -60,8 +60,14 @@ def test_fat_chain_and_crc():
     assert find_file(img, "NOPE") is None
 
 
+def test_func_words_pinned():
+    """Payload v1 stores function ids as FUNC_WORDS indices (the C side pins the
+    dimensions in shims/test/test_vmu_save.c). Reordering = bump the payload version."""
+    assert M.FUNC_WORDS == ["MAIN", "SUB", "BARRAGE", "ACTION", "OVERDRIVE", "B.O.S.S.", "NONE"]
+
+
 def test_cli_exit_codes():
-    """0 = file ok; 1 = no SENKOSP_SYS / unreadable; 3 = file there but undecodable (the canary relies on != 1)."""
+    """0 file ok; 3 file there but undecodable; 4 absent (the canary requires exactly 4); 5 unreadable image."""
     rec = bytes.fromhex(M.DEFAULT_RECORD)
     good = b"SKSP" + bytes([1, 0, 0, 0]) + rec + bytes(116)
     with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
@@ -70,15 +76,22 @@ def test_cli_exit_codes():
             return main(["vmu_decode.py", path])
         assert run(make_card(good)[0]) == 0
         assert run(make_card(bytes(range(140)))[0]) == 3          # CRC ok, not an SKSP payload
-        assert run(bytes(256 * 512)) == 1                         # unformatted card: no root
-        assert run(bytes(1000)) == 1                              # not a card image
+        img = bytearray(make_card(good)[0]); img[252 * 512 + 32] = 0  # dirent #1 freed: filetype 0
+        assert run(bytes(img)) == 4                               # valid root, directory walked, no file
+        assert run(bytes(256 * 512)) == 5                         # unformatted card: no root
+        assert run(bytes(1000)) == 5                              # not a card image
         img = bytearray(make_card(good)[0]); img[255 * 512 + 0x46] = 0xFF; img[255 * 512 + 0x47] = 0xFF   # fat_loc past the image
-        assert run(bytes(img)) == 1
+        assert run(bytes(img)) == 5
+        img = bytearray(make_card(good)[0]); struct.pack_into("<H", img, 254 * 512 + 2 * 252, 253)       # directory chain 253 -> 252 -> 253 ...
+        assert run(bytes(img)) == 5                               # a looping directory is never "absent"
+        img = bytearray(make_card(good)[0]); struct.pack_into("<H", img, 254 * 512 + 2 * 5, 10)          # file chain 10 -> 5 -> 10 ...
+        assert run(bytes(img)) == 5
 
 
 if __name__ == "__main__":
     test_crc16_xmodem_vector()
     test_decode_payload_names()
     test_fat_chain_and_crc()
+    test_func_words_pinned()
     test_cli_exit_codes()
     print("test_vmu_decode: PASS")

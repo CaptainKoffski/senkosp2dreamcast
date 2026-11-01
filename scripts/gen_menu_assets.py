@@ -659,7 +659,10 @@ def main():
     assert len(set(ipx)) >= 2 and max(ipx) < 16, "icon quantized to one colour"
     vmu_icon = bytes(ipx[i] << 4 | ipx[i + 1] for i in range(0, 1024, 2))
     assert len(vmu_icon) == 512
-    vf = M.VMU_FILE        # vmu_hdr_t: desc_short[16], desc_long[32], app_id[16]
+    # vmu_hdr_t desc_short[16], desc_long[32], app_id[16] (KOS include/dc/vmu_pkg.h:68-70);
+    # vmu_dir_t filename[12], unterminated (include/dc/vmufs.h:79), both under
+    # tools/kos/kernel/arch/dreamcast/.
+    vf = M.VMU_FILE
     assert len(vf["short"]) <= 16 and len(vf["long"]) <= 32 and len(vf["app"]) <= 16 \
         and len(vf["name"]) <= 12, "VMU_FILE strings exceed the vmu_hdr_t / dirent fields"
 
