@@ -29,3 +29,10 @@ port (`../cleopatra`).
 Rules: every hardware claim in the KB carries a citation (primary sources
 outrank wikis); record every tool install in `docs/kb/tooling.md`; never
 commit copyrighted bytes (ROMs, BIOS, disc images, extracted assets).
+
+# Flycast fork
+
+Always launch `../flycast4naomi2dreamcast` builds with `FLYCAST_HEADLESS=1`
+(hidden window, background app, null audio; `FLYCAST_SHOT` dumps and the
+cartlog still work). Never run it with a visible window or sound unless the
+user asks for one.
