@@ -6,6 +6,10 @@ OBJS = main.o handoff.o gd.o gd_sys.o shim_blob.o bios_data.o splash_blob.o naom
        menu.o ctl_lib.o menu_sheet_blob.o ctl_pad_blob.o ctl_stick_blob.o logo_blob.o
 CFLAGS += -I. -I../shims/include -I../build -I$(KIT)/loader
 CFLAGS += $(DEFS)   # debug toggles from the top Makefile (e.g. SERIAL=1)
+# LZ4=1: the kit's gd.c includes the port's src/gd_lz4.inc.c (T10b).
+ifneq (,$(findstring SHIM_LZ4,$(DEFS)))
+CFLAGS += -I../shims/src
+endif
 # T10b spike (THROWAWAY, branch t10b-spike): LZ4BENCH=1 adds the SH4
 # decompress benchmark + its embedded sample. Vendored lz4 v1.10.0
 # (tools/t10b/lz4, BSD) compiles under kos-cc unchanged.
@@ -21,17 +25,19 @@ include $(KIT)/loader/rules.mk
 # and the loader would silently keep the stale values (bit Cleopatra in B5:
 # CART_FAD change didn't take until an unrelated main.c edit).
 main.o: $(KIT)/loader/menu.h $(KIT)/loader/ctl_lib.h menu_layout.h ../build/patch_table.h ../shims/include/shim_iface.h
+# Port-specific input of scripts/build_patch_table.py (rule in rules.mk).
+../build/patch_table.h: ../scripts/reloc_patchset.json
 # T10b spike rules (THROWAWAY). Sample blob: host tool carves + LZ4-HC-9
 # compresses 8 x 128 KB stripes of the T10 stage pak from ../senkosp.dat
 # (gitignored ROM -- the blob is derived game bytes, ../build only, never
 # committed). Host cc, not kos-cc.
 lz4_sh4.o: ../tools/t10b/lz4/lz4.c
 	kos-cc $(CFLAGS) $(CPPFLAGS) -c $< -o $@
-lz4bench.o: lz4bench.c ../tools/t10b/lz4/lz4.h naomi_crc.h
+lz4bench.o: lz4bench.c ../tools/t10b/lz4/lz4.h $(KIT)/loader/naomi_crc.h
 ../build/pack_sample: ../tools/t10b/pack_sample.c ../tools/t10b/lz4/lz4.c \
-                      ../tools/t10b/lz4/lz4hc.c naomi_crc.c
-	cc -O2 -o $@ ../tools/t10b/pack_sample.c ../tools/t10b/lz4/lz4.c \
-	  ../tools/t10b/lz4/lz4hc.c naomi_crc.c
+                      ../tools/t10b/lz4/lz4hc.c $(KIT)/loader/naomi_crc.c
+	cc -O2 -I$(KIT)/loader -o $@ ../tools/t10b/pack_sample.c ../tools/t10b/lz4/lz4.c \
+	  ../tools/t10b/lz4/lz4hc.c $(KIT)/loader/naomi_crc.c
 ../build/t10b_sample.bin: ../build/pack_sample ../senkosp.dat
 	../build/pack_sample ../senkosp.dat $@
 t10b_sample_blob.o: ../build/t10b_sample.bin
