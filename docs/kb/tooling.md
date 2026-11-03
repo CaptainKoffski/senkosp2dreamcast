@@ -3388,21 +3388,34 @@ build artifacts at base commit `afab5844206abe3c2cf845465892ebc5ecb16aa0`
 
 ## Kit extraction gate — result (2026-11-03)
 
-The full gate on the final `kit-extraction` tree: the kit's `extraction`
-branch at `624250e` (Task 9: launchers pin `pvr.rend=0`, `loader/rules.mk`
-comment paths, docs) and this repo's comment-only path fixes and docs. Same
+The full gate at the final pin: the kit's `extraction` branch at `6b6b3dc`
+(the final-review fix wave: C1 moved the `bios_data.bin` rule and its
+constants into this repo's `loader/Makefile`, the blob-structure asserts into
+`shims/test/test_game_values.c` and `BIOS_DATA_BASELINE` into
+`scripts/maple_allowlist.py`; I2–I7, M8–M14: `B = build`, the `ENTRY_PC`
+guard, ROM paths absolutized, `ISOLDR_*` in `scripts/port_def.py`, the menu
+look in `scripts/menu_def.py`, docs) and this repo at `6bceeae`. Same
 toolchain as the baseline above. Every gate hash is identical to the
-`afab584` baseline (`docs/kb/kit-gate-baseline.txt`).
+`afab584` baseline (`docs/kb/kit-gate-baseline.txt`); `build/bios_data.bin`
+from this repo's rule is byte-identical to the kit rule's (sha256
+`b0862132…`). Earlier runs, same hashes: kit `624250e` with this repo at
+`9927da3` (Task 9).
 
 - `make clean && make gdi && make test`: exit 0; `scripts/gate_hashes.sh
-  check gd`: silent, exit 0 (also silent right after `make test`).
+  check gd` (after `make gdi`): silent, exit 0.
 - `make objclean && make loader CDI=1`; `scripts/gate_hashes.sh check cd`:
   silent, exit 0.
 - `make objclean && make cdi`: exit 0. The `cdi` hash is informational: it
   differs from the baseline's, and from one build to the next, by the
   mkisofs volume dates (determinism control above).
-- Kit `make test` (in `../naomi-dc-port-kit`): exit 0.
+- Kit `make test` (in `../naomi-dc-port-kit`, and `make -C kit test` at the
+  pin): exit 0.
 - `make gdi` last, leaving a GD build: `check gd` silent again.
+- `python3 kit/scripts/gen_menu_assets.py` (Pillow 12.3.0) leaves
+  `git status --porcelain loader shims/src` empty: the look read from
+  `scripts/menu_def.py` renders the same pal8, PNGs and headers.
+  `python3 kit/scripts/make_preset.py`: the preset `.cfg` and `README.txt`
+  equal the `afab584` script's literals.
 
 `scripts/gate_hashes.sh gd` (after the final `make gdi`):
 
@@ -3429,7 +3442,7 @@ cec37cadf08adcc7023f80027d9ca925c4ff344b4461a22e15f09c796fc2b25d  build/1ST_READ
 `scripts/gate_hashes.sh cdi` (informational; baseline `6b4f5d9e…`):
 
 ```
-f22d6dd046b196b0903f80024f9e2f7f2425e7f64b0fbe494d8c4ab5ce84e9b0  build/cdi/disc.cdi
+c57bc756d7146fe2b5ee2f167b2f5534f1ee66c951ebadaffb0da29b451a2f76  build/cdi/disc.cdi
 ```
 
 `make test` here, output without the command echo lines and the 71
@@ -3520,16 +3533,18 @@ word) hits as the `afab584` script with its built-in `RANGES`.
 
 ### Fresh clone from GitHub (2026-11-03)
 
-Both work branches were pushed for this check (new branches on GitHub):
-`git -C ../naomi-dc-port-kit push -u origin extraction` (kit at `624250e`)
-and `git push -u origin kit-extraction` (this repo at `9927da3`). The
-submodule URL is relative (`../naomi-dc-port-kit.git`), so it only resolves
-against this repo's GitHub origin. In a scratch directory:
+Both work branches were pushed for this check:
+`git -C ../naomi-dc-port-kit push origin extraction` (kit at `6b6b3dc`) and
+`git push origin kit-extraction` (this repo at `6bceeae`). The submodule URL
+is relative (`../naomi-dc-port-kit.git`), so it only resolves against this
+repo's GitHub origin. Earlier clones, both silent: this repo `9927da3` with
+kit `624250e` (Task 9, first push); this repo `82eb096` with kit `182c8a8`
+(Task 9, docs-only tips). In a scratch directory:
 
 ```sh
 git clone -b kit-extraction git@github.com:CaptainKoffski/senkosp2dreamcast.git senkosp
 cd senkosp && git submodule update --init
-git -C kit rev-parse HEAD   # 624250e3f873cefb47426e81fe1106b6b2d8c148 (the pin)
+git -C kit rev-parse HEAD   # 6b6b3dc5e874e227bd834150c9007ec262b0fa49 (the pin)
 git -C kit remote -v       # origin git@github.com:CaptainKoffski/naomi-dc-port-kit.git
 mkdir -p tools bios build
 R=/Users/captainkoffski/AntigravityProjects/senkosp2dreamcast   # this checkout: gitignored inputs
@@ -3543,12 +3558,11 @@ make objclean && make loader CDI=1 && scripts/gate_hashes.sh check cd   # silent
 ```
 
 - The submodule cloned from `git@github.com:CaptainKoffski/naomi-dc-port-kit.git`
-  and checked out the pinned `624250e`.
+  and checked out the pinned `6b6b3dc`.
 - `check gd` and `check cd` silent; the clone's `gate_hashes.sh gd` listing
   equals the one above line for line.
 - `tools/kos` is a symlink to this checkout's, so its `environ.sh` carries
   this checkout's absolute `KOS_BASE`: the same files, accepted for this
   check (plan Task 9 Step 3). The other inputs are symlinks, no copies; the
   clone was deleted afterwards.
-- Afterwards the kit pin moved to `182c8a8`, a docs-only kit commit that
-  records this result in the kit's README and `docs/kb/00-status.md`.
+- The pin stays `6b6b3dc`: this record is a docs-only commit here.
