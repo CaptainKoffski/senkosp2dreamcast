@@ -2,35 +2,9 @@
 """Generate build/patch_table.h from patch definitions + senkosp.dat +
 shims/build/shim.map + shims/include/shim_iface.h.
 
-Adapted from ../cleopatra/scripts/build_patch_table.py. Two differences from
-Cleopatra's generator, both spec pins for this port (task-9-brief.md):
-
-  1. Addressing is a raw `.dat` OFFSET, not a boot.bin RAM address. senkosp's
-     patch sites span BOTH images (main load entry at .dat 0x0, test load
-     entry at .dat TEST_DAT_OFF -- docs/kb/game.md §Parsed .dat header), and
-     the old-byte verification source is senkosp.dat itself, not boot.bin
-     (Phase 4 flag 7: boot.bin only covers the main image). Every dat_offset
-     used below therefore has the SAME mod-4 parity as the real RAM address
-     it patches, because both GAME_LOAD_ADDR and TEST_DAT_OFF are 4-aligned
-     (shim_iface.h) -- the hook()/detour() SH-4 PC-relative math (which only
-     cares about parity, never the absolute value) carries over unchanged.
-  2. Each entry carries an `img` tag (0 = main, 1 = test), inferred from
-     dat_offset alone (img_of() below) -- never hand-classified, so a
-     mis-tagged image is structurally impossible.
-
-Patch kinds (little-endian; `new`/`target` values are symbolic where they
-depend on the shim -- computed from shim.map/shim_iface.h so the KB doc and
-this generator never drift, same convention as Cleopatra's MIRROR_P2):
-  pool(dat_off, expect, value)   u32 config-time literal: assert cur==expect, write value
-  ptr (dat_off, expect, target)  u32 fn-pointer slot: assert cur==expect, write target
-  hook(dat_off, expect, target)  overwrite a 2-byte-verified fn entry with a
-                                  6-byte SH-4 thunk + pooled target (Cleopatra's kind)
-  detour(dat_off, expect, target) NEW for this port -- a self-contained 10-12 B
-                                  jmp-detour window (docs/kb/phase4-conversion.md
-                                  §maple-patch-sites MAPLE-BOOT-STRATEGY): unlike
-                                  hook(), the replaced code is mid-body, not a
-                                  function entry, so nothing may call into it --
-                                  it must carry its own literal inline.
+senkosp's rows only. The mechanism -- raw-.dat-offset addressing, img tags,
+the pool/ptr/hook/detour/carve kinds and their old-byte verification, the
+self-test, the header emission -- is the kit's kit/scripts/patchgen.py.
 
 Sources (all cited in docs/kb/phase4-conversion.md):
   §Cart-patch sites  -> 32-row main/test tables + 4 entry hooks (Task 10)
@@ -42,196 +16,33 @@ Sources (all cited in docs/kb/phase4-conversion.md):
 """
 import json
 import pathlib
-import re
-import struct
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "kit/scripts"))
+from patchgen import Gen  # noqa: E402  (after sys.path setup)
+import port_def  # noqa: E402  (scripts/port_def.py, same directory)
 
-# ---- shim_iface.h: single source of truth for Phase 4 addresses ----------
-IFACE_PATH = ROOT / "shims/include/shim_iface.h"
-iface = IFACE_PATH.read_text()
-
-
-def _hexdef(name):
-    m = re.search(rf"#define\s+{name}\s+(0x[0-9a-fA-F]+)", iface)
-    if not m:
-        sys.exit(f"{name} not in {IFACE_PATH} as a plain #define hex literal")
-    return int(m.group(1), 16)
-
-
-def _sb_off(name):     # "#define NAME (SHIM_BASE + 0xNNNN)" -> abs address
-    m = re.search(rf"#define\s+{name}\s+\(SHIM_BASE\s*\+\s*(0x[0-9a-fA-F]+)\)", iface)
-    if not m:
-        sys.exit(f"{name} not in {IFACE_PATH} as (SHIM_BASE + 0xNNNN)")
-    return SHIM_BASE + int(m.group(1), 16)
-
-
-SHIM_BASE = _hexdef("SHIM_BASE")
-TEST_DAT_OFF = _hexdef("TEST_DAT_OFF")     # main/test boundary, raw .dat offset
-GAME_LOAD_ADDR = _hexdef("GAME_LOAD_ADDR")  # both images load here (RAM address)
-
-# Register mirrors (P2/uncached, matching the game's original access mode) --
-# not consumed by any entry wired in THIS task (only the 4 reloc words are
-# active below), but parsed now per task-9-brief.md step 3 ("mirror addresses
-# parsed from shim_iface.h") so Tasks 10/11 add definitions, not plumbing.
-G1_MIRROR_P2 = _sb_off("G1_MIRROR") | 0xA0000000        # Task 10 cart/G1 patches
-MAPLE_MIRROR_P2 = _sb_off("MAPLE_MIRROR") | 0xA0000000  # Task 11 maple patches
-
-# ---- shim entry points from shim.map --------------------------------------
-# Symbols carry a leading _ (__USER_LABEL_PREFIX__=_); look up with or without.
-symtab = {}
-for line in (ROOT / "shims/build/shim.map").read_text().splitlines():
-    p = line.split()
-    if len(p) == 3:
-        symtab[p[2]] = int(p[0], 16)
-
-
-def sym(name):
-    v = symtab.get(name)
-    if v is None:
-        v = symtab.get("_" + name)          # C name -> asm label _name
-    if v is None:
-        sys.exit(f"symbol {name!r} not in shim.map (rebuild: make -C shims)")
-    return v            # code entries run cached (P1); jmp/jsr targets want P1
-
-
-def sym_opt(name):
-    """Like sym(), but returns None instead of exiting when the symbol is
-    absent -- for gd_test_server, which only exists in a TESTSRV=1 shim
-    build (shims/src/gd_testsrv.c, `#if GD_TEST_SERVER`). A plain build's
-    shim.map legitimately has no such symbol; that must not fail the
-    generator, only leave GD_TEST_SERVER_ADDR at a value LOADER_TESTSRV=0
-    builds never read."""
-    v = symtab.get(name)
-    return v if v is not None else symtab.get("_" + name)
-
-# ---- senkosp.dat: the old-byte verification source for EVERY entry --------
-# NOT boot.bin (Cleopatra's source): entries span both the main and test load
-# images, and dat_offset is uniformly a raw .dat offset (task-9-brief.md
-# Interfaces block, Phase 4 flag 7).
-DAT_PATH = ROOT / "senkosp.dat"
+DAT_PATH = ROOT / port_def.DAT
 if not DAT_PATH.exists():
     sys.exit(f"{DAT_PATH} missing (gitignored, regenerable -- docs/kb/tooling.md)")
-DAT = DAT_PATH.read_bytes()
 
-
-def img_of(dat_off):
-    """0 = main image, 1 = test image (docs/kb/phase4-conversion.md
-    §Cart-patch-sites Conventions: dat_offset >= TEST_DAT_OFF -> test)."""
-    return 1 if dat_off >= TEST_DAT_OFF else 0
-
-
-def rd(dat_off, n):
-    assert 0 <= dat_off <= len(DAT) - n, hex(dat_off)
-    return DAT[dat_off:dat_off + n]
-
-
-patches = []   # (dat_off, img, old-bytes, new-bytes, comment)
-
-
-def _append(dat_off, old, new, comment):
-    assert len(old) == len(new), (dat_off, len(old), len(new))
-    assert len(old) <= 12, f"@dat:{dat_off:#x}: {len(old)} B exceeds the 12 B old/neu capacity"
-    patches.append((dat_off, img_of(dat_off), old, new, comment))
-
-
-def pool(dat_off, expect, value, comment=""):
-    old = rd(dat_off, 4)
-    got = struct.unpack("<I", old)[0]
-    assert got == expect, f"pool @dat:{dat_off:#x}: found {got:#010x}, expected {expect:#010x}"
-    _append(dat_off, old, struct.pack("<I", value), comment)
-
-
-def ptr(dat_off, expect, target, comment=""):
-    old = rd(dat_off, 4)
-    got = struct.unpack("<I", old)[0]
-    assert got == expect, f"ptr @dat:{dat_off:#x}: found {got:#010x}, expected {expect:#010x}"
-    _append(dat_off, old, struct.pack("<I", target), comment)
-
-
-def hook(dat_off, expect, target, comment=""):
-    """SH-4 entry thunk (Cleopatra's kind, math unchanged -- see module
-    docstring point 1): mov.l @(disp,PC),r0 ; jmp @r0 ; nop ; [pad] ; .long target.
-    `expect` = the first opcode (u16) at dat_off (entry-point guard)."""
-    old0 = struct.unpack("<H", rd(dat_off, 2))[0]
-    assert old0 == expect, f"hook @dat:{dat_off:#x}: found {old0:#06x}, expected {expect:#06x}"
-    slot = (dat_off + 6 + 3) & ~3            # 4-align the pooled .long
-    pad = slot - (dat_off + 6)
-    disp = (slot - ((dat_off & ~3) + 4)) // 4
-    assert 0 <= disp <= 255, hex(dat_off)
-    code = struct.pack("<HHH", 0xD000 | disp, 0x402B, 0x0009)
-    code += struct.pack("<H", 0x0009) * (pad // 2) + struct.pack("<I", target)
-    _append(dat_off, rd(dat_off, len(code)), code, comment)
-
-
-def _detour_code(w, target):
-    """jmp-detour kind (new for this port; no Cleopatra analog -- Task 11's
-    MAPLE-BOOT-STRATEGY needs a self-contained mid-body detour, not an entry
-    hook). Layout (docs/kb/phase4-conversion.md §maple-patch-sites):
-
-        +0x00  d201   mov.l @(0x01,PC),r2   ; r2 = the trampoline address
-        +0x02  422b   jmp @r2
-        +0x04  0009   nop                    ; delay slot
-        +0x06  0009   [pad -- only if w%4==0, to 4-align the literal]
-        +0x06/8  <32-bit trampoline address>
-
-    `w` = window-start dat_offset. SH-4 `mov.l @(1,PC),r2` at address A reads
-    EA = ((A+4)&~3)+4 (PC-relative load; PC = insn addr + 4). Substituting
-    A=w gives the literal's offset from w; both w%4 cases (0 and 2 -- SH-4
-    code is only ever 2-aligned) are exercised by
-    scripts/test_build_patch_table.py. Returns the code bytes (10 or 12 B);
-    the caller is responsible for old-byte verification.
-    """
-    lit_off = 8 if w % 4 == 0 else 6
-    total = lit_off + 4
-    # The KB's own math, re-derived and asserted per entry (not just trusted
-    # from the table) -- this is the literal-lands-inside-the-window guarantee.
-    assert lit_off == (((w + 4) & ~3) + 4) - w, (hex(w), lit_off)
-    assert lit_off + 4 <= total <= 12, (hex(w), lit_off, total)
-    code = struct.pack("<HHH", 0xD201, 0x422B, 0x0009)
-    if lit_off == 8:
-        code += struct.pack("<H", 0x0009)
-    code += struct.pack("<I", target & 0xFFFFFFFF)
-    assert len(code) == total
-    return code
-
-
-def detour(dat_off, expect, target, comment=""):
-    code = _detour_code(dat_off, target)
-    old = rd(dat_off, len(code))
-    assert old == expect, (
-        f"detour @dat:{dat_off:#x}: found {old.hex()}, expected {expect.hex()}")
-    _append(dat_off, old, code, comment)
-
-
-def _selftest():
-    # Money path: the old-byte verify is worthless unless a wrong expectation
-    # raises. dat_off 0x0 is senkosp.dat's own header (never 0xdeadbeef in any
-    # real image), so this needs no reloc/KB value and can run before any
-    # definitions are loaded.
-    n = len(patches)
-    try:
-        pool(0x0, 0xDEADBEEF, 0, "selftest (deliberately wrong expect)")
-    except AssertionError:
-        assert len(patches) == n, "selftest polluted the patch list"
-        return
-    sys.exit("SELFTEST FAILED: bad expectation did not raise")
-
+g = Gen(dat=DAT_PATH.read_bytes(),
+        iface_text=(ROOT / "shims/include/shim_iface.h").read_text(),
+        shim_map_text=(ROOT / "shims/build/shim.map").read_text(),
+        reloc=json.loads((ROOT / "scripts/reloc_patchset.json").read_text()),
+        tramp_text=(ROOT / "shims/src/mtramp.S").read_text())
 
 # ---- definitions ------------------------------------------------------
-_selftest()
-
 # §Task 9: heap-top + KAMUI2-VRAM relocation seeds. scripts/reloc_patchset.json
 # is the SINGLE SOURCE for these 4 words (Phase 3 dry-run-proven) -- every
 # field (dat_offset/old/new/why) is read from the file, never re-typed here,
 # so the two can never drift.
-_RELOC = json.loads((ROOT / "scripts/reloc_patchset.json").read_text())
-for _r in _RELOC:
+for _r in g.reloc:
     _off, _old, _new = int(_r["dat_offset"], 16), int(_r["old"], 16), int(_r["new"], 16)
     _why = _r["why"]
     _comment = _why if len(_why) <= 96 else _why[:96].rstrip() + "..."
-    pool(_off, _old, _new, _comment)
+    g.pool(_off, _old, _new, _comment)
 
 # ---- HEAP-CARVE (Task 6, task-3b-report.md §FIX ROUND 1) ------------------
 # Conditional heap-top carve: applied by the loader ONLY when backend ==
@@ -240,45 +51,19 @@ for _r in _RELOC:
 # emitted reloc word (dat 0x65b50/0x1af894, the heap-top seed) -- pool()'s
 # `old` comes from the pristine DAT via rd() and would trip its own assert
 # against the post-reloc byte. carve() instead derives the post-reloc `old`
-# by overlaying every intersecting reloc word from _RELOC (single source, no
+# by overlaying every intersecting reloc word from g.reloc (single source, no
 # hand-typed second copy), so its memcmp sees what the runtime loader's
 # unconditional table has already written by the time this table runs.
-_carves = []   # separate list: emitted as its own arrays, applied by the
-               # loader ONLY when backend == syscall, AFTER the main table
-
-
-def carve(dat_off, pristine_hex, new_hex, comment=""):
-    """Overlap-aware raw entry. Verifies `pristine_hex` against the
-    pristine DAT (same money path as pool()), then derives the emitted
-    `old` by overlaying every reloc word from reloc_patchset.json that
-    intersects the window -- because the loader applies the unconditional
-    table first, the runtime memcmp sees post-reloc bytes."""
-    pristine = bytes.fromhex(pristine_hex)
-    new = bytes.fromhex(new_hex)
-    got = rd(dat_off, len(pristine))
-    assert got == pristine, (
-        f"carve @dat:{dat_off:#x}: found {got.hex()}, expected {pristine_hex}")
-    assert len(pristine) == len(new) <= 12
-    old = bytearray(pristine)
-    for r in _RELOC:                      # single source: the json, already
-        ro = int(r["dat_offset"], 16)     # pristine-asserted by pool() above
-        w = struct.pack("<I", int(r["new"], 16))
-        for i in range(4):
-            j = ro + i - dat_off
-            if 0 <= j < len(old):
-                old[j] = w[i]
-    _carves.append((dat_off, img_of(dat_off), bytes(old), new, comment))
-
 
 # soft-reset-menu (2026-10-10): UNCONDITIONAL and 64 KB deeper. New top
 # 0x8cfe0000: `mov #-0x73,r0; shll8; add #-2; shll16` (was add #-1 ->
 # 0x8cff0000). [0x8cfe0000,0x8cff0000) = BIOSRAM_SNAP (shim_iface.h), the
 # loader's pre-handoff copy of the DC BIOS syscall RAM that the shim's
 # pad-combo warm boot restores; [0x8cff0000,0x8d000000) stays isoldr's.
-carve(0x65b4e, "00e08ecb28401840", "8de01840fe702840",
-      "HEAP-CARVE main: top 0x8d000000 -> 0x8cfe0000 (BIOSRAM_SNAP + isoldr preset)")
-carve(0x1af892, "00e08ecb28401840", "8de01840fe702840",
-      "HEAP-CARVE test: twin window, same bytes")
+g.carve(0x65b4e, "00e08ecb28401840", "8de01840fe702840",
+        "HEAP-CARVE main: top 0x8d000000 -> 0x8cfe0000 (BIOSRAM_SNAP + isoldr preset)")
+g.carve(0x1af892, "00e08ecb28401840", "8de01840fe702840",
+        "HEAP-CARVE test: twin window, same bytes")
 
 # ---- CART-* (Task 10, docs/kb/phase4-conversion.md §Cart-patch sites) -----
 # Every cart/G1 register constant in either image is repointed into G1_MIRROR,
@@ -362,8 +147,8 @@ _CART_ROWS = [
     # 30-32 exempt: 0x1b2544 SB_GDSTAR / 0x1b2548 SB_GDLEN / 0x1b254c SB_GDDIR
 ]
 for _n, _off, _old, _reg, _anchor in _CART_ROWS:
-    pool(_off, _old, G1_MIRROR_P2 + (_old & 0x7FF),
-         f"#{_n} {_reg} -> G1 mirror ({_anchor})")
+    g.pool(_off, _old, g.G1_MIRROR_P2 + (_old & 0x7FF),
+           f"#{_n} {_reg} -> G1 mirror ({_anchor})")
 assert len(_CART_ROWS) == 58, "cart pool rows: 29 per image, KB entries 1-29"
 
 # The four entry hooks (§Cart-patch sites "Four entry hooks" + §Test image
@@ -387,7 +172,7 @@ for _off, _exp, _fn, _what in [
     (0x0463e6, 0xD212, "shim_cart_pio",      "CART-PIO-READ main: boot PIO reader 0x8c0663e6"),
     (0x1a2c12, 0xD212, "shim_cart_pio",      "CART-PIO-READ test: boot PIO reader 0x8c050c1a"),
 ]:
-    hook(_off, _exp, sym(_fn), _what)
+    g.hook(_off, _exp, g.sym(_fn), _what)
 
 # ---- MAPLE-* (Task 11, docs/kb/phase4-conversion.md §Maple-patch sites) ---
 # Every maple register constant in either image is repointed into MAPLE_MIRROR,
@@ -448,8 +233,8 @@ _MAPLE_ROWS = [
     # 19-20 exempt: 0x1b253c SB_MDSTAR / 0x1b2540 SB_MDTSEL (crash-dump list)
 ]
 for _n, _off, _old, _reg, _anchor in _MAPLE_ROWS:
-    pool(_off, _old, MAPLE_MIRROR_P2 + (_old & 0xFF),
-         f"#{_n} {_reg} -> maple mirror ({_anchor})")
+    g.pool(_off, _old, g.MAPLE_MIRROR_P2 + (_old & 0xFF),
+           f"#{_n} {_reg} -> maple mirror ({_anchor})")
 assert len(_MAPLE_ROWS) == 36, "maple pool rows: 18 per image, KB entries 1-18"
 
 # The five boot detours (§MAPLE-BOOT-STRATEGY). Each window is the
@@ -478,27 +263,8 @@ MAPLE_BOOT_SITES = [
 # `jsr @r3` into the service hook. Wired in Task 11, not 12: the JVS
 # enumeration the boot I/O-board gate tests runs on THIS engine (see
 # shim_maple_service's comment + the Task 11 report's leg chain).
-ptr(0x0054c0, 0x8C02A17E, sym("shim_maple_service"), "MAPLE-KICK-HOOK main")
-ptr(0x1774b8, 0x8C02A17E, sym("shim_maple_service"), "MAPLE-KICK-HOOK test")
-
-_TRAMP = (ROOT / "shims/src/mtramp.S").read_text()
-
-
-def _resume_check(site, image, dat_off, nbytes):
-    """The trampoline's baked resume address MUST be window_ram + window_len:
-    control returns to the first instruction the detour did not swallow. Both
-    numbers exist twice (here and in mtramp.S), so assert them equal rather
-    than trusting two hand-typed tables."""
-    ram = GAME_LOAD_ADDR + dat_off - (TEST_DAT_OFF if image == "test" else 0)
-    m = re.search(rf"MBSITE\s+{site}_{image},\s*(0x[0-9a-fA-F]+)", _TRAMP)
-    if not m:
-        sys.exit(f"mtramp.S has no MBSITE {site}_{image}")
-    got = int(m.group(1), 16)
-    if got != ram + nbytes:
-        sys.exit(f"MAPLE-BOOT-{site.upper()} {image}: mtramp.S resumes at "
-                 f"{got:#010x}, window {ram:#010x}+{nbytes} ends at "
-                 f"{ram + nbytes:#010x}")
-
+g.ptr(0x0054c0, 0x8C02A17E, g.sym("shim_maple_service"), "MAPLE-KICK-HOOK main")
+g.ptr(0x1774b8, 0x8C02A17E, g.sym("shim_maple_service"), "MAPLE-KICK-HOOK test")
 
 for _site, _main, _test, _hw in MAPLE_BOOT_SITES:
     # The KB writes the window as big-endian halfwords ("2e72 2572 ..."); the
@@ -507,15 +273,15 @@ for _site, _main, _test, _hw in MAPLE_BOOT_SITES:
     _hw = _hw.replace(" ", "")
     _exp = bytes.fromhex("".join(_hw[i + 2:i + 4] + _hw[i:i + 2]
                                  for i in range(0, len(_hw), 4)))
-    assert len(_exp) == len(_detour_code(_main, 0)) == len(_detour_code(_test, 0)), (
+    assert len(_exp) == len(g.detour_code(_main, 0)) == len(g.detour_code(_test, 0)), (
         f"MAPLE-BOOT-{_site.upper()}: KB window is {len(_exp)} B but the detour "
-        f"needs {len(_detour_code(_main, 0))} B at this alignment")
-    detour(_main, _exp, sym(f"shim_mb_{_site}_main"),
-           f"MAPLE-BOOT-{_site.upper()} main: kick+poll detour")
-    detour(_test, _exp, sym(f"shim_mb_{_site}_test"),
-           f"MAPLE-BOOT-{_site.upper()} test: kick+poll detour")
-    _resume_check(_site, "main", _main, len(_exp))
-    _resume_check(_site, "test", _test, len(_exp))
+        f"needs {len(g.detour_code(_main, 0))} B at this alignment")
+    g.detour(_main, _exp, g.sym(f"shim_mb_{_site}_main"),
+             f"MAPLE-BOOT-{_site.upper()} main: kick+poll detour")
+    g.detour(_test, _exp, g.sym(f"shim_mb_{_site}_test"),
+             f"MAPLE-BOOT-{_site.upper()} test: kick+poll detour")
+    g.resume_check(_site, "main", _main, len(_exp))
+    g.resume_check(_site, "test", _test, len(_exp))
 
 # ---- RESET-PATCH (docs/kb/phase4-conversion.md §Restart stub) -------------
 # FUN_8c067e18's single `jmp @r1` loads r1 from this pool word one instruction
@@ -525,8 +291,8 @@ for _site, _main, _test, _hw in MAPLE_BOOT_SITES:
 # and a live restart path is safer than one that jumps into nothing the moment
 # any code reaches it. The copy-destination pool (0x47e3c / 0x1a4668,
 # 0xadfff000) stays unpatched -- it is only CALL #1's argument.
-ptr(0x047e4c, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH main: restart -> DC reboot")
-ptr(0x1a4678, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH test: restart -> DC reboot")
+g.ptr(0x047e4c, 0x8DFFF000, g.sym("shim_reboot"), "RESET-PATCH main: restart -> DC reboot")
+g.ptr(0x1a4678, 0x8DFFF000, g.sym("shim_reboot"), "RESET-PATCH test: restart -> DC reboot")
 
 # (BOOT-UNBLANK op16 patches lived here 2026-09-01 for a few hours: three
 # `or #8,r0` blank-set sites suppressed so the boot gap showed the splash.
@@ -546,7 +312,7 @@ ptr(0x1a4678, 0x8DFFF000, sym("shim_reboot"), "RESET-PATCH test: restart -> DC r
 # +10% layout (ispl=0x711e0, oll=0x712e0). Main image only: the test image
 # has no reloc-entry-4 twin (it keeps stock -0x40000 TA, where the stock
 # carve is correct).
-ptr(0x00e4ec, 0x8C031AF0, sym("shim_g_carve"), "G-CARVE main: KAMUI2 carve stomp")
+g.ptr(0x00e4ec, 0x8C031AF0, g.sym("shim_g_carve"), "G-CARVE main: KAMUI2 carve stomp")
 
 # ---- E-PREFREE (r8, docs/kb/phase5-hardware.md §Round 6 prep) -------------
 # Mode-select's task entry loads MODESEL.PAK before the match task's teardown
@@ -556,7 +322,7 @@ ptr(0x00e4ec, 0x8C031AF0, sym("shim_g_carve"), "G-CARVE main: KAMUI2 carve stomp
 # match scene's static resource array (0x8c1cfb50, teardown site 0x8c08498e)
 # with mask 1 (VRAM textures only), then runs the original load. Idempotent:
 # the unloader nulls slots it frees and skips null slots.
-ptr(0x13930c, 0x8C0B5BE8, sym("shim_e_prefree"), "E-PREFREE main: MODESEL load frees match textures first")
+g.ptr(0x13930c, 0x8C0B5BE8, g.sym("shim_e_prefree"), "E-PREFREE main: MODESEL load frees match textures first")
 
 # ---- MONITOR-SENSE-HOOK (Task 31, composite sync fix) ---------------------
 # The game's one display init uses mode 0x80000038 bit31 "auto": the SDK
@@ -572,8 +338,8 @@ ptr(0x13930c, 0x8C0B5BE8, sym("shim_e_prefree"), "E-PREFREE main: MODESEL load f
 # cable. A mode-word hook at the call site instead trips the wrapper's
 # `return -1` validation (measured, comp-dbg leg). Full RE:
 # docs/kb/phase6-release.md §composite fix.
-ptr(0x01d5a8, 0x8C02A0EA, sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK main: monitor sense -> DC cable")
-ptr(0x18f020, 0x8C02A0EA, sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK test: monitor sense -> DC cable")
+g.ptr(0x01d5a8, 0x8C02A0EA, g.sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK main: monitor sense -> DC cable")
+g.ptr(0x18f020, 0x8C02A0EA, g.sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK test: monitor sense -> DC cable")
 
 # ---- VIDEO-GEOM-HOOK (Task 31 round 2, TV centering) ----------------------
 # The SDK's 15 kHz builder programs arcade-monitor geometry (536-line frame,
@@ -583,8 +349,8 @@ ptr(0x18f020, 0x8C02A0EA, sym("shim_monitor_sense"), "MONITOR-SENSE-HOOK test: m
 # on non-VGA cables only, restore the six SPG/VO geometry regs to KOS's
 # DC-native NTSC-IL values after the SDK's own mode-set completes. Mode word
 # passes through untouched (bit30 lesson). VGA: pure pass-through.
-ptr(0x04edcc, 0x8C03D48E, sym("shim_vid_init_main"), "VIDEO-GEOM-HOOK main: display init + TV geometry fixup")
-ptr(0x1aa9c0, 0x8C03CF0E, sym("shim_vid_init_test"), "VIDEO-GEOM-HOOK test: display init + TV geometry fixup")
+g.ptr(0x04edcc, 0x8C03D48E, g.sym("shim_vid_init_main"), "VIDEO-GEOM-HOOK main: display init + TV geometry fixup")
+g.ptr(0x1aa9c0, 0x8C03CF0E, g.sym("shim_vid_init_test"), "VIDEO-GEOM-HOOK test: display init + TV geometry fixup")
 
 # ---- VBL-SPIN (Phase 7 T7 round 4, boot-gap spinner) ----------------------
 # The game's interrupt-callback registrar (0x8c039060) loads its callback fn
@@ -596,7 +362,7 @@ ptr(0x1aa9c0, 0x8C03CF0E, sym("shim_vid_init_test"), "VIDEO-GEOM-HOOK test: disp
 # splash side-buffer scanout, then tail-jump to the original). Whole-.dat
 # u32 scan: exactly ONE hit (main image; the test image does not carry the
 # literal and keeps the stock callback -- no spinner in test mode, fine).
-ptr(0x0191cc, 0x8C038F00, sym("shim_int_spin"), "VBL-SPIN main: interrupt callback -> gap spinner wrapper")
+g.ptr(0x0191cc, 0x8C038F00, g.sym("shim_int_spin"), "VBL-SPIN main: interrupt callback -> gap spinner wrapper")
 
 # ---- VIDINIT-WRITEFILTER (Phase 7 T7 round 8, splash continuity) ----------
 # The game's vid-init disturbs the LIVE video signal (t8-pin-vga census:
@@ -618,85 +384,22 @@ ptr(0x0191cc, 0x8C038F00, sym("shim_int_spin"), "VBL-SPIN main: interrupt callba
 # NB the fb-off fn runs BEFORE the wrapped vid-init call (t7r8-comp census:
 # its FB_R_CTRL=0 landed at .168, window opened .17x) -- it gets the
 # unconditional variant; the other three are callees of the wrapped entry.
-ptr(0x018954, 0x8C032140, sym("shim_pvr_write_pre"), "VIDINIT-WRITEFILTER: fb-off/size-clear fn, pre-window (pr=8c03890e)")
-ptr(0x016c80, 0x8C032140, sym("shim_pvr_write"), "VIDINIT-WRITEFILTER: raster apply fn (pr=8c036cea)")
-ptr(0x0162b4, 0x8C032140, sym("shim_pvr_write"), "VIDINIT-WRITEFILTER: fb-config fn (pr=8c036292)")
-ptr(0x0153c4, 0x8C032140, sym("shim_pvr_write"), "VIDINIT-WRITEFILTER: display-arm fn (pr=8c035398)")
+g.ptr(0x018954, 0x8C032140, g.sym("shim_pvr_write_pre"), "VIDINIT-WRITEFILTER: fb-off/size-clear fn, pre-window (pr=8c03890e)")
+g.ptr(0x016c80, 0x8C032140, g.sym("shim_pvr_write"), "VIDINIT-WRITEFILTER: raster apply fn (pr=8c036cea)")
+g.ptr(0x0162b4, 0x8C032140, g.sym("shim_pvr_write"), "VIDINIT-WRITEFILTER: fb-config fn (pr=8c036292)")
+g.ptr(0x0153c4, 0x8C032140, g.sym("shim_pvr_write"), "VIDINIT-WRITEFILTER: display-arm fn (pr=8c035398)")
 
 # ---- emit -------------------------------------------------------------
-def _row(dat_off, img, old, new, what):
-    old_b = list(old) + [0] * (12 - len(old))
-    new_b = list(new) + [0] * (12 - len(new))
-    old_s = ",".join(f"0x{b:02x}" for b in old_b)
-    new_s = ",".join(f"0x{b:02x}" for b in new_b)
-    what_s = what.replace("\\", "\\\\").replace('"', '\\"')
-    return (f'  {{0x{dat_off:08x}u, {img}u, {len(old)}u, '
-            f'{{{old_s}}}, {{{new_s}}}, "{what_s}"}}')
-
-
-def _emit_array(arr_name, plist, count_name):
-    if plist:
-        rows = ",\n".join(_row(*p) for p in plist)
-        body = f"static const patch_t {arr_name}[] = {{\n{rows}\n}};"
-    else:
-        body = f"static const patch_t {arr_name}[1] = {{{{0}}}};"
-    return body + f"\nenum {{ {count_name} = {len(plist)} }};"
-
-
-main_patches = [p for p in patches if p[1] == 0]
-test_patches = [p for p in patches if p[1] == 1]
-main_carves = [p for p in _carves if p[1] == 0]
-test_carves = [p for p in _carves if p[1] == 1]
-
-# FIX ROUND 2 (task-6-report.md): gd_test_server's own runtime address, the
-# same "resolve from shim.map" path every hook()/detour() target already
-# uses (shim.ld links at SHIM_BASE, so shim.map addresses ARE final runtime
-# addresses -- no extra math). Only present in a TESTSRV=1 shim build
-# (shims/src/gd_testsrv.c, `#if GD_TEST_SERVER`); sym_opt() (not sym())
-# because a plain build's shim.map legitimately lacks it, and that must not
-# fail generation -- the loader only ever reads this under its own
-# LOADER_TESTSRV=1 (loader/main.c), which the top Makefile always sets in
-# lockstep with the shim's GD_TEST_SERVER=1.
-_gd_test_server_addr = sym_opt("gd_test_server") or 0
-
-# T9 task 6: the baked EEPROM image's runtime address -- the loader pokes the
-# menu's session record into the STAGED copy's game area before handoff
-# (loader/main.c MENUEE block). ADAPTED from the task brief, which names a
-# standalone `eeprom_img` symbol: no such symbol exists in this shim (that
-# name belongs to the still-#if-0'd Cleopatra-style RAM-copy skeleton in
-# shims/src/main.c, dead code carried over from the import). The LIVE EEPROM
-# path (same file, case 0x03/0x0b, docs/kb/phase4-conversion.md "EEPROM -- a
-# RAM copy, session-only") serves sub-0x03 out of a RAM copy of `mie_sub03`
-# -- the generated MIE reply blob (shims/build/mie_blobs.c, sub03()
-# in scripts/gen_mie_blobs.py): a 4-byte MIE reply header followed by the
-# 128-byte EEPROM image. EEPROM_IMG_ADDR therefore resolves to mie_sub03's
-# address; loader/main.c's poke offset folds in the extra +4 header skip so
-# the game-area offset (+0x24 in image coordinates) still lands correctly.
-# sym(), not sym_opt(): mie_sub03 is unconditionally compiled (no #if guard).
-_eeprom_img_addr = sym("mie_sub03")
-
-out = [
-    "/* GENERATED by scripts/build_patch_table.py - do not edit, do not commit",
-    " * (embeds original .dat bytes read at generation time). */",
-    "typedef struct {",
-    "  unsigned int dat_off;",
-    "  unsigned char img;      /* 0 = main image, 1 = test image */",
-    "  unsigned char len;",
-    "  unsigned char old[12];",
-    "  unsigned char neu[12];",
-    "  const char *what;",
-    "} patch_t;",
-    f"#define GD_TEST_SERVER_ADDR 0x{_gd_test_server_addr:08x}u",
-    f"#define EEPROM_IMG_ADDR 0x{_eeprom_img_addr:08x}u",
-    _emit_array("senkosp_patches_main", main_patches, "N_PATCHES_MAIN"),
-    _emit_array("senkosp_patches_test", test_patches, "N_PATCHES_TEST"),
-    _emit_array("senkosp_carve_main", main_carves, "N_CARVE_MAIN"),
-    _emit_array("senkosp_carve_test", test_carves, "N_CARVE_TEST"),
-]
 (ROOT / "build").mkdir(exist_ok=True)
-(ROOT / "build/patch_table.h").write_text("\n".join(out) + "\n")
-print(f"OK patch_table.h: {len(main_patches)} main + {len(test_patches)} test patches "
+(ROOT / "build/patch_table.h").write_text(g.emit(port_def.PATCH_PREFIX))
+
+
+def _count(plist, img):
+    return sum(p[1] == img for p in plist)
+
+
+print(f"OK patch_table.h: {_count(g.patches, 0)} main + {_count(g.patches, 1)} test patches "
       f"(reloc seeds + CART-* repoints/hooks + MAPLE-* repoints/detours + "
-      f"RESET-PATCH); {len(main_carves)} main + {len(test_carves)} test carve "
-      f"entries (backend==syscall only); G1_MIRROR_P2={G1_MIRROR_P2:#010x} "
-      f"MAPLE_MIRROR_P2={MAPLE_MIRROR_P2:#010x}")
+      f"RESET-PATCH); {_count(g.carves, 0)} main + {_count(g.carves, 1)} test carve "
+      f"entries (backend==syscall only); G1_MIRROR_P2={g.G1_MIRROR_P2:#010x} "
+      f"MAPLE_MIRROR_P2={g.MAPLE_MIRROR_P2:#010x}")

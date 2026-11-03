@@ -95,7 +95,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import build_patch_table as BPT  # noqa: E402  (after sys.path setup)
 
 for w, want_lit_off, want_len in ((0x001000, 8, 12), (0x001002, 6, 10)):
-    code = BPT._detour_code(w, 0x8C010ABC)
+    code = BPT.g.detour_code(w, 0x8C010ABC)
     assert len(code) == want_len, (w, len(code), want_len)
     lit_off = (((w + 4) & ~3) + 4) - w          # KB's own formula, re-derived
     assert lit_off == want_lit_off, (w, lit_off, want_lit_off)
@@ -133,13 +133,13 @@ for name, pat in CARVE_RE.items():
 print("OK HEAP-CARVE: both tables 1 entry, old embeds post-reloc 0x8d, new matches spec")
 
 # ---- old-byte verification must reject a deliberately wrong `old` ----------
-before = len(BPT.patches)
+before = len(BPT.g.patches)
 try:
-    BPT.pool(0x0, 0xDEADBEEF, 0, "deliberately wrong old (self-check)")
+    BPT.g.pool(0x0, 0xDEADBEEF, 0, "deliberately wrong old (self-check)")
     raise SystemExit("FAIL: wrong `old` did not raise")
 except AssertionError:
     pass
-assert len(BPT.patches) == before, "failed verification polluted patches[]"
+assert len(BPT.g.patches) == before, "failed verification polluted patches[]"
 print("OK old-byte verification rejects a wrong `old`")
 
 print("ok")
