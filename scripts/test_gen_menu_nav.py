@@ -9,6 +9,7 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
+sys.path.insert(0, os.path.join(REPO, "kit", "scripts"))   # gen_menu_assets
 import gen_menu_assets as g    # noqa: E402
 import menu_def as M           # noqa: E402
 

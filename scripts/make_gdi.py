@@ -124,7 +124,7 @@ def patch_gdtex(track03: pathlib.Path, build: pathlib.Path):
     elif GDTEX_PNG.exists():
         bmp, raw = build / "gdtex.bmp", build / "gdtex.rgb565"
         run(["sips", "-s", "format", "bmp", str(GDTEX_PNG), "--out", str(bmp)])
-        run([sys.executable, "scripts/bmp2rgb565.py", str(bmp), str(raw), "256", "256"])
+        run([sys.executable, "kit/scripts/bmp2rgb565.py", str(bmp), str(raw), "256", "256"])
         src = raw.read_bytes()
     else:
         print("note: 0GDTEX.pvr/.png absent -> disc art stays the donor's (Dolphin Blue)")

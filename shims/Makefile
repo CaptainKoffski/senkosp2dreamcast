@@ -1,9 +1,10 @@
 KIT ?= $(abspath ../kit)
 DAT ?= senkosp.dat
 INC = -Iinclude -Isrc
-# Task 11: the MIE reply blobs ARE embedded, as generated C ($(B)/mie_blobs.c
-# below), not Cleopatra's xxd-embedded .bin blobs. Since 2026-10 they come
-# from scripts/gen_mie_blobs.py (no capture); generated, never committed.
+# Task 11: the MIE reply blobs ARE embedded, as generated C ($(B)/mie_blobs.c,
+# rule in kit/shims/rules.mk), not Cleopatra's xxd-embedded .bin blobs. Since
+# 2026-10 they come from kit/scripts/gen_mie_blobs.py (no capture); generated,
+# never committed.
 # gdstack.S revived in Phase 7 Task 5 (2026-09-03-phase7-t1-dreamshell spec +
 # plan): DreamShell's isoldr backend needs the private-stack/FPU-quarantine/
 # MMUCR-window trampoline gd_sys.c calls as gdc_call -- raw ATA (src/gd.c)
@@ -22,6 +23,7 @@ SRCS = src/main.c $(KIT)/shims/src/scif.c src/util.c $(KIT)/shims/src/gd.c $(KIT
 # task-6-report.md).
 include $(KIT)/shims/rules.mk
 $(B)/shim.elf: include/shim_iface.h src/layouts.h
+$(B)/mie_blobs.c: ../scripts/menu_def.py ../scripts/port_def.py include/shim_iface.h
 
 # T10b (SHIM_LZ4 builds only): vendored LZ4 decoder, decompressor-only.
 # lz4.c compiles with -ffunction-sections, then a partial link keeps just
@@ -72,15 +74,6 @@ test: shim-tests
 	cc -I$(KIT)/loader -I../loader -o $(B)/test_ctl_lib test/test_ctl_lib.c $(KIT)/loader/ctl_lib.c && $(B)/test_ctl_lib
 	cc -Iinclude -o $(B)/test_lz4_lay test/test_lz4_lay.c src/lz4_lay.c && $(B)/test_lz4_lay
 	cc -Iinclude -o $(B)/test_game_values test/test_game_values.c && $(B)/test_game_values
-# MIE reply blobs: GENERATED at build time by scripts/gen_mie_blobs.py from
-# committed constants (Flycast emulator output, cited) + the builder's own
-# ../senkosp.dat header + scripts/menu_def.py's port defaults -- no capture
-# needed. Never committed: mie_sub03 carries the ROM's game ID. Spec
-# docs/superpowers/specs/2026-10-04-mie-blobs-generator-design.md.
-$(B)/mie_blobs.c: ../scripts/gen_mie_blobs.py ../scripts/menu_def.py \
-                  ../scripts/eeprom_game_diff.py ../$(DAT) include/shim_iface.h
-	mkdir -p $(B)
-	python3 ../scripts/gen_mie_blobs.py
 # Fresh clone: senkosp.dat is gitignored (your own romset, README step 1).
 # Say so instead of make's "no rule to make target".
 ../$(DAT):
