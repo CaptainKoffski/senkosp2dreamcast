@@ -3565,4 +3565,5 @@ make objclean && make loader CDI=1 && scripts/gate_hashes.sh check cd   # silent
   this checkout's absolute `KOS_BASE`: the same files, accepted for this
   check (plan Task 9 Step 3). The other inputs are symlinks, no copies; the
   clone was deleted afterwards.
-- The pin stays `6b6b3dc`: this record is a docs-only commit here.
+- Afterwards the kit pin moved to `d42e228`, a docs-only kit commit (README §8 /
+  status caveat: the menu generator's residual senkosp assumptions).
