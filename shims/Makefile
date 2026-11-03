@@ -12,8 +12,8 @@ INC = -Iinclude -Isrc
 # never probed into, which the dispatch task (Task 6) still owes.
 SRCS = src/main.c $(KIT)/shims/src/scif.c src/util.c $(KIT)/shims/src/gd.c $(KIT)/shims/src/gd_sys.c \
        $(KIT)/shims/src/gd_testsrv.c src/cart.c $(KIT)/shims/src/maple.c $(KIT)/shims/src/jvs.c \
-       src/mtramp.S $(KIT)/shims/src/gdstack.S $(B)/mie_blobs.c ../loader/handoff.S
-# ../loader/handoff.S (soft-reset-menu): the loader's PIC copy-record walker,
+       src/mtramp.S $(KIT)/shims/src/gdstack.S $(B)/mie_blobs.c $(KIT)/loader/handoff.S
+# $(KIT)/loader/handoff.S (soft-reset-menu): the loader's PIC copy-record walker,
 # linked into the shim too -- the pad-combo warm boot final-places the
 # re-read loader image + BIOS syscall-RAM snapshot with it (src/main.c).
 # gd_testsrv.c is always compiled (unconditionally in SRCS) but its whole
@@ -69,8 +69,7 @@ endif
 .PHONY: test
 test: shim-tests
 	cc -DHOST_TEST -Iinclude -I$(KIT)/shims/src -Isrc -o $(B)/test_host test/test_host.c && $(B)/test_host
-	cc -o $(B)/test_naomi_crc test/test_naomi_crc.c ../loader/naomi_crc.c && $(B)/test_naomi_crc
-	cc -I../loader -o $(B)/test_ctl_lib test/test_ctl_lib.c ../loader/ctl_lib.c && $(B)/test_ctl_lib
+	cc -I$(KIT)/loader -I../loader -o $(B)/test_ctl_lib test/test_ctl_lib.c $(KIT)/loader/ctl_lib.c && $(B)/test_ctl_lib
 	cc -Iinclude -o $(B)/test_lz4_lay test/test_lz4_lay.c src/lz4_lay.c && $(B)/test_lz4_lay
 	cc -Iinclude -o $(B)/test_game_values test/test_game_values.c && $(B)/test_game_values
 # MIE reply blobs: GENERATED at build time by scripts/gen_mie_blobs.py from

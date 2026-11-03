@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include "../../loader/ctl_lib.h"
+#include "ctl_lib.h"
 
 int main(void) {
     enum { P = 0, S = 1 };
