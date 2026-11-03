@@ -31,6 +31,10 @@
 # Requires: sh-elf toolchain at /opt/toolchains/dc, KOS at tools/kos
 # (gitignored checkout), BIOS at bios/naomi/epr-21576h.ic27 (gitignored).
 
+KIT := $(abspath kit)
+DAT := senkosp.dat
+export KIT DAT
+
 # SERIAL=1 (e.g. make gdi SERIAL=1): debug build with the SCIF voice on --
 # shim SHIM_SERIAL + loader LOADER_SERIAL. Coder's-cable sessions only; a
 # release build must stay silent (serial-SD dongles drive SD over these pins).
