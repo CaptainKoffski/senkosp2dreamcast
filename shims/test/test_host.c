@@ -2,7 +2,7 @@
  * The cart split math moved out in Task 10: cart.c's private copy of the
  * head/body/tail splitter was deleted (the shim now calls gd.c's gd_plan via
  * gd_read_cart -- one implementation), so the split cases live in
- * test_gd_math.c against that one. */
+ * kit/shims/test/test_gd_math.c against that one. */
 #include <assert.h>
 #include <stdio.h>
 #include "../include/shim_iface.h"

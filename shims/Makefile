@@ -7,7 +7,7 @@ INC = -Iinclude -Isrc
 # never committed.
 # gdstack.S revived in Phase 7 Task 5 (2026-09-03-phase7-t1-dreamshell spec +
 # plan): DreamShell's isoldr backend needs the private-stack/FPU-quarantine/
-# MMUCR-window trampoline gd_sys.c calls as gdc_call -- raw ATA (src/gd.c)
+# MMUCR-window trampoline gd_sys.c calls as gdc_call -- raw ATA (kit/shims/src/gd.c)
 # stays the default backend (SHIM_STATE_GD_BACKEND selects at runtime,
 # shim_iface.h); gdstack.S is dead weight only when the syscall backend is
 # never probed into, which the dispatch task (Task 6) still owes.

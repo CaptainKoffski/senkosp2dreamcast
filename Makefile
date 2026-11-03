@@ -134,7 +134,7 @@ DEFS += -DSHIM_GD_DIAG=1
 endif
 # TESTSRV=1 (fix round 2, task-6-report.md): the real syscall-backend
 # verification leg, replacing FORCE_SYSCALL's retired one. Shim gets its own
-# GD_TEST_SERVER stand-in (shims/src/gd_testsrv.c) built in; loader skips
+# GD_TEST_SERVER stand-in (kit/shims/src/gd_testsrv.c) built in; loader skips
 # the raw rehearsal (LOADER_TESTSRV, same idea as GD_FORCE_SYSCALL) and
 # installs the stand-in's address at the syscall vector just before handoff
 # -- gdc_call's trampoline (gdstack.S) gets a real callee for the first

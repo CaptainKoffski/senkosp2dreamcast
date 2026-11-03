@@ -104,7 +104,7 @@ void scif_puts(const char *); void scif_puthex(unsigned int);   /* src/scif.c */
 #define SHIM_TRACE 0            /* per-transaction serial; see cart.c */
 #endif
 
-/* MIE replies (scripts/gen_mie_blobs.py -> shims/build/mie_blobs.c, generated:
+/* MIE replies (kit/scripts/gen_mie_blobs.py -> shims/build/mie_blobs.c, generated:
  * Flycast emulator output + EEPROM derived from the ROM header and menu_def.py;
  * spec docs/superpowers/specs/2026-10-04-mie-blobs-generator-design.md).
  * Byte-identical to the capture-era blobs except the baked game area (Event ON). */
@@ -141,7 +141,7 @@ int      dc_reset_combo(unsigned dc_buttons);           /* src/jvs.c */
  * (tools/kos/kernel/arch/dreamcast/kernel/init.c:438-449: IRQs masked, then
  * call P2 0xa0000000). Not KOS arch_menu (BIOS-menu syscall): every BIOS
  * syscall is dead after handoff -- the Naomi kernel slice sits on the BIOS's
- * low RAM (src/gd.c header). Caller masks IRQs. */
+ * low RAM (kit/shims/src/gd.c header). Caller masks IRQs. */
 static void __attribute__((noreturn)) cold_reboot(void) {
     ((void (*)(void))0xa0000000u)();
     __builtin_unreachable();
@@ -149,7 +149,7 @@ static void __attribute__((noreturn)) cold_reboot(void) {
 
 /* Pad reset combo (soft-reset-menu, 2026-10-10): warm-boot the LOADER, so the
  * combo lands in the pre-game menu, where the same combo reboots the console
- * (loader/menu.c) -- the retail two-stage soft reset. Nothing of the loader
+ * (kit/loader/menu.c) -- the retail two-stage soft reset. Nothing of the loader
  * or the DC BIOS survives handoff (docs/kb/input-map.md §Why the in-game combo
  * reboots), so both come back from what does:
  *   1. the loader image, read back from disc (the plain GDI 1ST_READ.BIN at
@@ -168,8 +168,8 @@ static void __attribute__((noreturn)) pad_reboot(void) {
     u32 sr; __asm__ volatile ("stc sr,%0" : "=r"(sr));
     __asm__ volatile ("ldc %0,sr" : : "r"((sr & 0xefffff0fu) | 0xf0u));
 #ifdef LOADER_FAD
-    int  gd_read(unsigned fad, void *dst, unsigned secs);        /* src/gd.c, backend dispatch */
-    void handoff(const void *records_p2, u32 entry);             /* ../loader/handoff.S (PIC) */
+    int  gd_read(unsigned fad, void *dst, unsigned secs);        /* kit/shims/src/gd.c, backend dispatch */
+    void handoff(const void *records_p2, u32 entry);             /* kit/loader/handoff.S (PIC) */
     extern u8 handoff_end[];
     /* Silence FIRST. Operator hardware round 2026-10-10: with the ARM held
      * only after the disc read, the AICA looped its stale buffers for the

@@ -11,7 +11,7 @@ extern uint8 shim_bin_end[];
 extern uint8 bios_data[];       /* objcopy-embedded: [BIOS60000_LEN][KERNEL_A/B/C_LEN], see shim_iface.h offsets */
 /* Task 10: v2 record walker -- handoff(records_p2, entry); see handoff.S. */
 extern void handoff(uint32 records_p2, uint32 entry);
-/* ../shims/src/gd.c, compiled into the loader too (Makefile) -- the loader
+/* kit/shims/src/gd.c, compiled into the loader too (Makefile) -- the loader
  * rehearses the shim's runtime raw-ATA read before handoff. */
 extern int gd_read_fad(unsigned fad, void *dst, unsigned sectors);
 extern unsigned int gd_last_err;
@@ -105,7 +105,7 @@ int dbgio_init(void) { return 0; }   /* strong override of KOS weak symbol */
 #endif
 
 /* TESTSRV=1 (top Makefile, fix round 2): like FORCE_SYSCALL, but for a
- * shim built with its own GD_TEST_SERVER stand-in (shims/src/gd_testsrv.c)
+ * shim built with its own GD_TEST_SERVER stand-in (kit/shims/src/gd_testsrv.c)
  * installed at the syscall vector just before handoff, below -- debug
  * round 1 (task-6-report.md) proved FORCE_SYSCALL's leg was structurally
  * invalid (Flycast's real BIOS vector, after this port's own KERNEL-SLICE
@@ -324,7 +324,7 @@ int main(void) {
     /* Rehearse the shim's exact runtime GD path before handing the game to it
      * (replaces Cleopatra's syscall rehearsal -- our runtime path is raw ATA,
      * because the kernel slice this loader places lands on the BIOS's low-RAM
-     * GD state; see shims/src/gd.c's header). Same sector KOS just read, so a
+     * GD state; see kit/shims/src/gd.c's header). Same sector KOS just read, so a
      * mismatch is the driver's fault, not the disc's. Runs BEFORE
      * apply_patches, which mutates `stage`.
      * Phase 7 T1: a raw-path failure is now expected, not fatal -- under
@@ -467,7 +467,7 @@ int main(void) {
      * staged. SHIM_STATE_LAYOUT_WORD(cls, port) = that (class, port)'s
      * resolved layout from the controls library (ctl_pack: six 4-bit function
      * ids, nibble i = the class's button i); the shim picks the class per poll
-     * from DEVINFO caps (jvs_pick_class, shims/src/jvs.c). Unconditional: with
+     * from DEVINFO caps (jvs_pick_class, kit/shims/src/jvs.c). Unconditional: with
      * the menu compiled out ctl_lib is its .bss defaults, so this stages
      * Tournament / Arcade. */
     *(uint32 *)(STAGE_SHIM + (SHIM_STATE - SHIM_BASE) + 4 * SHIM_STATE_LAYOUT_VALID) = 1u;

@@ -26,7 +26,13 @@ The complete investigation — every dead end included — is documented in
 
 This repo contains **only original work**: the loader, the freestanding SH-4
 shims, the patch generators, mastering/capture scripts, and the knowledge
-base.
+base. Since 2026-11-03 the game-agnostic part lives in the port kit, consumed
+as a git submodule at `kit/`:
+
+| Where | What |
+|---|---|
+| `kit/` — [naomi-dc-port-kit](https://github.com/CaptainKoffski/naomi-dc-port-kit) (submodule) | the shared core: GD/Maple/JVS/SCIF shim sources and `shim.ld`, loader menu engine, controls library, handoff and EEPROM CRC, the shim/loader build rules, GDI/CDI mastering, DreamShell preset, GDEMU deploy, the MIE/menu/patch-table generators, capture and analysis scripts, the VMU tripwires, the generic Ghidra scripts. What a port supplies is its `README.md`. |
+| this repo | the game layer: `shims/include/shim_iface.h`, `shims/src/` (`main.c`, `cart.c`, `util.c`, `mtramp.S`, `layouts.h`), `loader/main.c` + `menu_layout.h` + menu/controls art, `scripts/port_def.py`, `menu_def.py`, `maple_allowlist.py`, `reloc_patchset.json`, `build_patch_table.py` (the patch rows), the game's Ghidra scripts, the texture VQ tools, the Makefiles, the KB. |
 
 It contains **no copyrighted game data**. To build the disc you must supply
 your own legally-obtained copies of:
@@ -63,6 +69,13 @@ source repo, not the output.
 Built and tested on macOS (the build uses `dot_clean`, BSD tools; Linux
 would need minor Makefile tweaks). You need:
 
+- **This repo with its kit submodule** — the build includes `kit/`'s rule
+  files and runs its scripts, so initialise it after cloning:
+
+  ```sh
+  git clone https://github.com/CaptainKoffski/senkosp2dreamcast
+  cd senkosp2dreamcast && git submodule update --init    # the kit at kit/
+  ```
 - **Sibling checkouts** — build and capture scripts reach into neighbor
   repos by fixed relative path; clone them next to this repo with exactly
   these directory names:
@@ -123,14 +136,16 @@ head -c 5 senkosp.dat; echo       # must print NAOMI
 #    quit Flycast (it auto-saves), carve + validate, set AutoSaveState
 #    back to no. (If the sed matches nothing -- fresh Flycast install
 #    without the key -- toggle Auto Save State in Flycast's UI instead.)
+#    ROM paths absolute: Flycast rejects a relative one (docs/kb/tooling.md
+#    §"Instrumented Flycast", launch gotchas).
 sed -i '' 's/AutoSaveState = no/AutoSaveState = yes/' ~/Library/Application\ Support/Flycast/emu.cfg
-scripts/capture_leg.sh canary-snapshot & pid=$!   # ~150 s, then: kill -TERM $pid
-python3 scripts/carve_ram_snapshot.py    # 4 control tests -> tools/ram-snapshot.bin
+kit/scripts/capture_leg.sh canary-snapshot "$PWD/roms/senkosp.zip" & pid=$!   # ~150 s, then: kill -TERM $pid
+python3 kit/scripts/carve_ram_snapshot.py    # 4 control tests (RAM landmarks from scripts/port_def.py) -> tools/ram-snapshot.bin
 sed -i '' 's/AutoSaveState = yes/AutoSaveState = no/' ~/Library/Application\ Support/Flycast/emu.cfg
 
-# 3. Capture the NAOMI boot splash (BIOS-drawn; the script boots your
-#    senkosp.dat). Pick the full-logo frame:
-scripts/capture_naomi_splash.sh                # emits naomi_boot_s*.png
+# 3. Capture the NAOMI boot splash (BIOS-drawn; the script boots the
+#    .dat you pass). Pick the full-logo frame:
+kit/scripts/capture_naomi_splash.sh "$PWD/senkosp.dat"   # emits naomi_boot_s*.png
 cp naomi_boot_s6.png loader/splash.png         # frame number may vary
 
 # 4. Optional: disc cover art (DC BIOS menu / GDEMU menu) — drop a 256x256
@@ -144,21 +159,21 @@ cp naomi_boot_s6.png loader/splash.png         # frame number may vary
 #    without it. Needs numpy, hence the one-off venv. ORDER MATTERS:
 #    pktx_vq.py wipes build/texpatch/, shrink_vq.py appends to it.
 #    (Unpatched reference disc instead: `make loader`, then
-#    python3 scripts/make_gdi.py --no-texpatch.)
+#    python3 kit/scripts/make_gdi.py --no-texpatch.)
 python3 -m venv tools/pyenv && tools/pyenv/bin/pip install numpy
 tools/pyenv/bin/python3 scripts/pktx_vq.py
 tools/pyenv/bin/python3 scripts/shrink_vq.py
 ```
 
 The shim's MIE reply blobs are generated at build time by
-`scripts/gen_mie_blobs.py` from your `senkosp.dat` — no capture needed.
+`kit/scripts/gen_mie_blobs.py` from your `senkosp.dat` — no capture needed.
 
 Then, and on every rebuild after:
 
 ```sh
 make gdi        # shims -> patch table -> loader -> mastered GDI in build/
                 # (the Makefile sources tools/kos/environ.sh itself)
-make test       # host-runnable shim tests + the static maple-literal scan
+make test       # host-runnable shim tests + the static maple-literal scan + the kit's tests
 make release    # build/[GDI] Senko no Ronde Special.zip (disc folder + DS/ preset tree + tester README)
 make deploy     # cdi + gdi onto the inserted GDEMU card, GDMenu list rewritten, eject
 ```

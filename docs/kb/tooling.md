@@ -660,7 +660,7 @@ file size equals the input `.dat` size (relocation only overwrites 4
 existing words, never resizes).
 
 ```
-python3 scripts/apply_reloc.py senkosp.dat scripts/reloc_patchset.json -o senkosp-reloc.dat
+python3 kit/scripts/apply_reloc.py senkosp.dat scripts/reloc_patchset.json -o senkosp-reloc.dat
 # -> "patched 4 words -> senkosp-reloc.dat", exit 0
 md5 senkosp-reloc.dat   # a80f03676c0595bcae1bebcc5f16f884
 ls -la senkosp-reloc.dat senkosp.dat   # both 251,342,848 B
@@ -3385,3 +3385,135 @@ build artifacts at base commit `afab5844206abe3c2cf845465892ebc5ecb16aa0`
 - `make test` here runs six Python tests (`test_build_patch_table`,
   `test_maple_literals`, `test_eeprom_game_diff`, `test_gen_mie_blobs`,
   `test_gen_menu_nav`, `test_gen_menu_sheet`) plus the shim host tests.
+
+## Kit extraction gate — result (2026-11-03)
+
+The full gate on the final `kit-extraction` tree: the kit's `extraction`
+branch at `624250e` (Task 9: launchers pin `pvr.rend=0`, `loader/rules.mk`
+comment paths, docs) and this repo's comment-only path fixes and docs. Same
+toolchain as the baseline above. Every gate hash is identical to the
+`afab584` baseline (`docs/kb/kit-gate-baseline.txt`).
+
+- `make clean && make gdi && make test`: exit 0; `scripts/gate_hashes.sh
+  check gd`: silent, exit 0 (also silent right after `make test`).
+- `make objclean && make loader CDI=1`; `scripts/gate_hashes.sh check cd`:
+  silent, exit 0.
+- `make objclean && make cdi`: exit 0. The `cdi` hash is informational: it
+  differs from the baseline's, and from one build to the next, by the
+  mkisofs volume dates (determinism control above).
+- Kit `make test` (in `../naomi-dc-port-kit`): exit 0.
+- `make gdi` last, leaving a GD build: `check gd` silent again.
+
+`scripts/gate_hashes.sh gd` (after the final `make gdi`):
+
+```
+b3ee7f4657cb0a7e90e59a5c4ad0d5fa0b3ea797c84c971abf7513cb82d367ec  build/1ST_READ.BIN
+ccfb9ec795523036795f92d562092574bf77672d27b15203ba73fb7579ec1a6e  build/disc.gdi
+112c6a8612ccd80a2ed441e8dcf54fcb67ab64d8412f5b58b7a580a9eac306af  build/patch_table.h
+4d2f618c91d1c59eebeab521ea8416d491daeece4a51347d5c753831cb6d2c33  build/track01.iso
+a120112d5f9e7074b7a307456e3860a482e3397c8859d2662bc3e8b9118ff6c3  build/track02.raw
+3a59e0da170e795b42dee9eb9a422288e751fe694b7c9039a5c4bba62a01cdf9  build/track03.iso
+a2324a3094a6eda833064659a11fb21ac235f4fd99585d1a878c01a684769b18  build/track04.iso
+bea187d536a18549a818d05f446d95d4b7174bb296091a1545abca02e6cc1cee  shims/build/mie_blobs.c
+aa1f2a2747fa38d9f86223272db89be711453c75cf0834d0b479b2e5dc47ab2d  shims/build/shim.bin
+2546135fe637925fe847d41200ccc03e3934a88faa570e8ed0327bc0885d0193  shims/build/shim.map
+```
+
+`scripts/gate_hashes.sh cd` (after `make loader CDI=1`):
+
+```
+cec37cadf08adcc7023f80027d9ca925c4ff344b4461a22e15f09c796fc2b25d  build/1ST_READ.BIN
+1222fcda8836649452caeeb06e26ccbf96dbe77c67831ff5b0268e15b6f09b6f  shims/build/shim.bin
+```
+
+`scripts/gate_hashes.sh cdi` (informational; baseline `6b4f5d9e…`):
+
+```
+f22d6dd046b196b0903f80024f9e2f7f2425e7f64b0fbe494d8c4ab5ce84e9b0  build/cdi/disc.cdi
+```
+
+`make test` here, output without the command echo lines and the 71
+`INFO streamed region` lines of the Maple tripwire (every remaining line is a
+pass):
+
+```
+shim_iface host self-test: OK (incl. region map)
+PASS test_gd_math gd_plan
+PASS test_gd_math shim_crc32
+PASS test_gd_math pf_hit_plan
+PASS test_host dc_to_jvs + jvs_checksum
+test_ctl_lib: PASS
+test_lz4_lay: all invariants PASS
+ok
+OK EEPROM_IMG_ADDR emitted
+OK (a) old-byte fidelity (133 rows), (b) img tagging (62 test-image rows)
+OK (c) deterministic output across runs
+OK patch_table.h: 71 main + 62 test patches (reloc seeds + CART-* repoints/hooks + MAPLE-* repoints/detours + RESET-PATCH); 1 main + 1 test carve entries (backend==syscall only); G1_MIRROR_P2=0xac014800 MAPLE_MIRROR_P2=0xac015000
+OK detour() kind: both W%4 alignments, literal lands inside the window
+OK HEAP-CARVE: both tables 1 entry, old embeds post-reloc 0x8d, new matches spec
+OK old-byte verification rejects a wrong `old`
+ok
+OK   cart: 82 literals match baseline
+OK   bios_data.bin: 1 literals match baseline
+OK   loader main.o/handoff.o: no unclassified vmu/maple references
+     (allowed, boot-combo controller reads only: _maple_dev_status, _maple_enum_type, _maple_wait_scan)
+ok
+test_naomi_crc OK
+OK apply_reloc self-check
+ok
+test_eeprom_game_diff OK
+OK
+ok
+ok
+OK pc_checks self-check
+OK since_handoff self-check
+OK dryrun_checks self-check
+OK dryrun ruling-A (FB_W_SOF2 exemption) self-check
+OK dryrun ruling-B (stream-shape scoping) self-check
+OK dryrun boot-transient exemption self-check
+OK shim_home_clean self-check
+ok
+ok
+OK scan_dat_constants self-check
+test_gen_mie_blobs OK; oracle PASS (15 blobs byte-identical to the capture)
+test_gen_menu_nav: PASS
+test_gen_menu_sheet: PASS
+```
+
+Kit `make test`, output without the command echo lines:
+
+```
+ok
+test_naomi_crc OK
+OK apply_reloc self-check
+ok
+test_eeprom_game_diff OK
+OK
+ok
+ok
+OK pc_checks self-check
+OK since_handoff self-check
+OK dryrun_checks self-check
+OK dryrun ruling-A (FB_W_SOF2 exemption) self-check
+OK dryrun ruling-B (stream-shape scoping) self-check
+OK dryrun boot-transient exemption self-check
+OK shim_home_clean self-check
+ok
+ok
+OK scan_dat_constants self-check
+```
+
+`kit/scripts/scan_dat_constants.py` takes the watched ranges as `--words`
+(the kit holds no game ranges). senkosp's are the seven `RANGES` of
+`scripts/scan_dat_constants.py:20-28` at `afab584` (corridors 1-5, `vram64`,
+`vram32`; the same list as `scripts/ghidra/ScanPlacementConstants.java`
+`RANGES`). The ready command:
+
+```sh
+python3 kit/scripts/scan_dat_constants.py senkosp.dat \
+  --words 0d244c20-0dd73e00,0dd7d020-0dd92020,0ddc2960-0dde3960,0de4dbe0-0de8b480,0dfe6d20-0dfe7520,04800000-04ffffff,05800000-05ffffff
+```
+
+Hits are labelled `lo-hi` instead of the old `corridorN` names. Checked
+with `--range 0:1bfc38` (main + test images): the same 17,331 (offset,
+word) hits as the `afab584` script with its built-in `RANGES`.
