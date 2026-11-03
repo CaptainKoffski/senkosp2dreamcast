@@ -3355,3 +3355,33 @@ self-check is `python3 test_gdemu_deploy.py`, which needs cdrtools
 - On the real card `isoinfo -x /LIST.INI` prints "Short read" and nothing
   else: GDMenu's `track01.iso` is shorter than the volume size its header
   claims. Read the list by walking the root directory record instead.
+
+## Kit extraction gate — baseline (2026-11-03)
+
+Baseline for the port-kit extraction (plan
+`../naomi-dc-port-kit/docs/superpowers/plans/2026-11-03-port-kit-extraction.md`):
+build artifacts at base commit `afab5844206abe3c2cf845465892ebc5ecb16aa0`
+(branch `kit-extraction`) hashed before any file moves.
+`scripts/gate_hashes.sh <gd|cd|cdi>` lists the sha256 of each artifact set;
+`scripts/gate_hashes.sh check <set>` diffs it against the matching section of
+`docs/kb/kit-gate-baseline.txt` (silent, exit 0 when equal).
+
+- Toolchain: `sh-elf-gcc (GCC) 15.2.0` (`/opt/toolchains/dc/sh-elf`, via
+  `tools/kos/environ.sh`); KOS `git -C tools/kos rev-parse HEAD` =
+  `705c862957b2f6091a6ce4784943744daecc3e2b`; Python 3.14.7; mkisofs
+  3.02a09; host Darwin arm64.
+- Determinism control: two full clean builds (`make clean && make gdi &&
+  make test`; `make objclean && make loader CDI=1`; `make objclean && make
+  cdi`) on the unchanged tree. `gd` (10 files) and `cd` (2 files) hashes are
+  **identical** between the two builds. `build/cdi/disc.cdi` differs (168
+  bytes): every differing byte lies in ISO sectors 16-23 (the volume
+  descriptors) — the PVD creation/modification dates written by mkisofs
+  (e.g. `2026110311385153` vs `2026110311381539`) plus the EDC/ECC bytes of
+  those sectors that depend on them. (The brief expected "inside the first
+  64 KB" of the ISO: it is; in the CDI file the ISO starts ~1.45 MB in.)
+- **The CDI gate is the `cd` pair** (`shims/build/shim.bin` +
+  `build/1ST_READ.BIN` built with `CDI=1`); the `cdi` hash is informational
+  only.
+- `make test` here runs six Python tests (`test_build_patch_table`,
+  `test_maple_literals`, `test_eeprom_game_diff`, `test_gen_mie_blobs`,
+  `test_gen_menu_nav`, `test_gen_menu_sheet`) plus the shim host tests.
