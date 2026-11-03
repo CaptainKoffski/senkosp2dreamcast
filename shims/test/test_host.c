@@ -6,7 +6,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "../include/shim_iface.h"
-#include "../src/jvs.c"      /* pure: CONT_ and JVS_ tables, dc_to_jvs_word, jvs_checksum */
+#include "jvs.c"      /* pure: CONT_ and JVS_ tables, dc_to_jvs_word, jvs_checksum */
 
 int main(void) {
     /* dc_to_jvs_word: takes an already-normalized PRESSED mask (unlike Cleopatra's

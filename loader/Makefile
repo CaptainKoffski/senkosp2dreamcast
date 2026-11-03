@@ -1,5 +1,6 @@
 # Requires: source tools/kos/environ.sh from the repo root (gitignored KOS
 # checkout -- setup in docs/kb/tooling.md).
+KIT ?= $(abspath ../kit)
 TARGET = loader.elf
 OBJS = main.o handoff.o gd.o gd_sys.o shim_blob.o bios_data.o splash_blob.o naomi_crc.o \
        menu.o ctl_lib.o menu_sheet_blob.o ctl_pad_blob.o ctl_stick_blob.o logo_blob.o
@@ -31,11 +32,11 @@ ctl_lib.o: ctl_lib.h menu_layout.h
 # store -- SHIM_ERR (0x8c014000) is inside this loader's own image (KOS naomi
 # LOAD_OFFSET == SHIM_BASE == 0x8c010000), so writing it would corrupt the
 # loader that is about to draw the error screen.
-gd.o: ../shims/src/gd.c ../shims/include/shim_iface.h
+gd.o: $(KIT)/shims/src/gd.c ../shims/include/shim_iface.h
 	kos-cc $(CFLAGS) $(CPPFLAGS) -DGD_LOADER_BUILD=1 -c $< -o $@
 # Syscall GD backend, loader build: direct-vector calls (no gdstack -- see
 # gd_sys.c header: GD_STACK_TOP sits inside the running loader image).
-gd_sys.o: ../shims/src/gd_sys.c ../shims/include/shim_iface.h
+gd_sys.o: $(KIT)/shims/src/gd_sys.c ../shims/include/shim_iface.h
 	kos-cc $(CFLAGS) $(CPPFLAGS) -DGD_LOADER_BUILD=1 -c $< -o $@
 # Phase 4 Task 9: patch_table.h resolves shim symbol ADDRESSES from shim.map;
 # a shim rebuild moves every symbol, so the table must regenerate whenever the

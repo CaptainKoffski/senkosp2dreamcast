@@ -257,7 +257,7 @@ lz4pak:
 	mkdir -p build
 	cc -O2 -DHOST_TEST -Ishims/include -Itools/t10b/lz4 -o build/pack_paks \
 	  tools/lz4pak/pack_paks.c tools/t10b/lz4/lz4.c tools/t10b/lz4/lz4hc.c \
-	  shims/src/lz4_lay.c shims/src/gd.c
+	  shims/src/lz4_lay.c $(KIT)/shims/src/gd.c
 	build/pack_paks senkosp.dat build
 
 # VMU-safety canary runs (Cleopatra's harness ported; design spec:
