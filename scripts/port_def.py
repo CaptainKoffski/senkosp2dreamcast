@@ -7,6 +7,10 @@ IP_VERSION = "V1.000"                   # IP.BIN 0x4a version (same two users)
 IP_DATE = "20260822"                    # IP.BIN 0x50 date (same two users)
 IP_COMPANY = "SEGA LC-T-99"             # IP.BIN 0x70 company (same two users)
 IP_TITLE = "SENKO NO RONDE SPECIAL"     # IP.BIN 0x80 title; CDI/DreamShell README heading, preset title
+ISOLDR_MEMORY = "8cff0000"              # DreamShell isoldr preset memory / heap (kit/scripts/make_preset.py; hex
+ISOLDR_HEAP = "8cff7a00"                # without 0x): docs/kb/tooling.md §Phase 7 preset recipe; above the game heap
+                                        # top, which build_patch_table.py's HEAP-CARVE rows lower to 0x8cfe0000 --
+                                        # [0x8cff0000,0x8d000000) stays isoldr's
 CDI_FILE = "senkosp.cdi"                # CDI release file name named in the burn README (make_cdi.py)
 ISO_VOLUME = "SENKOSP"                  # CDI data-track volume label (make_cdi.py mkisofs -V)
 TEXPATCH = True                         # make_gdi.py/make_cdi.py splice build/texpatch/ (scripts/shrink_vq.py)

@@ -136,16 +136,14 @@ head -c 5 senkosp.dat; echo       # must print NAOMI
 #    quit Flycast (it auto-saves), carve + validate, set AutoSaveState
 #    back to no. (If the sed matches nothing -- fresh Flycast install
 #    without the key -- toggle Auto Save State in Flycast's UI instead.)
-#    ROM paths absolute: Flycast rejects a relative one (docs/kb/tooling.md
-#    §"Instrumented Flycast", launch gotchas).
 sed -i '' 's/AutoSaveState = no/AutoSaveState = yes/' ~/Library/Application\ Support/Flycast/emu.cfg
-kit/scripts/capture_leg.sh canary-snapshot "$PWD/roms/senkosp.zip" & pid=$!   # ~150 s, then: kill -TERM $pid
+kit/scripts/capture_leg.sh canary-snapshot roms/senkosp.zip & pid=$!   # ~150 s, then: kill -TERM $pid
 python3 kit/scripts/carve_ram_snapshot.py    # 4 control tests (RAM landmarks from scripts/port_def.py) -> tools/ram-snapshot.bin
 sed -i '' 's/AutoSaveState = yes/AutoSaveState = no/' ~/Library/Application\ Support/Flycast/emu.cfg
 
 # 3. Capture the NAOMI boot splash (BIOS-drawn; the script boots the
 #    .dat you pass). Pick the full-logo frame:
-kit/scripts/capture_naomi_splash.sh "$PWD/senkosp.dat"   # emits naomi_boot_s*.png
+kit/scripts/capture_naomi_splash.sh senkosp.dat   # emits naomi_boot_s*.png
 cp naomi_boot_s6.png loader/splash.png         # frame number may vary
 
 # 4. Optional: disc cover art (DC BIOS menu / GDEMU menu) — drop a 256x256

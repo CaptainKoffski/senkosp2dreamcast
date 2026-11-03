@@ -1,8 +1,8 @@
 """senkosp's Maple-literal allow-list, read by kit/scripts/test_maple_literals.py
 (kitpath.port_module("maple_allowlist")): every u32 literal in the
-0x5f6c00-0x5f6cff Maple-register block that the tripwire finds in senkosp.dat,
-classified. A literal found but not listed here (or listed but gone) fails
-`make test`.
+0x5f6c00-0x5f6cff Maple-register block that the tripwire finds in senkosp.dat
+and in build/bios_data.bin (BIOS_DATA_BASELINE, at the end), classified. A
+literal found but not listed here (or listed but gone) fails `make test`.
 
 History (moved from the tripwire's docstring at the kit extraction): through
 Phase 4 Task 6 the cart/bios_data scans were INFORMATIONAL ONLY for senkosp.
@@ -92,3 +92,14 @@ CART_STREAMED_NOISE = {
     (0xb9b4a24, 0x605f6c50), (0xcf5240c, 0xe05f6cfd), (0xd230c80, 0xc05f6cf6),
     (0xd5b14b4, 0xc05f6cfb), (0xeb305d0, 0xa05f6c02), (0xec832c4, 0x405f6c04),
 }
+# bios_data.bin's one hit (Naomi BIOS ROM 0x60000-0x67000 library blob,
+# offset 0x14d4 = ROM offset 0x614d4): same byte signature (repeating
+# `XX 5f a0 00000000` runs) immediately preceding it as a game boot image's
+# ADDRESS-CHECKER-TRAP table (the CART_TRAP_TABLE bucket of the first port's
+# maple_allowlist.py) -- high-confidence same Sega
+# SDK table, shared low-level library code Sega links into both the BIOS
+# ROM and the game image. NOT Ghidra-xref-confirmed (this project's Ghidra
+# DB covers the boot image only, not the raw BIOS ROM blob) -- classified by
+# byte-pattern match, one confidence notch below that Ghidra-confirmed bucket, still
+# read-only-diagnostic in nature and not a maple-frame builder.
+BIOS_DATA_BASELINE = {(0x00014d4, 0xa05f6c18)}
