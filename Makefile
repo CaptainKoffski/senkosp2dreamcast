@@ -25,7 +25,7 @@
 #                  "[CDI]" folders or creates them, rewrites the GDMenu list,
 #                  dot_clean (AppleDouble boot trap), eject. CARD=/Volumes/X if
 #                  several cards are mounted, NOEJECT=1 to stage more.
-#                  `python3 test_gdemu_deploy.py` self-checks it.
+#                  `python3 kit/scripts/test_gdemu_deploy.py` self-checks it.
 #   make test-serial = coder's-cable two-way check (boot GDmenu slot 04 first)
 #
 # Requires: sh-elf toolchain at /opt/toolchains/dc, KOS at tools/kos
@@ -34,6 +34,8 @@
 KIT := $(abspath kit)
 DAT := senkosp.dat
 export KIT DAT
+# kit scripts run under make bind to THIS port, whatever PORT_ROOT the shell exports
+export PORT_ROOT := $(CURDIR)
 
 # SERIAL=1 (e.g. make gdi SERIAL=1): debug build with the SCIF voice on --
 # shim SHIM_SERIAL + loader LOADER_SERIAL. Coder's-cable sessions only; a
@@ -173,7 +175,7 @@ endif
 # 1792-sector FS+loader region at its head, then a 1728-sector PLAIN loader
 # copy (the soft-reset warm boot reads it -- shim_iface.h LOADER_FAD; the FS
 # copy is scrambled), cart right after: FAD = 150 + 11702 + 1792 + 1728.
-# Keep in sync with scripts/make_cdi.py FS_SECTORS/PLAIN_SECTORS/SESSION2_LBA
+# Keep in sync with kit/scripts/make_cdi.py FS_SECTORS/PLAIN_SECTORS/SESSION2_LBA
 # (it cross-checks the loader binary) and shim_iface.h's `#elif CART_FAD`.
 # Knob-flip stale-object trap applies (tooling.md) -- only use via `make
 # cdi`, which brackets the build with objclean.
@@ -196,7 +198,7 @@ loader: shims
 	. tools/kos/environ.sh && $(MAKE) -C loader
 
 gdi: loader
-	python3 scripts/make_gdi.py $(GDI_FLAGS)
+	python3 $(KIT)/scripts/make_gdi.py $(GDI_FLAGS)
 
 disc: gdi
 
@@ -216,7 +218,7 @@ objclean:
 cdi:
 	$(MAKE) objclean
 	$(MAKE) loader CDI=1
-	python3 scripts/make_cdi.py $(GDI_FLAGS)
+	python3 $(KIT)/scripts/make_cdi.py $(GDI_FLAGS)
 	$(MAKE) objclean
 
 # Zip layout follows the scene convention (Sushi Bar / Dolphin Blue
@@ -227,7 +229,7 @@ GAMEDIR = Senko no Ronde Special
 CDI_ZIP = build/[CDI] Senko no Ronde Special.zip
 release: cdi disc
 	rm -f "$(ZIP)"
-	python3 scripts/make_preset.py        # DreamShell auto-preset (phase 7)
+	python3 $(KIT)/scripts/make_preset.py        # DreamShell auto-preset (phase 7)
 	rm -rf "build/release-extras/$(GAMEDIR)"
 	mkdir -p "build/release-extras/$(GAMEDIR)"
 	ln -f $(DISC_FILES) "build/release-extras/$(GAMEDIR)/"
@@ -272,14 +274,14 @@ test-vmu-play:
 # cdi first: it ends with objclean, so gdi then rebuilds the GD-FAD loader
 # (same ordering as release). The script keeps Cleopatra's AppleDouble guard.
 deploy: cdi gdi
-	CARD="$(CARD)" NOEJECT="$(NOEJECT)" python3 gdemu_deploy.py "$(GAMEDIR)" build/disc.gdi build/cdi/disc.cdi
+	CARD="$(CARD)" NOEJECT="$(NOEJECT)" python3 $(KIT)/scripts/gdemu_deploy.py "$(GAMEDIR)" build/disc.gdi build/cdi/disc.cdi
 
 # Task 25: dcload-serial boot disc for the serial-link control test — its own
 # card slot so the game disc stays untouched. Same AppleDouble guard as deploy.
 # Build dcload first: docs/kb/tooling.md §dcload-serial.
 DCLOAD_CARD ?= /Volumes/GDEMU/04
 deploy-dcload:
-	python3 scripts/make_dcload_gdi.py
+	python3 $(KIT)/scripts/make_dcload_gdi.py
 	test -d "$(dir $(DCLOAD_CARD))"   # GDEMU volume mounted?
 	mkdir -p "$(DCLOAD_CARD)"
 	cp build/dcload/disc.gdi build/dcload/track01.iso build/dcload/track02.raw \

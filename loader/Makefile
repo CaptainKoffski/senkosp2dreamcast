@@ -25,8 +25,9 @@ include $(KIT)/loader/rules.mk
 # and the loader would silently keep the stale values (bit Cleopatra in B5:
 # CART_FAD change didn't take until an unrelated main.c edit).
 main.o: $(KIT)/loader/menu.h $(KIT)/loader/ctl_lib.h menu_layout.h ../build/patch_table.h ../shims/include/shim_iface.h
-# Port-specific input of scripts/build_patch_table.py (rule in rules.mk).
+# Port-specific inputs of scripts/build_patch_table.py (rule in rules.mk).
 ../build/patch_table.h: ../scripts/reloc_patchset.json
+../build/patch_table.h: ../scripts/port_def.py
 # T10b spike rules (THROWAWAY). Sample blob: host tool carves + LZ4-HC-9
 # compresses 8 x 128 KB stripes of the T10 stage pak from ../senkosp.dat
 # (gitignored ROM -- the blob is derived game bytes, ../build only, never
