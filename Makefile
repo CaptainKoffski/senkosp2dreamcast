@@ -32,7 +32,13 @@
 # (gitignored checkout), BIOS at bios/naomi/epr-21576h.ic27 (gitignored).
 
 KIT := $(abspath kit)
-DAT := senkosp.dat
+# per-game values have one source, scripts/port_def.py (kitpath CLI). PORT_ROOT
+# set inline: make 3.81's $(shell) does not see make's own exports.
+PORT_DEF = PORT_ROOT=$(CURDIR) python3 kit/scripts/kitpath.py port_def
+DAT := $(shell $(PORT_DEF) DAT)
+GAMEDIR := $(shell $(PORT_DEF) GAME_NAME)
+CDI_FILE := $(shell $(PORT_DEF) CDI_FILE)
+$(if $(and $(DAT),$(GAMEDIR),$(CDI_FILE)),,$(error port_def.py values missing -- see the kitpath message above))
 export KIT DAT
 # kit scripts run under make bind to THIS port, whatever PORT_ROOT the shell exports
 export PORT_ROOT := $(CURDIR)
@@ -44,13 +50,13 @@ ifeq ($(SERIAL),1)
 DEFS += -DSHIM_SERIAL=1 -DLOADER_SERIAL=1 -DSHIM_TEXHUD=1
 endif
 # CRC=1 (needs SERIAL=1 to be audible): SHIMCRC line per delivered cart read;
-# verify with scripts/check_stream_crc.py (texpatch caveat in its docstring).
+# verify with kit/scripts/check_stream_crc.py (texpatch caveat in its docstring).
 ifeq ($(CRC),1)
 DEFS += -DSHIM_CRC=1
 endif
 # TIME=1 (needs SERIAL=1 to be audible): SHIMTIME line per delivered cart read
 # (TMU0 stamp + in-driver ticks) -- the phase-7 T2 profiling instrument.
-# Digest with scripts/parse_shimtime.py.
+# Digest with kit/scripts/parse_shimtime.py.
 ifeq ($(TIME),1)
 DEFS += -DSHIM_TIME=1
 endif
@@ -187,7 +193,7 @@ export DEFS
 
 DISC_FILES = build/disc.gdi build/track01.iso build/track02.raw \
              build/track03.iso build/track04.iso
-ZIP = build/[GDI] Senko no Ronde Special.zip
+ZIP = build/[GDI] $(GAMEDIR).zip
 
 .PHONY: shims loader gdi disc cdi objclean release test test-vmu test-vmu-play deploy deploy-dcload test-serial clean
 
@@ -225,8 +231,7 @@ cdi:
 # releases): disc files wrapped in a game-named folder, DreamShell DS/
 # tree + README at archive root (phase 7 T1 follow-up). `release` masters
 # the CDI FIRST so the tree ends GDI-flavored (deploy-ready).
-GAMEDIR = Senko no Ronde Special
-CDI_ZIP = build/[CDI] Senko no Ronde Special.zip
+CDI_ZIP = build/[CDI] $(GAMEDIR).zip
 release: cdi disc
 	rm -f "$(ZIP)"
 	python3 $(KIT)/scripts/make_preset.py        # DreamShell auto-preset (phase 7)
@@ -237,7 +242,7 @@ release: cdi disc
 	rm -f "$(CDI_ZIP)"
 	rm -rf "build/cdi-zip"
 	mkdir -p "build/cdi-zip/$(GAMEDIR)"
-	ln -f build/cdi/disc.cdi "build/cdi-zip/$(GAMEDIR)/senkosp.cdi"
+	ln -f build/cdi/disc.cdi "build/cdi-zip/$(GAMEDIR)/$(CDI_FILE)"
 	cp build/cdi/README.txt build/cdi-zip/
 	cd build/cdi-zip && zip -r "../../$(CDI_ZIP)" .
 	@echo "NOTE: both archives embed the commercial ROM -- do not upload."
@@ -245,7 +250,7 @@ release: cdi disc
 test:
 	$(MAKE) -C shims test
 	python3 scripts/test_build_patch_table.py
-	python3 scripts/test_maple_literals.py
+	python3 $(KIT)/scripts/test_maple_literals.py
 	$(MAKE) -C kit test
 	python3 kit/scripts/test_gen_mie_blobs.py
 	python3 scripts/test_gen_menu_nav.py
@@ -260,16 +265,16 @@ lz4pak:
 	cc -O2 -DHOST_TEST -Ishims/include -Itools/t10b/lz4 -o build/pack_paks \
 	  tools/lz4pak/pack_paks.c tools/t10b/lz4/lz4.c tools/t10b/lz4/lz4hc.c \
 	  shims/src/lz4_lay.c $(KIT)/shims/src/gd.c
-	build/pack_paks senkosp.dat build
+	build/pack_paks $(DAT) build
 
 # VMU-safety canary runs (Cleopatra's harness ported; design spec:
 # ../cleopatra/docs/superpowers/specs/2026-07-26-vmu-safety-design.md):
 # test-vmu = unattended 150 s attract; test-vmu-play = headed, tester plays then quits.
 test-vmu:
-	scripts/test_vmu_untouched.sh attract
+	$(KIT)/scripts/test_vmu_untouched.sh attract
 
 test-vmu-play:
-	scripts/test_vmu_untouched.sh play
+	$(KIT)/scripts/test_vmu_untouched.sh play
 
 # cdi first: it ends with objclean, so gdi then rebuilds the GD-FAD loader
 # (same ordering as release). The script keeps Cleopatra's AppleDouble guard.
