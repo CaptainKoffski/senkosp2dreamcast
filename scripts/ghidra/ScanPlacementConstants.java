@@ -2,8 +2,9 @@
 // Scans every 4-byte-aligned LE word of the imported boot image for values
 // resolving (29-bit phys) into one of the 5 above-16m main-RAM corridors
 // (docs/kb/cart-streaming-map.md) or above-8m VRAM, printing address, value,
-// containing function (or "data"). Keep RANGES in sync with
-// scripts/scan_dat_constants.py.
+// containing function (or "data"). The same RANGES go to
+// kit/scripts/scan_dat_constants.py --words (the ready command: docs/kb/
+// tooling.md, section "Kit extraction gate -- result").
 //@category Senkosp
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;

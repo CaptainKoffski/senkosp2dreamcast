@@ -15,6 +15,13 @@ port (`../cleopatra`).
   `senkosp.zip` + `senkosp/gdl-0038.chd`; flat decrypted image `senkosp.dat`
   at repo root (gitignored, regenerable — see `docs/kb/tooling.md`).
 - **BIOS:** `bios/` (gitignored).
+- **Kit (build-required):** `kit/` — git submodule
+  `naomi-dc-port-kit` (github.com/CaptainKoffski/naomi-dc-port-kit; run
+  `git submodule update --init` after cloning): the game-agnostic shims,
+  loader, mastering, capture and test tooling this port builds against. What
+  this port supplies to it (the contract) is `kit/README.md`. The gate for any
+  kit change: `scripts/gate_hashes.sh check gd` and `check cd` against
+  `docs/kb/kit-gate-baseline.txt` (silent = byte-identical).
 - **Sibling repos:**
   - `../naomi2dreamcast` — Naomi library assessment; this game's report:
     `assessments/senkosp.md`. Also the `.dat` toolset

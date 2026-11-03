@@ -19,7 +19,7 @@
 #include <string.h>
 #include "lz4/lz4.h"
 #include "lz4/lz4hc.h"
-#include "../../loader/naomi_crc.h"
+#include "naomi_crc.h"
 
 #define PAK_OFF 0x0935a800u
 #define PAK_LEN 0x007e7800u

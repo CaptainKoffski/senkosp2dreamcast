@@ -29,7 +29,7 @@
 #include "lz4_lay.h"
 #include "shim_iface.h"
 
-unsigned int shim_crc32(const void *p, unsigned len);   /* shims/src/gd.c (HOST_TEST) */
+unsigned int shim_crc32(const void *p, unsigned len);   /* kit/shims/src/gd.c (HOST_TEST) */
 
 static const struct { unsigned off, len; } PAKS[] = {
     { 0x0935a800u, 0x007e7800u },   /* window B: 2p-stages whole-pak tuple */

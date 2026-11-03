@@ -87,7 +87,7 @@
 /* GDI geometry — B5 donor-clone layout (make_gdi.py):
  * track04 = [loader zero-padded to the donor 3,538,944 B boot region][.dat]
  * The CDI build (make cdi) overrides via -DCART_FAD: same code, cart at the
- * CD data/data FAD (scripts/make_cdi.py; Makefile CD_CART_FAD). BLOB_FAD
+ * CD data/data FAD (kit/scripts/make_cdi.py; Makefile CD_CART_FAD). BLOB_FAD
  * below derives from CART_FAD, so it tracks automatically. */
 #ifndef CART_FAD
 #define CART_FAD        320150      /* GDI: CART_LBA 320000 + 150 (cart opens track04, make_gdi.py TRACK4_LBA) */

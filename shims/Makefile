@@ -1,28 +1,30 @@
-CC = /opt/toolchains/dc/sh-elf/bin/sh-elf-gcc
-NM = /opt/toolchains/dc/sh-elf/bin/sh-elf-nm
-OBJCOPY = /opt/toolchains/dc/sh-elf/bin/sh-elf-objcopy
-CFLAGS = -ml -m4-single-only -ffreestanding -nostdlib -Os -Wall -Wextra -fno-tree-loop-distribute-patterns -Iinclude
-CFLAGS += $(DEFS)   # debug toggles, e.g. make DEFS='-DSHIM_SERIAL=1 -DSHIM_TRACE=1'
-B = build
-# Task 11: the MIE reply blobs ARE embedded, as generated C ($(B)/mie_blobs.c
-# below), not Cleopatra's xxd-embedded .bin blobs. Since 2026-10 they come
-# from scripts/gen_mie_blobs.py (no capture); generated, never committed.
+KIT ?= $(abspath ../kit)
+DAT ?= senkosp.dat
+INC = -Iinclude -Isrc
+# Task 11: the MIE reply blobs ARE embedded, as generated C ($(B)/mie_blobs.c,
+# rule in kit/shims/rules.mk), not Cleopatra's xxd-embedded .bin blobs. Since
+# 2026-10 they come from kit/scripts/gen_mie_blobs.py (no capture); generated,
+# never committed.
 # gdstack.S revived in Phase 7 Task 5 (2026-09-03-phase7-t1-dreamshell spec +
 # plan): DreamShell's isoldr backend needs the private-stack/FPU-quarantine/
-# MMUCR-window trampoline gd_sys.c calls as gdc_call -- raw ATA (src/gd.c)
+# MMUCR-window trampoline gd_sys.c calls as gdc_call -- raw ATA (kit/shims/src/gd.c)
 # stays the default backend (SHIM_STATE_GD_BACKEND selects at runtime,
 # shim_iface.h); gdstack.S is dead weight only when the syscall backend is
 # never probed into, which the dispatch task (Task 6) still owes.
-SRCS = src/main.c src/scif.c src/util.c src/gd.c src/gd_sys.c src/gd_testsrv.c \
-       src/cart.c src/maple.c src/jvs.c src/mtramp.S src/gdstack.S $(B)/mie_blobs.c \
-       ../loader/handoff.S
-# ../loader/handoff.S (soft-reset-menu): the loader's PIC copy-record walker,
+SRCS = src/main.c $(KIT)/shims/src/scif.c src/util.c $(KIT)/shims/src/gd.c $(KIT)/shims/src/gd_sys.c \
+       $(KIT)/shims/src/gd_testsrv.c src/cart.c $(KIT)/shims/src/maple.c $(KIT)/shims/src/jvs.c \
+       src/mtramp.S $(KIT)/shims/src/gdstack.S $(B)/mie_blobs.c $(KIT)/loader/handoff.S
+# $(KIT)/loader/handoff.S (soft-reset-menu): the loader's PIC copy-record walker,
 # linked into the shim too -- the pad-combo warm boot final-places the
 # re-read loader image + BIOS syscall-RAM snapshot with it (src/main.c).
 # gd_testsrv.c is always compiled (unconditionally in SRCS) but its whole
 # body is `#if GD_TEST_SERVER` -- an empty translation unit on every normal
 # build, live only under the top Makefile's TESTSRV=1 (fix round 2,
 # task-6-report.md).
+include $(KIT)/shims/rules.mk
+$(B)/shim.elf: include/shim_iface.h src/layouts.h
+$(B)/mie_blobs.c: ../scripts/menu_def.py ../scripts/port_def.py include/shim_iface.h
+
 # T10b (SHIM_LZ4 builds only): vendored LZ4 decoder, decompressor-only.
 # lz4.c compiles with -ffunction-sections, then a partial link keeps just
 # _LZ4_decompress_safe's call graph -- the compressor (~8-10 KB) would blow
@@ -62,46 +64,17 @@ $(B)/lz4_dec.o: ../tools/t10b/lz4/lz4.c ../tools/t10b/lz4/lz4.h
 	$(OBJCOPY) --redefine-sym _memcpy=_lz4_memcpy \
 	  --redefine-sym _memmove=_lz4_memmove \
 	  --redefine-sym _memset=_lz4_memset $@
-$(B)/shim.elf: $(B)/lz4_dec.o ../build/lz4pak_map.h src/gd_lz4.inc.c include/lz4_lay.h
+$(B)/shim.elf: $(B)/lz4_dec.o ../build/lz4pak_map.h src/gd_lz4.inc.c include/lz4_lay.h \
+              src/lz4_lay.c src/lz4_mem.c
 endif
 
-.PHONY: all test clean
-# Pin the default goal: under SHIM_LZ4 the conditional block above contributes
-# the first explicit rule ($(B)/lz4_dec.o), which would otherwise BE the
-# default goal and a bare `make -C shims` would stop after the decoder object.
-.DEFAULT_GOAL := all
-all: $(B)/shim.bin $(B)/shim.map
-
-test:
-	mkdir -p $(B)
-	cc -DHOST_TEST -Iinclude -o $(B)/test_host test/test_host.c && $(B)/test_host
-	cc -Iinclude -o $(B)/test_iface test/test_shim_iface.c && $(B)/test_iface
-	# gd.c compiles its MMIO half out under HOST_TEST -- the test links the real
-	# gd_plan the shim runs, so a divergence is a link/assert failure, not a copy.
-	cc -DHOST_TEST -Iinclude -o $(B)/test_gd_math test/test_gd_math.c src/gd.c && $(B)/test_gd_math
-	cc -o $(B)/test_naomi_crc test/test_naomi_crc.c ../loader/naomi_crc.c && $(B)/test_naomi_crc
-	cc -I../loader -o $(B)/test_ctl_lib test/test_ctl_lib.c ../loader/ctl_lib.c && $(B)/test_ctl_lib
+.PHONY: test
+test: shim-tests
+	cc -DHOST_TEST -Iinclude -I$(KIT)/shims/src -Isrc -o $(B)/test_host test/test_host.c && $(B)/test_host
+	cc -I$(KIT)/loader -I../loader -o $(B)/test_ctl_lib test/test_ctl_lib.c $(KIT)/loader/ctl_lib.c && $(B)/test_ctl_lib
 	cc -Iinclude -o $(B)/test_lz4_lay test/test_lz4_lay.c src/lz4_lay.c && $(B)/test_lz4_lay
-# MIE reply blobs: GENERATED at build time by scripts/gen_mie_blobs.py from
-# committed constants (Flycast emulator output, cited) + the builder's own
-# ../senkosp.dat header + scripts/menu_def.py's port defaults -- no capture
-# needed. Never committed: mie_sub03 carries the ROM's game ID. Spec
-# docs/superpowers/specs/2026-10-04-mie-blobs-generator-design.md.
-$(B)/mie_blobs.c: ../scripts/gen_mie_blobs.py ../scripts/menu_def.py \
-                  ../scripts/eeprom_game_diff.py ../senkosp.dat include/shim_iface.h
-	mkdir -p $(B)
-	python3 ../scripts/gen_mie_blobs.py
+	cc -Iinclude -o $(B)/test_game_values test/test_game_values.c && $(B)/test_game_values
 # Fresh clone: senkosp.dat is gitignored (your own romset, README step 1).
 # Say so instead of make's "no rule to make target".
-../senkosp.dat:
-	$(error ../senkosp.dat missing -- README step 1 (generate it from your own romset))
-
-$(B)/shim.elf: $(SRCS) shim.ld include/shim_iface.h src/layouts.h
-	mkdir -p $(B)
-	$(CC) $(CFLAGS) -Wl,-T,shim.ld -Wl,-Map,$(B)/shim.map.tmp -o $@ $(SRCS)
-$(B)/shim.bin: $(B)/shim.elf
-	$(OBJCOPY) -O binary $< $@
-$(B)/shim.map: $(B)/shim.elf
-	$(NM) $< > $@
-clean:
-	rm -rf $(B)
+../$(DAT):
+	$(error ../$(DAT) missing -- README step 1 (generate it from your own romset))

@@ -1,10 +1,10 @@
-/* Host test of the controls-library model (loader/ctl_lib.c): per-class
+/* Host test of the controls-library model (kit/loader/ctl_lib.c): per-class
  * stock layouts + custom slots, per-port selection, fork-on-edit, delete,
  * pack. Stock ids come from the generated loader/menu_layout.h. */
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include "../../loader/ctl_lib.h"
+#include "ctl_lib.h"
 
 int main(void) {
     enum { P = 0, S = 1 };
