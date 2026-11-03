@@ -3517,3 +3517,38 @@ python3 kit/scripts/scan_dat_constants.py senkosp.dat \
 Hits are labelled `lo-hi` instead of the old `corridorN` names. Checked
 with `--range 0:1bfc38` (main + test images): the same 17,331 (offset,
 word) hits as the `afab584` script with its built-in `RANGES`.
+
+### Fresh clone from GitHub (2026-11-03)
+
+Both work branches were pushed for this check (new branches on GitHub):
+`git -C ../naomi-dc-port-kit push -u origin extraction` (kit at `624250e`)
+and `git push -u origin kit-extraction` (this repo at `9927da3`). The
+submodule URL is relative (`../naomi-dc-port-kit.git`), so it only resolves
+against this repo's GitHub origin. In a scratch directory:
+
+```sh
+git clone -b kit-extraction git@github.com:CaptainKoffski/senkosp2dreamcast.git senkosp
+cd senkosp && git submodule update --init
+git -C kit rev-parse HEAD   # 624250e3f873cefb47426e81fe1106b6b2d8c148 (the pin)
+git -C kit remote -v       # origin git@github.com:CaptainKoffski/naomi-dc-port-kit.git
+mkdir -p tools bios build
+R=/Users/captainkoffski/AntigravityProjects/senkosp2dreamcast   # this checkout: gitignored inputs
+for f in senkosp.dat "[GDI] Dolphin Blue.7z" 0GDTEX.pvr iplogo.mr \
+         loader/splash.png loader/logo_strip.pal8 tools/kos tools/mkdcdisc \
+         tools/img4dc tools/ram-snapshot.bin bios/naomi build/texpatch; do
+  ln -s "$R/$f" "$f"
+done
+make gdi && scripts/gate_hashes.sh check gd                          # silent, exit 0
+make objclean && make loader CDI=1 && scripts/gate_hashes.sh check cd   # silent, exit 0
+```
+
+- The submodule cloned from `git@github.com:CaptainKoffski/naomi-dc-port-kit.git`
+  and checked out the pinned `624250e`.
+- `check gd` and `check cd` silent; the clone's `gate_hashes.sh gd` listing
+  equals the one above line for line.
+- `tools/kos` is a symlink to this checkout's, so its `environ.sh` carries
+  this checkout's absolute `KOS_BASE`: the same files, accepted for this
+  check (plan Task 9 Step 3). The other inputs are symlinks, no copies; the
+  clone was deleted afterwards.
+- Afterwards the kit pin moved to `182c8a8`, a docs-only kit commit that
+  records this result in the kit's README and `docs/kb/00-status.md`.
